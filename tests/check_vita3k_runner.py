@@ -20,7 +20,13 @@ if "--" in sys.argv:
     print("pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs=3", flush=True)
     print("Stopping -> Idle", flush=True)
 else:
-    if mode != "no-guest":
+    if mode.startswith("lifecycle"):
+        if mode != "lifecycle-no-drc":
+            print("pcsx-vita: cpu_driver=ari64", flush=True)
+        if mode != "lifecycle-missing":
+            state = "FAIL (-1)" if mode == "lifecycle-fail" else "PASS (0)"
+            print(f"pcsx-vita: vitaGL shutdown {state}", flush=True)
+    elif mode != "no-guest":
         runs = 30 if mode == "wrong-runs" else 3
         print(f"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs={runs}", flush=True)
     if mode != "no-idle":
@@ -56,6 +62,10 @@ def main():
                 ("wrong-runs", False, 1),
                 ("normal-exit", False, 0),
                 ("flood", False, 1),
+                ("lifecycle-ok", False, 0),
+                ("lifecycle-fail", False, 1),
+                ("lifecycle-missing", False, 1),
+                ("lifecycle-no-drc", False, 1),
                 ("no-idle", False, 1),
                 ("idle-host", True, 0),
                 ("no-guest", True, 1)):
@@ -69,6 +79,8 @@ def main():
                 vpk = root / "package.vpk"
                 vpk.write_bytes(b"test package argument")
                 command += ["--vpk", str(vpk)]
+            if mode.startswith("lifecycle"):
+                command += ["--renderer", "vitagl", "--check-lifecycle"]
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
             assert result.returncode == expected, (mode, install, result.stdout, result.stderr)
             assert log.stat().st_size < 3 * 1024 * 1024

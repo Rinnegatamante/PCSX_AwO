@@ -26,23 +26,24 @@ def fatal(log):
     return any(marker.decode("ascii") in log for marker in CapturedSmoke.ISSUE_MARKERS)
 
 
-def smoke_complete(captured, expected):
+def smoke_complete(captured, expected, require_ari64=False):
     return (any(expected.search(message) for message in captured.messages) and
-            "Stopping -> Idle" in captured.markers)
+            "Stopping -> Idle" in captured.markers and
+            (not require_ari64 or "pcsx-vita: cpu_driver=ari64" in captured.markers))
 
 
-def wait_for_completion(captured, expected, timeout):
+def wait_for_completion(captured, expected, timeout, require_ari64=False):
     deadline = time.monotonic() + timeout
     completed_at = None
     while time.monotonic() < deadline:
         if any(captured.issue_counts.values()):
             return False
-        complete = smoke_complete(captured, expected)
+        complete = smoke_complete(captured, expected, require_ari64)
         returncode = captured.process.poll()
         if returncode is not None:
             # Drain pending output before evaluating a host that exits normally.
             captured.thread.join(timeout=1)
-            return returncode == 0 and smoke_complete(captured, expected)
+            return returncode == 0 and smoke_complete(captured, expected, require_ari64)
         if complete:
             if completed_at is None:
                 completed_at = time.monotonic()
@@ -54,7 +55,7 @@ def wait_for_completion(captured, expected, timeout):
     return False
 
 
-def run_owned(command, log, timeout, label, expected, installation=False):
+def run_owned(command, log, timeout, label, expected, installation=False, require_ari64=False):
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                start_new_session=True)
     watchdog = ProcessGroupWatchdog(process, timeout)
@@ -65,7 +66,7 @@ def run_owned(command, log, timeout, label, expected, installation=False):
             passed = captured.wait_for_messages((expected,), timeout,
                                                stable=0.25, require_idle=False)
         else:
-            passed = wait_for_completion(captured, expected, timeout)
+            passed = wait_for_completion(captured, expected, timeout, require_ari64)
     finally:
         natural_exit = process.poll() is not None
         watchdog.close()
@@ -81,6 +82,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emulator", type=Path, required=True)
     parser.add_argument("--renderer", choices=("neon", "vitagl"), default="neon")
+    parser.add_argument("--check-lifecycle", action="store_true",
+                        help="check ari64 and VitaGL shutdown, without asserting GPU pixels")
     parser.add_argument("--vpk", type=Path, help="install this VPK and launch it")
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=120)
@@ -88,12 +91,18 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.frames <= 216000 or not 0 < args.timeout < float("inf"):
         parser.error("invalid frame count or timeout")
+    if args.check_lifecycle and args.renderer != "vitagl":
+        parser.error("--check-lifecycle requires --renderer vitagl")
     title = "PCSXN0012" if args.renderer == "neon" else "PCSXG0012"
     base_command = [str(args.emulator.resolve()), "--keep-config", "--log-level", "1"]
-    command = base_command + ["--installed-path", title, "--app-args",
-        f"pcsx-vita, ux0:app/{title}/smoke.exe, --frames, {args.frames}, --verify-smoke"]
-    expected = re.compile(r"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs="
-                          + str(args.frames) + r"\b")
+    guest_args = f"pcsx-vita, ux0:app/{title}/smoke.exe, --frames, {args.frames}"
+    if args.check_lifecycle:
+        expected = re.compile(r"pcsx-vita: vitaGL shutdown PASS \(0\)")
+    else:
+        guest_args += ", --verify-smoke"
+        expected = re.compile(r"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs="
+                              + str(args.frames) + r"\b")
+    command = base_command + ["--installed-path", title, "--app-args", guest_args]
     args.log.parent.mkdir(parents=True, exist_ok=True)
     # Refuse to mix evidence with an older run; each host has a fresh capture.
     args.log.open("xb").close()
@@ -105,8 +114,10 @@ def main():
         if not installed:
             print(f"Vita3K {args.renderer}: FAIL during installation; log={args.log}")
             return 1
-    passed = run_owned(command, args.log, args.timeout, f"{args.renderer} smoke", expected)
-    print(f"Vita3K {args.renderer}: {'PASS' if passed else 'FAIL'}; log={args.log}")
+    label = args.renderer + (" lifecycle" if args.check_lifecycle else " smoke")
+    passed = run_owned(command, args.log, args.timeout, label, expected,
+                       require_ari64=args.check_lifecycle)
+    print(f"Vita3K {label}: {'PASS' if passed else 'FAIL'}; log={args.log}")
     return 0 if passed else 1
 
 

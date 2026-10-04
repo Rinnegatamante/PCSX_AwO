@@ -82,6 +82,13 @@ auto-boot a CLI-installed VPK. An absolute VPK path is placed after `--` so
 the emulator's Windows-style option parser accepts it on macOS. Installation
 output cannot satisfy the subsequent guest completion check.
 
+For a rebuilt VitaGL guest with the shutdown patch, add `--renderer vitagl
+--check-lifecycle` to run the same guest and check `cpu_driver=ari64`,
+`vitaGL shutdown PASS (0)` and `Stopping -> Idle`. This probe exercises renderer
+startup, frame execution and resource teardown without asserting readback
+pixels. Run the default pixel probe separately before calling VitaGL graphics
+validated; a lifecycle PASS alone is not a graphics PASS.
+
 Observed NEON results on the local M1/Vita3K build: three consecutive runs
 passed with `cpu=ari64`, the expected pixels and RAM sentinel, and the guest's
 `Stopping -> Idle` state. The runner then closed its owned host process in
