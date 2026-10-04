@@ -1,0 +1,18 @@
+diff --git a/vita3k/modules/SceLibKernel/SceLibKernel.cpp b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+--- a/vita3k/modules/SceLibKernel/SceLibKernel.cpp
++++ b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+@@ -156,6 +156,14 @@ EXPORT(int, sceClibMemcmpConstTime) {
+ 
+ EXPORT(Ptr<void>, sceClibMemcpy, Ptr<void> dst, const void *src, SceSize len) {
+     TRACY_FUNC(sceClibMemcpy, dst, src, len);
++    if (len && (!dst.address() || !src)) {
++        const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
++        LOG_ERROR("pcsx-vita: host memcpy NULL dst={:08x} guest_src={:08x} len={} pc={:08x} lr={:08x}",
++            dst.address(), thread ? read_reg(*thread->cpu, 1) : 0,
++            len, thread ? read_pc(*thread->cpu) : 0,
++            thread ? read_lr(*thread->cpu) : 0);
++    }
++    // Preserve the original call: this diagnostic does not mask a guest fault.
+     memcpy(dst.get(emuenv.mem), src, len);
+     return dst;
+ }

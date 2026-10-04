@@ -23,6 +23,8 @@ parser.add_argument('--app-template', type=Path, required=True, help='Built app 
 parser.add_argument('--output', type=Path, required=True, help='Fresh isolated output directory')
 parser.add_argument('--dynarmic-archive', type=Path,
                     help='Tested patched Dynarmic archive to link into this private host')
+parser.add_argument('--diagnose-null-memcpy', action='store_true',
+                    help='Log invalid guest memcpy arguments and caller PC/LR without changing behavior')
 options = parser.parse_args()
 ORIG = options.source.resolve()
 BUILD = (options.build or ORIG / 'build/macos').resolve()
@@ -43,6 +45,7 @@ APP = OUT / 'emulator/Vita3K-fixed.app'
 BIN = APP / 'Contents/MacOS/Vita3K'
 PATCH = Path(__file__).resolve().parent / 'patches/vita3k-teardown.patch'
 SCREENSHOT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-cpu-frame-dump.patch'
+MEMCPY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-memcpy-diagnostic.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -53,6 +56,9 @@ SOURCES = [
     ('renderer', 'src/gl/renderer.cpp', 'vita3k/renderer/src/gl/renderer.cpp', 'renderer-gl.cpp.o'),
     ('renderer', 'src/vulkan/renderer.cpp', 'vita3k/renderer/src/vulkan/renderer.cpp', 'renderer-vulkan.cpp.o'),
 ]
+if options.diagnose_null_memcpy:
+    SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
+                    'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
 
 # Only the patched sources/header are copied. Apply the checked-in patch to
 # these private copies, so even a dirty user's source checkout stays untouched.
@@ -72,6 +78,9 @@ subprocess.run(['git', 'apply', '--check', str(PATCH)], check=True, cwd=SRC, env
 subprocess.run(['git', 'apply', str(PATCH)], check=True, cwd=SRC, env=patch_env)
 subprocess.run(['git', 'apply', '--check', str(SCREENSHOT_PATCH)], check=True, cwd=SRC, env=patch_env)
 subprocess.run(['git', 'apply', str(SCREENSHOT_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.diagnose_null_memcpy:
+    subprocess.run(['git', 'apply', '--check', str(MEMCPY_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(MEMCPY_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -120,6 +129,9 @@ for target in ('display', 'modules', 'renderer'):
             replacement = compiled[('display', 'src/display.cpp')]
         elif target == 'modules' and obj.as_posix().endswith('SceDisplay/SceDisplay.cpp.o'):
             replacement = compiled[('modules', 'SceDisplay/SceDisplay.cpp')]
+        elif (target == 'modules' and options.diagnose_null_memcpy and
+              obj.as_posix().endswith('SceLibKernel/SceLibKernel.cpp.o')):
+            replacement = compiled[('modules', 'SceLibKernel/SceLibKernel.cpp')]
         elif target == 'renderer' and obj.as_posix().endswith('src/gl/renderer.cpp.o'):
             replacement = compiled[('renderer', 'src/gl/renderer.cpp')]
         elif target == 'renderer' and obj.as_posix().endswith('src/vulkan/renderer.cpp.o'):
@@ -183,6 +195,8 @@ manifest = {
     'source_files_sha256': original_hashes,
     'patch_sha256': hashlib.sha256(PATCH.read_bytes()).hexdigest(),
     'screenshot_patch_sha256': hashlib.sha256(SCREENSHOT_PATCH.read_bytes()).hexdigest(),
+    'memcpy_diagnostic_patch_sha256': (hashlib.sha256(MEMCPY_PATCH.read_bytes()).hexdigest()
+                                      if options.diagnose_null_memcpy else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),

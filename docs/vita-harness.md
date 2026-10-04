@@ -5,8 +5,8 @@ The validation targets are tracked separately:
 | Target | Recorded evidence | Remaining gate |
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
-| Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and Soul Calibur boot/attract progress through 1,800 frames with native screenshots | Game-state/timing comparison and a playable match, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; GXM transfer readback recovers the background pixel | Host shutdown fault, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; earlier GXM transfer readback recovers the background pixel | Shader startup failure, resource teardown, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -189,12 +189,39 @@ exit path calls `_exit -> _free_vita_newlib -> _free_vita_heap ->
 sceKernelFreeMemBlock` before `sceKernelExitProcess`. Thus guest newlib teardown
 releases the external heap containing VitaGL's main context before the host
 tries to destroy that still-registered context. The resource-lifetime fix is
-pending (`build/vita-validation-gxm-free-diagnostic3/vitagl-free-trace.log`).
-That shutdown fault and the
-triangle mismatch remain unresolved. New instruction tests run directly in
+implemented in an isolated library patch but not yet runtime-verified
+(`build/vita-validation-gxm-free-diagnostic3/vitagl-free-trace.log`).
+The fresh lifecycle guest fails earlier during shader startup, so it provides
+no result for that teardown fix. The triangle mismatch also remains unresolved.
+New instruction tests run directly in
 Dynarmic without leaving an emulator or debugger window open.
 The required four library build flags remain enabled. VitaGL is not validated
 yet (`/tmp/pcsx-vita3k-vitagl-gxm-transfer-ab.log`).
+
+### Shader startup diagnostic, 2026-10-05
+
+A fresh portable profile reproduced an early `sceClibMemcpy` null-source
+fault before `cpu_driver=ari64` or GPU initialization. The optional
+`--diagnose-null-memcpy` flag on `rebuild_vita3k_fixed.py` adds a private host
+log of guest arguments and PC/LR before the original memcpy call; it does not
+skip the call or turn the guest fault into success. That host compiled and
+linked successfully, preserving the original Vita3K source and CMake objects.
+
+The bounded lifecycle run used VPK SHA-256
+`b71430c66c3c52f7fb3b564b696ee93af572f4e451bbfbfced4a083543d478e0`
+and diagnostic host SHA-256
+`839a53c4aba6b98ceba9333f7151674bad9667083ca47164b9fddf904509ab07`.
+It logged `dst=8822be78`, `guest_src=00000000`, `len=10195`,
+`pc=81247cf4`, `lr=811a4eb9`. Mapping the LR against the packaged ELF
+identifies `serialize_shader` in VitaGL `custom_shaders.c:692`, copying
+`s->prog` with its recorded size. The compiled-program pointer was null;
+the shader compilation/cache path needs repair before another lifecycle result
+can be assessed. This diagnostic does not establish why that pointer is null.
+
+The watchdog closed all owned processes. The native PNG saved at
+`build/vita-validation-gxm-memcpy-diagnostic2/emulator/portable/screenshots/PCSX-ReARMed Vita vitagl/PCSX-ReARMed Vita vitagl_2026-10-05-015114.png`
+is black, consistent with failure before rendering; the filtered log is
+`/tmp/pcsx-vitagl-memcpy-20261005.log`.
 
 ## VitaGL GPU geometry limits
 

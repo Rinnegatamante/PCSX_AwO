@@ -379,7 +379,7 @@ validation emulator, while the Vita core continues to use its own ari64 DRC.
 
 ## Vita3K validation host patches
 
-The teardown and Vulkan CPU-framebuffer screenshot patches under
+The teardown, Vulkan CPU-framebuffer screenshot and null-memcpy diagnostic patches under
 `tools/vita-harness/patches` modify local Vita3K source, copyright the Vita3K
 team, under GPL-2.0-or-later. The GPL version 2 terms are included in `COPYING`.
 The private build manifest records source and patch hashes; these patches are
