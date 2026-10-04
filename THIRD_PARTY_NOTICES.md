@@ -353,6 +353,14 @@ register implementation from `src/devices/cpu/mn10200/mn10200.cpp/.h`, copyright
 Olivier Galibert, R. Belmont and hap, at the pinned MAME revision above. Full
 BSD-3-Clause terms are retained in `mn10200_LICENSE.txt`.
 
+## MAME Taito Zoom sound board
+
+The Taito Zoom sound-board adapter in `libpcsxcore/arcade/zoom_board.*` derives
+its bus map, flash sample reader and reset wiring from MAME
+`src/mame/sony/taito_zm.cpp/.h` and `taitogn.cpp`, copyright Olivier Galibert,
+hap, superctr, cam900 and smf, BSD-3-Clause. Retained terms are in
+`libpcsxcore/arcade/zoom_board_LICENSE.txt`.
+
 ## MAME Konami Twinkle sound board
 
 The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives

@@ -1,0 +1,46 @@
+CXX ?= xcrun clang++
+CC ?= clang
+PYTHON ?= python3
+BUILD ?= build/zoom-board-tests
+GEN := $(BUILD)/generated
+ARCADE := libpcsxcore/arcade
+TMS := $(ARCADE)/tms57002
+INCLUDES := -I$(GEN) -I$(ARCADE) -I$(TMS)
+SOURCES := $(ARCADE)/zoom_board.cpp $(ARCADE)/mn10200.cpp \
+           $(ARCADE)/tms57002.cpp $(TMS)/tms57002_core.cpp \
+           $(TMS)/tms57kdec.cpp $(TMS)/tmsops.cpp tests/zoom_board_standalone.cpp
+COMMON := -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable $(INCLUDES)
+TARGET := $(BUILD)/test-zoom-board
+SAN_TARGET := $(BUILD)/test-zoom-board-sanitize
+HEADERS := $(ARCADE)/zoom_board.h $(ARCADE)/mn10200.h $(ARCADE)/mn10200_engine.inc $(ARCADE)/zsg2.h \
+           $(ARCADE)/tms57002.h $(wildcard $(TMS)/*.h)
+
+.PHONY: test sanitize clean
+$(GEN)/tms57002.hxx: $(TMS)/tmsinstr.lst $(TMS)/tmsmake.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(TMS)/tmsmake.py s $< $@
+
+$(BUILD)/zsg2.o: $(ARCADE)/zsg2.c $(ARCADE)/zsg2.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O2 -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/zsg2-san.o: $(ARCADE)/zsg2.c $(ARCADE)/zsg2.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/zsg2.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O2 $(SOURCES) $(BUILD)/zsg2.o -o $@
+
+$(SAN_TARGET): $(SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/zsg2-san.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer $(SOURCES) $(BUILD)/zsg2-san.o -o $@
+
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(TARGET)
+
+sanitize: $(SAN_TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)
