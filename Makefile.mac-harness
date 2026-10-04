@@ -137,6 +137,7 @@ devices-test: $(BUILD)/test-nor-flash $(BUILD)/test-c352 $(BUILD)/test-serial $(
 	$(MAKE) -f tests/Makefile.nscsi-hd BUILD=$(BUILD)/nscsi-hd-tests test
 	$(MAKE) -f tests/Makefile.nscsi-cd BUILD=$(BUILD)/nscsi-cd-tests test
 	$(MAKE) -f tests/Makefile.m68000 BUILD=$(BUILD)/m68000-tests CXX='$(CXX)' test
+	$(MAKE) -f tests/Makefile.tms57002 BUILD=$(BUILD)/tms57002-tests CXX='$(CXX)' test
 ifeq ($(HAVE_CHD),1)
 	$(MAKE) -f tests/Makefile.chd-hd BUILD=$(BUILD)/chd-hd-tests test
 	$(MAKE) -f tests/Makefile.chd-scsi-hd BUILD=$(BUILD)/chd-scsi-hd-tests test

@@ -1,0 +1,38 @@
+.DEFAULT_GOAL := test
+CXX := xcrun clang++
+PYTHON ?= python3
+BUILD ?= build/tms57002-tests
+GEN := $(BUILD)/generated
+INCLUDES := -I$(GEN) -Ilibpcsxcore/arcade -Ilibpcsxcore/arcade/tms57002
+SOURCES := libpcsxcore/arcade/tms57002.cpp \
+           libpcsxcore/arcade/tms57002/tms57002_core.cpp \
+           libpcsxcore/arcade/tms57002/tms57kdec.cpp \
+           libpcsxcore/arcade/tms57002/tmsops.cpp \
+           tests/tms57002_standalone.cpp
+COMMON := -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable $(INCLUDES)
+HEADERS := libpcsxcore/arcade/tms57002.h $(wildcard libpcsxcore/arcade/tms57002/*.h)
+SAN_COMMON := $(COMMON)
+TARGET := $(BUILD)/test-tms57002
+SAN_TARGET := $(BUILD)/test-tms57002-sanitize
+
+.PHONY: test sanitize clean
+$(GEN)/tms57002.hxx: libpcsxcore/arcade/tms57002/tmsinstr.lst libpcsxcore/arcade/tms57002/tmsmake.py
+	@mkdir -p $(GEN)
+	$(PYTHON) libpcsxcore/arcade/tms57002/tmsmake.py s $< $@
+
+$(TARGET): $(SOURCES) $(HEADERS) $(GEN)/tms57002.hxx
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O2 $(SOURCES) -o $@
+
+$(SAN_TARGET): $(SOURCES) $(HEADERS) $(GEN)/tms57002.hxx
+	@mkdir -p $(BUILD)
+	$(CXX) $(SAN_COMMON) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer $(SOURCES) -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+sanitize: $(SAN_TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)

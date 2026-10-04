@@ -43,7 +43,7 @@ family is considered finished.
 | Sony ZN family (including Taito FX1) | 50–65% | Capcom and FX1S generated native guests pass; authentic games and Tecmo/Raizing/other daughterboards pending |
 | Taito G-Net | 85–95% | ZSG-2 component tested; complete Zoom sound, CompactFlash, board wiring and game validation pending |
 | Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD and common board under review, native integration and special I/O pending |
-| Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, K056800/K054539 tested; DSP under review, complete board/gun wiring and real-game validation pending |
+| Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
 | Konami Twinkle | 90–95% | Shared PSX/SCSI/MC68000 foundations; board, RF5C400, media/session I/O and game validation pending |
 | Namco System 10 | 30–45% | Native MEM(M)/MEM(N) guests exercise crypto, bank fetch, NAND DMA, inputs and GPU; authentic games and add-on boards pending |
@@ -135,8 +135,9 @@ machine's assets does not imply that it boots.
   The [ZSG-2 component](zsg2-port.md) passes sample decoding, 48-channel
   synthesis, four output routes, register, reset and timing tests, including
   sanitizers. Its literal stream-batch API retains MAME ramp parity; the
-  standalone clock scheduler is explicitly a host model. The MN10200 sound
-  CPU, TMS57002 effects DSP and complete Zoom/G-Net board remain pending.
+  standalone clock scheduler is explicitly a host model. The [TMS57002 effects DSP](tms57002-port.md) passes standalone host-load,
+  arithmetic, external-memory and four-channel stream tests. The MN10200 sound
+  CPU and complete Zoom/G-Net sound board integration remain pending.
 - Namco System 10: [35 crypto profiles and read-only NAND](namcos10-crypto.md),
   with 441 fixed encrypted streams; [MEM(M)/MEM(N) board adapter](namcos10-board.md)
   tests cover boot copies, banks, flash, bus masks and DMA. The connected
@@ -187,7 +188,10 @@ machine's assets does not imply that it boots.
   [MC68000 core](m68000-port.md) generates the pinned direct full/partial
   instruction handlers and passes reset, bus lanes, arithmetic/flags, MOVEM,
   exceptions, STOP/IRQ/NMI/RTE, split budgets and callback/overflow tests with
-  sanitizers. TMS57002, lightgun I/O and complete native board remain pending.
+  sanitizers. The [TMS57002 DSP](tms57002-port.md) also passes independent
+  program/coefficient RAM, host upload/download, arithmetic, external-memory,
+  callback-cycle, reset and audio tests with sanitizers. Lightgun I/O and the
+  complete native board remain pending.
 - Sound CPU: [Z80](z80-port.md) retains the MAME instruction and resumable
   bus-cycle engine. Independent arithmetic/flags and interrupt/timing tests
   pass; board sound wiring remains necessary.

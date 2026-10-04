@@ -41,6 +41,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## MAME TMS57002 DASP
+
+The standalone TMS57002 decoder, execution core, instruction list and generator
+in `libpcsxcore/arcade/tms57002*` derive from Olivier Galibert's MAME sources at
+commit `deb2f54fe7300e7a192690318beb860159bfd52a`. The upstream BSD-3-Clause
+notices are retained in source headers and the complete license is in
+`libpcsxcore/arcade/tms57002/LICENSE.txt`. The local wrapper replaces device,
+clock, memory and stream plumbing while preserving the instruction algorithms.
+
 ## MAME MC68000 and NSCSI media devices
 
 Standalone MC68000 handlers, decoder and shim in `libpcsxcore/arcade/m68000*`
