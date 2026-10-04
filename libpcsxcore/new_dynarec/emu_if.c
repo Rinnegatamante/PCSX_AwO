@@ -259,6 +259,14 @@ static void ari64_clear(u32 addr, u32 size)
 	new_dynarec_invalidate_range(addr, end);
 }
 
+void new_dynarec_invalidate_range_hard(unsigned int start, unsigned int end)
+{
+	if (end <= start)
+		return;
+	ari64_thread_sync();
+	new_dynarec_invalidate_range_hard_internal(start, end);
+}
+
 static void ari64_on_ext_change(int ram_replaced, int other_cpu_emu_exec)
 {
 	if (ram_replaced)
@@ -628,6 +636,14 @@ void new_dynarec_init() {}
 void new_dyna_start(void *context) {}
 void new_dynarec_cleanup() {}
 void new_dynarec_clear_full() {}
+void new_dynarec_set_code_span_provider(ndrc_code_span_fn provider) { (void)provider; }
+int new_dynarec_arcade_memory_enabled(void) { return 0; }
+int new_dynarec_arcade_selftest(void) { return 1; }
+void new_dynarec_invalidate_range_hard(unsigned int start, unsigned int end)
+{ (void)start; (void)end; }
+void new_dynarec_invalidate_range_hard_internal(unsigned int start, unsigned int end)
+{ (void)start; (void)end; }
+int new_dyna_pcsx_mem_arcade_selftest(void) { return 1; }
 void new_dynarec_invalidate_all_pages() {}
 void new_dynarec_invalidate_range(unsigned int start, unsigned int end) {}
 void new_dyna_pcsx_mem_init(void) {}

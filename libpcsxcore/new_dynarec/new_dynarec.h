@@ -41,6 +41,17 @@ int  new_dynarec_estimate_stack_size(void);
 
 int  new_dynarec_quick_check_range(unsigned int start, unsigned int end);
 void new_dynarec_invalidate_range(unsigned int start, unsigned int end);
+/* Arcade boards may change the backing bytes for one guest address (ROM bank
+ * switches). This invalidates translations without allowing old-source block
+ * restoration. The source callback returns a stable word span [pc, limit). */
+typedef int (*ndrc_code_span_fn)(unsigned int pc, const unsigned int **words,
+	unsigned int *limit);
+void new_dynarec_set_code_span_provider(ndrc_code_span_fn provider);
+int  new_dynarec_arcade_memory_enabled(void);
+int  new_dynarec_arcade_selftest(void);
+void new_dynarec_invalidate_range_hard(unsigned int start, unsigned int end);
+void new_dynarec_invalidate_range_hard_internal(unsigned int start, unsigned int end);
+int  new_dyna_pcsx_mem_arcade_selftest(void);
 void new_dynarec_invalidate_all_pages(void);
 void new_dyna_clear_cache(void *start, void *end);
 

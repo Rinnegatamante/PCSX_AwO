@@ -39,6 +39,7 @@ static Jit g_jit;
 #include "new_dynarec_config.h"
 #include "../psxhle.h"
 #include "../psxinterpreter.h"
+#include "../psxmem.h"
 #include "../psxcounters.h"
 #include "../gte.h"
 #include "emu_if.h" // emulator interface
@@ -105,10 +106,28 @@ extern uintptr_t mini_ht[32][2];
 #include "assem_arm64.h"
 #endif
 
-#define RAM_SIZE 0x200000
+#define RAM_SIZE PSX_RAM_SIZE
 #define MAX_OUTPUT_BLOCK_SIZE_SHIFT 18
 #define MAX_OUTPUT_BLOCK_SIZE (1 << MAX_OUTPUT_BLOCK_SIZE_SHIFT) // 262144
+/* 4096 4 KiB pages cover a 16 MiB System12 RAM. The upper half keeps the
+ * compressed page mapping for other physical address regions. */
+#ifdef PCSX_SYSTEM12
+#define PAGE_COUNT 8192
+#else
 #define PAGE_COUNT 1024
+#endif
+
+static ndrc_code_span_fn code_span_provider;
+
+void new_dynarec_set_code_span_provider(ndrc_code_span_fn provider)
+{
+  code_span_provider = provider;
+}
+
+int new_dynarec_arcade_memory_enabled(void)
+{
+  return code_span_provider != NULL;
+}
 
 #if defined(HAVE_CONDITIONAL_CALL) && !defined(DESTRUCTIVE_SHIFT) && !defined(VITA)
 #define INVALIDATE_USE_COND_CALL
@@ -895,7 +914,7 @@ static u_int pmmask(u_int vaddr)
 {
   vaddr &= ~0xe0000000;
   if (vaddr < 0x01000000)
-    vaddr &= ~0x00e00000; // RAM mirrors
+    vaddr &= ~(0x01000000u - PSX_RAM_SIZE); // RAM mirrors for active RAM size
   return vaddr;
 }
 
@@ -916,6 +935,38 @@ static u_int get_page_prev(u_int vaddr)
   if (page & 511)
     page--;
   return page;
+}
+
+int new_dynarec_arcade_selftest(void)
+{
+  u_int ram_size = RAM_SIZE;
+  u_int span, offset;
+  if (!new_dynarec_arcade_memory_enabled())
+    return 1;
+  if ((ram_size != 0x400000u && ram_size != 0x1000000u) ||
+      (ram_size & (ram_size - 1)) != 0)
+    return 0;
+  span = ram_size > 0x800000u ? ram_size : 0x800000u;
+  for (offset = 0; offset < ram_size; offset += 0x1000) {
+    u_int page = offset >> 12;
+    if (pmmask(offset) != offset || get_page(offset) != page ||
+        pmmask(0x80000000u + offset) != offset ||
+        pmmask(0xa0000000u + offset) != offset ||
+        get_page(0x80000000u + offset) != page ||
+        get_page(0xa0000000u + offset) != page)
+      return 0;
+  }
+  for (offset = ram_size; offset < span; offset += 0x1000) {
+    u_int canonical = offset & (ram_size - 1);
+    if (pmmask(offset) != canonical || get_page(offset) != get_page(canonical))
+      return 0;
+  }
+  if (get_page(0x1fa00000u) < PAGE_COUNT / 2 ||
+      get_page(0x9fa00000u) != get_page(0x1fa00000u) ||
+      get_page(0xbfa00000u) != get_page(0x1fa00000u) ||
+      get_page(0xbfc00000u) < PAGE_COUNT / 2)
+    return 0;
+  return 1;
 }
 
 static struct ht_entry *hash_table_get_p(struct ht_entry *ht, u_int vaddr)
@@ -989,9 +1040,11 @@ static void mark_invalid_code(u_int vaddr, u_int len, char invalid)
 {
   u_int vaddr_m = vaddr & 0x1fffffff;
   u_int i, j;
+  u_int ram_size = RAM_SIZE;
+  u_int ram_span = ram_size > 0x800000u ? ram_size : 0x800000u;
   for (i = vaddr_m & ~0xfff; i < vaddr_m + len; i += 0x1000) {
     // ram mirrors, but should not hurt bios
-    for (j = 0; j < 0x800000; j += 0x200000) {
+    for (j = 0; j < ram_span; j += ram_size) {
       invalid_code[(i|j) >> 12] =
       invalid_code[(i|j|0x80000000u) >> 12] =
       invalid_code[(i|j|0xa0000000u) >> 12] = invalid;
@@ -1036,12 +1089,13 @@ static void *try_restore_block(u_int vaddr, u_int start_page, u_int end_page)
         break;
       if (!block->is_dirty || vaddr >= block->start + block->len)
         continue;
+      if (block->source == NULL || block->copy == NULL)
+        continue;
       for (i = 0; i < block->jump_in_cnt; i++)
         if (block->jump_in[i].vaddr == vaddr)
           break;
       if (i == block->jump_in_cnt)
         continue;
-      assert(block->source && block->copy);
       stat_inc(stat_restore_compares);
       if (memcmp(block->source, block->copy, block->len))
         continue;
@@ -1906,7 +1960,38 @@ static int invalidate_range(u_int start, u_int end,
 
 void new_dynarec_invalidate_range(unsigned int start, unsigned int end)
 {
+  if (end <= start)
+    return;
   invalidate_range(start, end, NULL, NULL);
+}
+
+/* A normal write invalidation may later restore an identical block by
+ * comparing its saved source bytes. That is unsafe for banked ROM: the old
+ * bank remains allocated and byte-identical after the guest selects another
+ * bank. Drop source/copy identity for blocks in this range so a later lookup
+ * must compile from the currently selected backing store. */
+void new_dynarec_invalidate_range_hard_internal(unsigned int start, unsigned int end)
+{
+  u_int start_m, end_m, start_page, end_page, page;
+  if (end <= start)
+    return;
+
+  new_dynarec_invalidate_range(start, end);
+  start_m = pmmask(start);
+  end_m = pmmask(end - 1);
+  start_page = get_page_prev(start);
+  end_page = get_page(end - 1);
+  for (page = start_page; page <= end_page; page++) {
+    struct block_info *block;
+    for (block = blocks[page]; block != NULL; block = block->next_by_vaddr) {
+      u_int block_start = pmmask(block->start);
+      u_int block_end = pmmask(block->start + block->len - 1);
+      if (block_start <= end_m && block_end >= start_m) {
+        block->source = NULL;
+        block->copy = NULL;
+      }
+    }
+  }
 }
 
 // check if the range may need invalidation (must be thread-safe)
@@ -3157,6 +3242,7 @@ enum {
 
 static int get_ptr_mem_type(struct compile_state *st, u_int a)
 {
+  u_int ram_span = RAM_SIZE > 0x00800000u ? RAM_SIZE : 0x00800000u;
   if(a < 0x00200000) {
     if(a<0x1000&&((st->start>>20)==0xbfc||(st->start>>24)==0xa0))
       // return wrong, must use memhandler for BIOS self-test to pass
@@ -3166,9 +3252,9 @@ static int get_ptr_mem_type(struct compile_state *st, u_int a)
   }
   if(0x1f800000 <= a && a < 0x1f800400)
     return MTYPE_1F80;
-  if(0x80200000 <= a && a < 0x80800000)
+  if(0x80200000 <= a && a - 0x80000000u < ram_span)
     return MTYPE_8020;
-  if(0xa0000000 <= a && a < 0xa0200000)
+  if(0xa0000000 <= a && a - 0xa0000000u < ram_span)
     return MTYPE_A000;
   return MTYPE_8000;
 }
@@ -3216,9 +3302,14 @@ static void *emit_fastpath_cmp_jump(struct compile_state *st, int i,
   }
 
   if(type==MTYPE_8020) { // RAM 80200000+ mirror
-    host_tempreg_acquire();
-    emit_andimm(addr,~0x00e00000,HOST_TEMPREG);
-    addr=*addr_reg_override=HOST_TEMPREG;
+    /* A 16 MiB board has no address bits to fold in this aperture. Avoid
+     * occupying HOST_TEMPREG for an identity mask: the following bounds
+     * compare may need that register to materialize the 16 MiB limit. */
+    if (RAM_SIZE < 0x01000000u) {
+      host_tempreg_acquire();
+      emit_andimm(addr,~(0x01000000u - RAM_SIZE),HOST_TEMPREG);
+      addr=*addr_reg_override=HOST_TEMPREG;
+    }
     type=0;
   }
   else if(type==MTYPE_0000) { // RAM 0 mirror
@@ -3397,9 +3488,15 @@ static void do_store_byte(int a, int rt, int offset_reg)
     emit_writebyte_indexed(rt, 0, a);
 }
 
-// determines if code overwrite checking is needed only
-// (also true non-existent 0x20000000 mirror that shouldn't matter)
-#define is_ram_addr(a) !((a) & 0x5f800000)
+// determines if an address belongs to the board's RAM or one of its usual
+// 8 MiB-or-larger mirrors. Keep this runtime-sized for arcade profiles.
+static int is_ram_addr(u_int a)
+{
+  u_int span = RAM_SIZE > 0x800000u ? RAM_SIZE : 0x800000u;
+  return a < span ||
+      (a >= 0x80000000u && a - 0x80000000u < span) ||
+      (a >= 0xa0000000u && a - 0xa0000000u < span);
+}
 
 static u_int resolve_const_io(int i, const struct regstat *i_regs, int *is_const,
   u_int *likely_addr)
@@ -3428,16 +3525,24 @@ static u_int resolve_const_io(int i, const struct regstat *i_regs, int *is_const
   if (s < 0 || !((regs[j].wasconst >> s) & 1))
     return ~0;
   addr = constmap[j][s] + cinfo[j].imm;
-  if ((0x9fc00000u <= addr && addr < 0x9fc80000u) ||
-      (0xbfc00000u <= addr && addr < 0xbfc80000u)) {
-    addr = *(u_int *)(psxRegs.ptrs.psxR + (addr & 0x07fffc)) + cinfo[i].imm;
+  if ((0x1fc00000u <= addr && addr < 0x20000000u) ||
+      (0x9fc00000u <= addr && addr < 0xa0000000u) ||
+      (0xbfc00000u <= addr && addr < 0xc0000000u)) {
+    u_int rom_offset;
+    if (0x1fc00000u <= addr && addr < 0x20000000u)
+      rom_offset = addr - 0x1fc00000u;
+    else if (0x9fc00000u <= addr && addr < 0xa0000000u)
+      rom_offset = addr - 0x9fc00000u;
+    else
+      rom_offset = addr - 0xbfc00000u;
+    addr = *(u_int *)(psxRegs.ptrs.psxR + (rom_offset & (PSX_ROM_SIZE - 4))) + cinfo[i].imm;
     if (rom_ok) {
       *is_const = 1;
       return addr;
     }
   }
   else if (is_ram_addr(addr))
-    addr = *(u_int *)(psxRegs.ptrs.psxM + (addr & 0x1ffffc)) + cinfo[i].imm;
+    addr = *(u_int *)(psxRegs.ptrs.psxM + (addr & (RAM_SIZE - 4))) + cinfo[i].imm;
   // this seems to do more harm than good, scratchpad data is just too volatile
   //else if ((addr >> 10) == (0x1f800000u >> 10))
   //  addr = *(u_int *)(psxRegs.ptrs.psxH + (addr & 0x0003fc)) + cinfo[i].imm;
@@ -5906,7 +6011,7 @@ static void vsync_hack_assemble(int i, int ld_ofs, int cc)
   emit_cmpimm(cc, -cycles);
   t_exit[0] = out;
   emit_jge(0);
-  emit_andimm(sp, ~0x00e00000, tmp);
+  emit_andimm(sp, ~(0x01000000u - RAM_SIZE), tmp);
   emit_cmpimm(tmp, RAM_SIZE);
   t_exit[1] = out;
   emit_jno(0);
@@ -6799,9 +6904,13 @@ void new_dynarec_init(void)
 #ifdef HOST_IMM8
   // Copy this into local area so we don't have to put it in every literal pool
   invc_ptr=invalid_code;
-#endif
+  #endif
   arch_init();
   new_dynarec_test();
+  if (new_dynarec_arcade_memory_enabled() && !new_dynarec_arcade_selftest()) {
+    SysPrintf("System12 DRC RAM/page geometry selftest failed\n");
+    abort();
+  }
   ram_offset = (uintptr_t)psxRegs.ptrs.psxM - 0x80000000;
   if (ram_offset != 0)
     SysPrintf("RAM is not directly mapped\n");
@@ -6842,17 +6951,28 @@ void new_dynarec_cleanup(void)
 
 static u_int *get_source_start(u_int addr, u_int *limit)
 {
-  if (addr < 0x00800000u
-      || (0x80000000u <= addr && addr < 0x80800000u)
-      || (0xa0000000u <= addr && addr < 0xa0800000u))
+  const u_int ram_size = PSX_RAM_SIZE;
+  const u_int ram_span = ram_size > 0x00800000u ? ram_size : 0x00800000u;
+  if (code_span_provider != NULL) {
+    const unsigned int *words = NULL;
+    unsigned int code_limit = 0;
+    if (code_span_provider(addr, &words, &code_limit) && words != NULL &&
+        code_limit > addr) {
+      *limit = code_limit;
+      return (u_int *)words;
+    }
+  }
+  if (addr < ram_span
+      || (0x80000000u <= addr && addr - 0x80000000u < ram_span)
+      || (0xa0000000u <= addr && addr - 0xa0000000u < ram_span))
   {
     // used for BIOS calls mostly?
-    *limit = (addr & 0xa0600000) + 0x00200000;
-    return (u_int *)(psxRegs.ptrs.psxM + (addr & 0x1fffff));
+    *limit = (addr & ~(ram_size - 1)) + ram_size;
+    return (u_int *)(psxRegs.ptrs.psxM + (addr & (ram_size - 1)));
   }
-  else if (
-    (0x9fc00000u <= addr && addr < 0x9fc80000u) ||
-    (0xbfc00000u <= addr && addr < 0xbfc80000u))
+  else if ((0x1fc00000u <= addr && addr < 0x20000000u) ||
+           (0x9fc00000u <= addr && addr < 0xa0000000u) ||
+           (0xbfc00000u <= addr && addr < 0xc0000000u))
   {
     // BIOS. The multiplier should be much higher as it's uncached 8bit mem
     // XXX: disabled as this introduces differences from the interpreter
@@ -6860,8 +6980,15 @@ static u_int *get_source_start(u_int addr, u_int *limit)
     //if (!HACK_ENABLED(NDHACK_OVERRIDE_CYCLE_M))
     //  cycle_multiplier_active = 200;
 
-    *limit = (addr & 0xfff00000) | 0x80000;
-    return (u_int *)((u_char *)psxRegs.ptrs.psxR + (addr&0x7ffff));
+    *limit = (addr & ~(PSX_ROM_SIZE - 1)) + PSX_ROM_SIZE;
+    if (0x1fc00000u <= addr && addr < 0x20000000u)
+      return (u_int *)((u_char *)psxRegs.ptrs.psxR +
+          ((addr - 0x1fc00000u) & (PSX_ROM_SIZE - 1)));
+    if (0x9fc00000u <= addr && addr < 0xa0000000u)
+      return (u_int *)((u_char *)psxRegs.ptrs.psxR +
+          ((addr - 0x9fc00000u) & (PSX_ROM_SIZE - 1)));
+    return (u_int *)((u_char *)psxRegs.ptrs.psxR +
+        ((addr - 0xbfc00000u) & (PSX_ROM_SIZE - 1)));
   }
   return NULL;
 }
@@ -7028,7 +7155,7 @@ static noinline void do_vsync(struct compile_state *st, int i, u32 addr)
   char *str = NULL;
   int j, t, jals_cnt = 0;
 
-  str = (char *)psxRegs.ptrs.psxM + (addr & 0x1fffff);
+  str = (char *)psxRegs.ptrs.psxM + (addr & (RAM_SIZE - 1));
   if (!str || strncmp(str, "VSync: timeout", 14))
     return;
   // jal clearPad, jal clearRCnt; j return; nop

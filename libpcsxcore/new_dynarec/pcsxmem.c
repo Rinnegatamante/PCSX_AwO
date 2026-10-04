@@ -6,11 +6,13 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "../psxhw.h"
 #include "../cdrom.h"
 #include "../mdec.h"
 #include "../gpu.h"
 #include "../psxmem_map.h"
+#include "../psxmem.h"
 #include "emu_if.h"
 #include "pcsxmem.h"
 
@@ -30,6 +32,16 @@ static uintptr_t mem_ffrtab[(1+2+4) * 0x1000 / 4];
 static uintptr_t mem_ffwtab[(1+2+4) * 0x1000 / 4];
 //static uintptr_t mem_unmrtab[(1+2+4) * 0x1000 / 4];
 static uintptr_t mem_unmwtab[(1+2+4) * 0x1000 / 4];
+static uintptr_t board_iortab[(1+2+4) * 0x1000 / 4];
+static uintptr_t board_iowtab[(1+2+4) * 0x1000 / 4];
+static void map_ram_window(uintptr_t *table, u32 start, void *ram);
+
+static u32 board_read8(void)  { return psxMemRead8(&psxRegs, address); }
+static u32 board_read16(void) { return psxMemRead16(&psxRegs, address); }
+static u32 board_read32(void) { return psxMemRead32(&psxRegs, address); }
+static void board_write8(u32 value)  { psxMemWrite8(&psxRegs, address, value); }
+static void board_write16(u32 value) { psxMemWrite16(&psxRegs, address, value); }
+static void board_write32(u32 value) { psxMemWrite32(&psxRegs, address, value); }
 
 static void map_item_(uintptr_t *out, uintptr_t hv, uintptr_t flag)
 {
@@ -210,25 +222,25 @@ static void io_spu_write32(u32 value)
 
 void new_dyna_pcsx_mem_isolate(int enable)
 {
-	int i;
+	u32 i;
+	u32 ram_size = PSX_RAM_SIZE;
+	u32 mapped_span = ram_size > 0x800000u ? ram_size : 0x800000u;
 
 	// note: apparently 0xa0000000 uncached access still works,
 	// at least read does for sure, so assume write does too
 	memprintf("mem isolate %d\n", enable);
 	if (enable) {
-		for (i = 0; i < (0x800000 >> 12); i++) {
+		for (i = 0; i < (mapped_span >> 12); i++) {
 			map_item(&mem_writetab[0x80000|i], mem_unmwtab, 1);
 			map_item(&mem_writetab[0x00000|i], mem_unmwtab, 1);
 			//map_item(&mem_writetab[0xa0000|i], mem_unmwtab, 1);
 		}
 	}
 	else {
-		for (i = 0; i < (0x800000 >> 12); i++) {
-			void *ram = psxRegs.ptrs.psxM;
-			map_l1_mem(mem_writetab, i, 0x80000000, 0x200000, ram);
-			map_l1_mem(mem_writetab, i, 0x00000000, 0x200000, ram);
-			map_l1_mem(mem_writetab, i, 0xa0000000, 0x200000, ram);
-		}
+		void *ram = psxRegs.ptrs.psxM;
+		map_ram_window(mem_writetab, 0x80000000u, ram);
+		map_ram_window(mem_writetab, 0x00000000u, ram);
+		map_ram_window(mem_writetab, 0xa0000000u, ram);
 	}
 }
 
@@ -284,11 +296,63 @@ void new_dyna_pcsx_mem_load_state(void)
 
 int pcsxmem_is_handler_dynamic(unsigned int addr)
 {
+	if (new_dynarec_arcade_memory_enabled()) {
+		u32 physical = addr & 0x1fffffffu;
+		if ((physical >= 0x1f000000u && physical < 0x1f800000u) ||
+		    (physical >= 0x1fa00000u && physical < 0x1fc00000u))
+			return 1;
+	}
 	if ((addr & 0xfffff000) != 0x1f801000)
 		return 0;
 
 	addr &= 0xffff;
 	return addr == 0x1100 || addr == 0x1110 || addr == 0x1120;
+}
+
+static void map_board_window(u32 start, u32 end)
+{
+	static const u32 segment[] = { 0, 0x80000000u, 0xa0000000u };
+	u32 base;
+	for (base = 0; base < sizeof(segment) / sizeof(segment[0]); base++) {
+		u32 address = segment[base] + start;
+		u32 stop = segment[base] + end;
+		for (; address < stop; address += 1u << 12) {
+			map_item(&mem_readtab[address >> 12], board_iortab, 1);
+			map_item(&mem_writetab[address >> 12], board_iowtab, 1);
+		}
+	}
+}
+
+static void map_board_handlers(void)
+{
+	u32 i;
+	if (!new_dynarec_arcade_memory_enabled())
+		return;
+	for (i = 0; i < 0x1000; i += 4) {
+		map_item(&board_iortab[IOMEM32(i)], board_read32, 1);
+		map_item(&board_iowtab[IOMEM32(i)], board_write32, 1);
+	}
+	for (i = 0; i < 0x1000; i += 2) {
+		map_item(&board_iortab[IOMEM16(i)], board_read16, 1);
+		map_item(&board_iowtab[IOMEM16(i)], board_write16, 1);
+	}
+	for (i = 0; i < 0x1000; i++) {
+		map_item(&board_iortab[IOMEM8(i)], board_read8, 1);
+		map_item(&board_iowtab[IOMEM8(i)], board_write8, 1);
+	}
+	map_board_window(0x1f000000u, 0x1f800000u);
+	map_board_window(0x1fa00000u, 0x1fc00000u);
+}
+
+static void map_ram_window(uintptr_t *table, u32 start, void *ram)
+{
+	u32 address;
+	u32 ram_size = PSX_RAM_SIZE;
+	u32 mapped_span = ram_size > 0x800000u ? ram_size : 0x800000u;
+	for (address = 0; address < mapped_span; address += 1u << 12) {
+		u32 page = address >> 12;
+		map_l1_mem(table, page, start, ram_size, ram);
+	}
 }
 
 void new_dyna_pcsx_mem_init(void)
@@ -319,21 +383,19 @@ void new_dyna_pcsx_mem_init(void)
 		map_item(&mem_writetab[i], mem_unmwtab, 1);
 	}
 
-	// RAM and its mirrors
-	for (i = 0; i < (0x800000 >> 12); i++) {
-		void *ram = psxRegs.ptrs.psxM;
-		map_l1_mem(mem_readtab,  i, 0x80000000, 0x200000, ram);
-		map_l1_mem(mem_readtab,  i, 0x00000000, 0x200000, ram);
-		map_l1_mem(mem_readtab,  i, 0xa0000000, 0x200000, ram);
-	}
+	// RAM aliases cover console mirrors or the full larger arcade RAM window.
+	map_ram_window(mem_readtab, 0x80000000u, psxRegs.ptrs.psxM);
+	map_ram_window(mem_readtab, 0x00000000u, psxRegs.ptrs.psxM);
+	map_ram_window(mem_readtab, 0xa0000000u, psxRegs.ptrs.psxM);
 	new_dyna_pcsx_mem_isolate(0);
 
 	// BIOS and its mirrors
 	for (i = 0; i < (0x400000 >> 12); i++) {
-		map_l1_mem(mem_readtab, i, 0x1fc00000, 0x80000, psxRegs.ptrs.psxR);
-		map_l1_mem(mem_readtab, i, 0x9fc00000, 0x80000, psxRegs.ptrs.psxR);
-		map_l1_mem(mem_readtab, i, 0xbfc00000, 0x80000, psxRegs.ptrs.psxR);
+		map_l1_mem(mem_readtab, i, 0x1fc00000, PSX_ROM_SIZE, psxRegs.ptrs.psxR);
+		map_l1_mem(mem_readtab, i, 0x9fc00000, PSX_ROM_SIZE, psxRegs.ptrs.psxR);
+		map_l1_mem(mem_readtab, i, 0xbfc00000, PSX_ROM_SIZE, psxRegs.ptrs.psxR);
 	}
+	map_board_handlers();
 
 	// scratchpad
 	map_l1_mem(mem_readtab, 0, 0x1f800000, 0x1000, psxRegs.ptrs.psxH);
@@ -443,6 +505,10 @@ void new_dyna_pcsx_mem_init(void)
 	map_item(&mem_iowtab[IOMEM32(0x10bc)], psxHwWriteChcr3, 1);
 	map_item(&mem_iowtab[IOMEM32(0x10c8)], psxHwWriteChcr4, 1);
 	map_item(&mem_iowtab[IOMEM32(0x10cc)], psxHwWriteChcr4, 1);
+	#ifdef PCSX_SYSTEM12
+	map_item(&mem_iowtab[IOMEM32(0x10d8)], psxHwWriteChcr5, 1);
+	map_item(&mem_iowtab[IOMEM32(0x10dc)], psxHwWriteChcr5, 1);
+	#endif
 	map_item(&mem_iowtab[IOMEM32(0x10e8)], psxHwWriteChcr6, 1);
 	map_item(&mem_iowtab[IOMEM32(0x10ec)], psxHwWriteChcr6, 1);
 	map_item(&mem_iowtab[IOMEM32(0x10f0)], psxHwWriteDmaPcr32, 1);
@@ -488,6 +554,10 @@ void new_dyna_pcsx_mem_init(void)
 	map_item(&mem_iowtab[IOMEM16(0x10c8)], psxHwWriteChcr4, 1);
 	map_item(&mem_iowtab[IOMEM16(0x10cc)], psxHwWriteChcr4, 1);
 	map_item(&mem_iowtab[IOMEM16(0x10e0)], io_write_force32_10e0, 1);
+	#ifdef PCSX_SYSTEM12
+	map_item(&mem_iowtab[IOMEM16(0x10d8)], psxHwWriteChcr5, 1);
+	map_item(&mem_iowtab[IOMEM16(0x10dc)], psxHwWriteChcr5, 1);
+	#endif
 	map_item(&mem_iowtab[IOMEM16(0x10e8)], psxHwWriteChcr6, 1);
 	map_item(&mem_iowtab[IOMEM16(0x10ec)], psxHwWriteChcr6, 1);
 	map_item(&mem_iowtab[IOMEM16(0x10f0)], psxHwWriteDmaPcr32, 1);
@@ -535,6 +605,94 @@ void new_dyna_pcsx_mem_init(void)
 	mem_wtab = mem_writetab;
 
 	new_dyna_pcsx_mem_load_state();
+	if (new_dynarec_arcade_memory_enabled() && !new_dyna_pcsx_mem_arcade_selftest()) {
+		SysPrintf("System12 DRC memory-table selftest failed\n");
+		abort();
+	}
+}
+
+static int ndrc_check_direct_mapping(uintptr_t *table, u32 address, const u8 *expected)
+{
+	uintptr_t msb = (uintptr_t)1 << (sizeof(uintptr_t) * 8 - 1);
+	uintptr_t l1 = table[address >> 12];
+	if (l1 & msb)
+		return 0;
+	return (const u8 *)((l1 << 1) + address) == expected;
+}
+
+static int ndrc_check_board_handler(uintptr_t *table, u32 address,
+	unsigned width, uintptr_t expected)
+{
+	uintptr_t msb = (uintptr_t)1 << (sizeof(uintptr_t) * 8 - 1);
+	uintptr_t l1 = table[address >> 12];
+	uintptr_t *l2;
+	unsigned index;
+	if (!(l1 & msb))
+		return 0;
+	l2 = (uintptr_t *)(l1 << 1);
+	if (width == 1)
+		index = 0x1000 / 4 + 0x1000 / 2 + (address & 0xfff);
+	else if (width == 2)
+		index = 0x1000 / 4 + ((address & 0xfff) / 2);
+	else
+		index = (address & 0xfff) / 4;
+	if (!(l2[index] & msb))
+		return 0;
+	return (uintptr_t)(l2[index] << 1) == expected;
+}
+
+int new_dyna_pcsx_mem_arcade_selftest(void)
+{
+	static const u32 segment[] = { 0, 0x80000000u, 0xa0000000u };
+	u32 ram_size = PSX_RAM_SIZE;
+	u32 offsets[4], count = 0, i, s;
+	u32 rom_offset;
+	if (!mem_readtab || !mem_writetab || ram_size < 0x200000u ||
+	    (ram_size & (ram_size - 1)) != 0)
+		return 0;
+	offsets[count++] = 0;
+	if (ram_size >= 0x400000u)
+		offsets[count++] = 0x200000u;
+	if (ram_size >= 0x1000000u)
+		offsets[count++] = 0x800000u;
+	offsets[count++] = ram_size - 4;
+	for (i = 0; i < count; i++) {
+		u32 offset = offsets[i];
+		for (s = 0; s < sizeof(segment) / sizeof(segment[0]); s++) {
+			u32 address = segment[s] + offset;
+			if (!ndrc_check_direct_mapping(mem_readtab, address,
+					psxRegs.ptrs.psxM + offset) ||
+			    !ndrc_check_direct_mapping(mem_writetab, address,
+					psxRegs.ptrs.psxM + offset))
+				return 0;
+		}
+	}
+	if (ram_size < 0x800000u &&
+	    !ndrc_check_direct_mapping(mem_readtab, ram_size, psxRegs.ptrs.psxM))
+		return 0;
+	rom_offset = PSX_ROM_SIZE - 4;
+	if (!ndrc_check_direct_mapping(mem_readtab, 0x1fc00000u + rom_offset,
+			psxRegs.ptrs.psxR + rom_offset) ||
+	    !ndrc_check_direct_mapping(mem_readtab, 0x9fc00000u + rom_offset,
+			psxRegs.ptrs.psxR + rom_offset) ||
+	    !ndrc_check_direct_mapping(mem_readtab, 0xbfc00000u + rom_offset,
+			psxRegs.ptrs.psxR + rom_offset))
+		return 0;
+	if (new_dynarec_arcade_memory_enabled()) {
+		static const u32 checks[] = { 0x1f000000u, 0x9f000000u,
+			0xbf000000u, 0x1fa00000u, 0x9fa00000u, 0xbfa00000u };
+		for (i = 0; i < sizeof(checks) / sizeof(checks[0]); i++)
+			if (!ndrc_check_board_handler(mem_readtab, checks[i], 4,
+					(uintptr_t)board_read32) ||
+			    !ndrc_check_board_handler(mem_writetab, checks[i], 4,
+					(uintptr_t)board_write32) ||
+			    !ndrc_check_board_handler(mem_readtab, checks[i] + 1, 1,
+					(uintptr_t)board_read8) ||
+			    !ndrc_check_board_handler(mem_writetab, checks[i] + 1, 1,
+					(uintptr_t)board_write8))
+				return 0;
+	}
+	return 1;
 }
 
 void new_dyna_pcsx_mem_reset(void)

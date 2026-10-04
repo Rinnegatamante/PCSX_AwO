@@ -7,8 +7,9 @@ TARGET := $(BUILD)/pcsx-harness
 BOARD ?= 1
 HAVE_CHD ?= 1
 SYSTEM12_TIMING ?= 0
+DRC ?= 0
 CFLAGS := -arch arm64 -O2 -g -std=gnu99 -Wall -Wno-unknown-pragmas \
-  -I$(BUILD) -Iinclude -Ifrontend -include stdio.h -DDRC_DISABLE -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD \
+  -I$(BUILD) -Iinclude -Ifrontend -include stdio.h -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD \
   -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP -DP_HAVE_MMAP=1 \
   -DP_HAVE_POSIX_MEMALIGN=1 -DDISABLE_MEM_LUTS=0 \
   -ffunction-sections -fdata-sections
@@ -22,6 +23,14 @@ SOURCES := $(addprefix libpcsxcore/,$(addsuffix .c,$(CORE))) \
   plugins/gpulib/gpu.c plugins/gpulib/vout_pl.c plugins/gpulib/prim.c \
   plugins/gpu_neon/psx_gpu_if.c plugins/gpu_neon/psx_gpu/psx_gpu_simd.c \
   frontend/plugin.c frontend/mac_harness.c frontend/mac_harness_gpu.c
+ifeq ($(DRC),1)
+CFLAGS += -DBASE_ADDR_DYNAMIC
+SOURCES += libpcsxcore/new_dynarec/new_dynarec.c libpcsxcore/new_dynarec/pcsxmem.c
+ASM_SOURCES := libpcsxcore/new_dynarec/linkage_arm64.S \
+  libpcsxcore/gte_arm64.S libpcsxcore/gte_nf_arm64.S
+else
+CFLAGS += -DDRC_DISABLE
+endif
 ifeq ($(HAVE_CHD),1)
 include tools/mac-harness/libchdr.mk
 CFLAGS += -DHAVE_CHD $(LIBCHDR_CFLAGS)
@@ -47,7 +56,7 @@ ifeq ($(SYSTEM12_TIMING),1)
 CFLAGS += -DPCSX_SYSTEM12_SOURCE_TIMING
 endif
 endif
-OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o)) $(LIBCHDR_EXTRA_OBJECTS)
+OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o) $(ASM_SOURCES:.S=.o)) $(LIBCHDR_EXTRA_OBJECTS)
 
 .PHONY: all clean smoke board-test system11-test system10-test capcom-zn-test taito-fx1-test gpu-type1-test devices-test FORCE
 all: $(TARGET)
@@ -67,6 +76,9 @@ $(BUILD)/%.o: %.c $(BUILD)/revision.h $(BUILD)/compile-flags.txt
 $(BUILD)/%.o: %.cpp $(BUILD)/revision.h $(BUILD)/compile-flags.txt
 	@mkdir -p $(dir $@)
 	$(CXX) $(filter-out -std=gnu99,$(CFLAGS)) -std=c++17 -MMD -MP -c $< -o $@
+$(BUILD)/%.o: %.S $(BUILD)/compile-flags.txt
+	@mkdir -p $(dir $@)
+	$(CC) $(filter-out -std=gnu99 -include stdio.h,$(CFLAGS)) -c $< -o $@
 smoke: $(TARGET)
 	python3 tools/mac-harness/make_smoke.py $(BUILD)/smoke.exe
 	$(TARGET) --exe $(BUILD)/smoke.exe --frames 3 --output $(BUILD)/smoke.ppm --verify-smoke

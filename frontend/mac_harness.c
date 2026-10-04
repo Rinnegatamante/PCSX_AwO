@@ -129,7 +129,7 @@ static void usage(const char *name)
     "[--frames N] [--output FRAME.ppm] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
-    "[--trace FILE --trace-blocks N] [--max-blocks N] [--icache]\n"
+    "[--trace FILE --trace-blocks N] [--max-blocks N] [--icache] [--drc]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
 
@@ -292,6 +292,7 @@ int main(int argc, char **argv)
   int i, board_test = 0, audio_test_fixture = 0, verify = 0, result = 0, gpu_type1_test = 0;
   int board_family = 12;
   int icache = 0;
+  int use_drc = 0;
   struct timespec begin, end;
   for (i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--exe") && i + 1 < argc) exe = argv[++i];
@@ -309,6 +310,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--audio") && i + 1 < argc) audio_path = argv[++i];
     else if (!strcmp(argv[i], "--nvram") && i + 1 < argc) nvram_path = argv[++i];
     else if (!strcmp(argv[i], "--audio-test-fixture")) audio_test_fixture = 1;
+    else if (!strcmp(argv[i], "--drc")) use_drc = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
     else if ((!strcmp(argv[i], "--trace-blocks") || !strcmp(argv[i], "--max-blocks")) && i + 1 < argc) {
       int tracing = !strcmp(argv[i], "--trace-blocks");
@@ -352,7 +354,13 @@ int main(int argc, char **argv)
   }
   memset(&Config, 0, sizeof(Config));
   Config.HLE = 1;
-  Config.Cpu = CPU_INTERPRETER;
+  Config.Cpu = use_drc ? CPU_DYNAREC : CPU_INTERPRETER;
+#ifdef DRC_DISABLE
+  if (use_drc) { fprintf(stderr, "Rebuild with DRC=1 for --drc.\n"); return 2; }
+#endif
+  if (use_drc && board && board_family != 12) {
+    fprintf(stderr, "Arcade DRC validation currently covers System 12 only.\n"); return 2;
+  }
   Config.icache_emulation = icache;
   Config.cycle_multiplier = CYCLE_MULT_DEFAULT;
   Config.PsxType = PSX_TYPE_NTSC;
@@ -446,11 +454,15 @@ int main(int argc, char **argv)
     }
     /* Use the public interpreter step to cap otherwise branchless blocks.
      * It preserves the core's branch and pending load-delay semantics. */
-    psxRegs.branchSeen = 0;
-    do {
-      execI(&psxRegs);
-      steps++;
-    } while (!psxRegs.branchSeen && steps < 4096 && !interrupted);
+    if (use_drc)
+      psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
+    else {
+      psxRegs.branchSeen = 0;
+      do {
+        execI(&psxRegs);
+        steps++;
+      } while (!psxRegs.branchSeen && steps < 4096 && !interrupted);
+    }
     blocks++;
     cycles += (uint32_t)(psxRegs.cycle - prev_cycle);
     prev_cycle = psxRegs.cycle;
@@ -499,9 +511,9 @@ int main(int argc, char **argv)
 #ifdef PCSX_SYSTEM12
   if (!result && !interrupted && nvram_path && save_nvram(nvram_path)) result = 1;
 #endif
-  fprintf(stderr, "host=macOS-arm64 renderer=GPU_NEON SIMD cpu=interpreter "
+  fprintf(stderr, "host=macOS-arm64 renderer=GPU_NEON SIMD cpu=%s "
     "frames=%u cycles=%" PRIu64 " blocks=%lu pc=%08x flips=%u elapsed=%.3fs output=%s\n",
-    frame_counter - start_frame, cycles, blocks, psxRegs.pc,
+    psxCpu == &psxRec ? "ari64" : "interpreter", frame_counter - start_frame, cycles, blocks, psxRegs.pc,
     flips, end.tv_sec - begin.tv_sec + (end.tv_nsec - begin.tv_nsec) * 1e-9, output);
 #ifdef PCSX_SYSTEM12
   if (board) selected_board->report(stderr);

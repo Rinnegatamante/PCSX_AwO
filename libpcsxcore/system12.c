@@ -26,7 +26,7 @@
 #include <errno.h>
 
 #ifndef DRC_DISABLE
-#error System12 currently requires the interpreter; dynarec has a console memory map
+#include "new_dynarec/new_dynarec.h"
 #endif
 #if DISABLE_MEM_LUTS
 #error System12 requires memory LUTs for banked instruction fetch
@@ -234,6 +234,21 @@ static u32 physical(u32 address)
     return address >= 0x80000000 && address < 0xc0000000
         ? address & 0x1fffffff : address;
 }
+
+#ifndef DRC_DISABLE
+static int system12_code_span(unsigned int pc, const unsigned int **words,
+    unsigned int *limit)
+{
+    const u32 address = physical(pc);
+    if (!board.active || address < 0x1fa00000 || address >= 0x1fc00000 ||
+        (pc & 3) || board.bank >= board.banked_size / WINDOW_SIZE)
+        return 0;
+    *words = (const unsigned int *)(board.banked + board.bank * WINDOW_SIZE +
+        address - 0x1fa00000);
+    *limit = pc + (0x1fc00000 - address);
+    return 1;
+}
+#endif
 
 /* The H8 sees big-endian 16-bit words, while the main CPU sees the same
  * shared backing as little-endian halfwords. MAME bus oracle verifies this. */
@@ -528,12 +543,18 @@ int system12_load(const char *directory)
     psxRomSize = board.main_size;
     if (gpu_set_vram_height(1024)) { system12_unload(); return -1; }
     board.active = 1;
+#ifndef DRC_DISABLE
+    new_dynarec_set_code_span_provider(system12_code_span);
+#endif
     return 0;
 }
 
 void system12_unload(void)
 {
     /* Call after psxShutdown(): sizes are needed to unmap the core. */
+#ifndef DRC_DISABLE
+    new_dynarec_set_code_span_provider(NULL);
+#endif
     if (board.audio_file) system12_close_audio();
     h8_destroy(board.h8);
     c352_destroy(board.pcm);
@@ -557,6 +578,10 @@ static void map_bank(unsigned bank)
 {
     unsigned segment, page;
     const u32 bases[] = { 0x1fa00000, 0x9fa00000, 0xbfa00000 };
+#ifndef DRC_DISABLE
+    if (board.active && board.bank != bank && psxCpu == &psxRec)
+        new_dynarec_invalidate_range_hard(0x1fa00000, 0x1fc00000);
+#endif
     board.bank = bank;
     if (DISABLE_MEM_LUTS)
         return;
