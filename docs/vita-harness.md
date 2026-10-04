@@ -1,5 +1,17 @@
 # Vita standalone validation
 
+The validation targets are tracked separately:
+
+| Target | Recorded evidence | Remaining gate |
+| --- | --- | --- |
+| M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
+| Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe and System 12 4/16 MiB bank, SMC, DMA and MMIO signatures pass | Actual Soul Calibur captures and board progress, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; GXM transfer readback recovers the background pixel | First host heap-corruption fault, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+
+The System 12 ARMv7 results and isolated runner are documented in
+[system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
+successful package build establishes physical Vita compatibility.
+
 The two builds select `VITA_GPU=neon` or `VITA_GPU=vitagl` and have separate
 archives, frontend objects, VPKs and title IDs (`PCSXN0012` / `PCSXG0012`).
 The NEON build uses the GPU's C SIMD implementation with ARM NEON intrinsics;
@@ -97,8 +109,8 @@ was rebuilt and its NEON console probe passed with the expected signature,
 `Stopping -> Idle`, and owned-process closure in
 `/tmp/pcsx-vita3k-host-recipe-console-1.log`.
 
-This is a console executable bring-up test. It does not validate Soul Calibur
-on Vita, extended arcade RAM/banking in the DRC, the VitaGL renderer, sound
+The console probe does not validate Soul Calibur
+on Vita, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both
 renderer validations in Vita3K precede requesting a real Vita.
 
@@ -111,7 +123,11 @@ alone did not resolve the pixel failure. A controlled GXM transfer readback
 through `vglReadPixels` recovered the background value `2082` and preserved
 the CPU mirror instead of replacing it with zero. The backend now uses that
 transfer path with the explicit fence. The triangle still reads the background
-color instead of `03ff`; draw/VRAM synchronization remains under investigation.
+color instead of `03ff`. A debugger subsequently caught an earlier host heap
+fault while the guest's `vitaGL Splashscreen` thread freed its vertex uniform
+ring, before the test triangle draw. A fresh isolated shader cache reproduces
+that fault. Post-fault triangle observations are insufficient to identify a
+renderer defect; investigation now targets the first corrupting write.
 The required four library build flags remain enabled. VitaGL is not validated
 yet (`/tmp/pcsx-vita3k-vitagl-gxm-transfer-ab.log`).
 
@@ -162,5 +178,6 @@ The full NEON opt-in SDK build linked and packaged successfully. Its console
 smoke guest passed in the isolated fixed Vita3K host with `cpu=ari64`, both
 expected pixels, the RAM sentinel and `Stopping -> Idle`; the runner closed
 its own host process (`/tmp/pcsx-vita3k-neon-system12-build-console-smoke.log`).
-That checks console execution in the arcade-enabled binary, not a System 12
-profile's ARMv7 DRC execution or gameplay.
+That checks console execution in the arcade-enabled binary. The separate
+System 12 generated guests now pass on its ARMv7 DRC for both RAM profiles;
+actual game validation remains a separate gate.
