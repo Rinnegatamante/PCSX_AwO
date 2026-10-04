@@ -1,0 +1,561 @@
+#!/usr/bin/env python3
+"""Capture local Soul Calibur System 12 progress in an isolated Vita3K profile.
+
+No game ROMs or PlayStation BIOS are downloaded. The prepared board regions are
+validated against their local MAME manifest before they are copied into a VPK.
+"""
+from __future__ import annotations
+
+import argparse
+from collections import deque
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import tempfile
+import time
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+TITLE_ID = "S12GAME01"
+SMOKE_ID = "PCSXN0012"
+PROFILE = ROOT / "artifacts/system12-profile"
+DRC_CHECK = ROOT / "tools/vita-harness/check_system12_drc_vita3k.py"
+GAME_FILES = ("board.cfg", "main.bin", "banked.bin", "sub.bin", "wave.bin")
+MILESTONES = (400, 800, 1800)
+AUTO_SCREENSHOT_TIMES = "0.5,1,2,5,10,20,30,45,60"
+
+
+class ProcessGroupWatchdog:
+    """Kill only a Vita3K process group we created, even if the caller stalls."""
+    def __init__(self, process, timeout: float):
+        self.process = process
+        self.timeout = timeout
+        self.timed_out = False
+        watcher = (
+            "import os,signal,sys,time\n"
+            "pgid=int(sys.argv[1]); timeout=float(sys.argv[2])\n"
+            "time.sleep(timeout)\n"
+            "try: os.killpg(pgid, 0)\n"
+            "except (ProcessLookupError, PermissionError): sys.exit(0)\n"
+            "try: os.killpg(pgid, signal.SIGTERM)\n"
+            "except ProcessLookupError: sys.exit(0)\n"
+            "deadline=time.monotonic()+1.5\n"
+            "while time.monotonic()<deadline:\n"
+            " try: os.killpg(pgid, 0)\n"
+            " except (ProcessLookupError, PermissionError): sys.exit(23)\n"
+            " time.sleep(.05)\n"
+            "try: os.killpg(pgid, signal.SIGKILL)\n"
+            "except ProcessLookupError: pass\n"
+            "sys.exit(23)\n")
+        self.helper = subprocess.Popen(
+            [sys.executable, "-c", watcher, str(process.pid), str(timeout)],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def _signal_group(self, sig):
+        try:
+            os.killpg(self.process.pid, sig)
+            return
+        except (ProcessLookupError, PermissionError):
+            pass
+        if self.process.poll() is None:
+            try:
+                self.process.send_signal(sig)
+            except ProcessLookupError:
+                pass
+
+    def _terminate_group(self):
+        self._signal_group(signal.SIGTERM)
+        deadline = time.monotonic() + 1.5
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(self.process.pid, 0)
+            except (ProcessLookupError, PermissionError):
+                break
+            time.sleep(0.05)
+        self._signal_group(signal.SIGKILL)
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+    def close(self):
+        if self.helper.poll() is None:
+            self.helper.terminate()
+            try:
+                self.helper.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                self.helper.kill()
+                self.helper.wait()
+        self.timed_out = self.helper.returncode == 23
+        self._terminate_group()
+
+
+class CapturedGuest:
+    """Drain Vita3K output without retaining its high-volume diagnostic lines."""
+    MARKERS = (b"Stopping -> Idle", b"pcsx-vita: smoke PASS",
+               b"pcsx-vita: system12-report PASS", b"pcsx-vita: system12-capture PASS",
+               b"pcsx-vita: cpu_driver=ari64", b"installed successfully!")
+    ISSUE_MARKERS = (b"Unhandled EXC_", b"|C|", b"[InterpreterFallback] Unimplemented instruction",
+                     b"Unpredictable instruction", b"pcsx-vita: system12-report FAIL",
+                     b"pcsx-vita: system12-capture FAIL", b"pcsx-vita: display detach failed")
+    KEY_WORDS = (b"pcsx-vita:", b"Stopping -> Idle", b"installed successfully!",
+                 b"[InterpreterFallback] Unimplemented instruction", b"Unpredictable instruction",
+                 b"Unhandled EXC_", b"|C|", b"Successfully saved screenshot",
+                 b"Failed to save screenshot", b"Failed to take screenshot",
+                 b"Game started")
+
+    def __init__(self, process, log: Path, label: str):
+        self.process = process
+        self.log = log
+        self.label = label
+        self.markers = set()
+        self.issue_counts = {marker.decode("ascii", errors="replace"): 0
+                             for marker in self.ISSUE_MARKERS}
+        self.issue_examples = {}
+        self.lines_seen = 0
+        self.bytes_seen = 0
+        self.kept = []
+        self.messages = deque(maxlen=128)
+        self.kept_bytes = 0
+        self.thread = threading.Thread(target=self._pump, daemon=True)
+        self.thread.start()
+
+    def _record(self, raw_line: bytes):
+        line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
+        encoded = raw_line
+        self.lines_seen += 1
+        for marker in self.MARKERS:
+            if marker in encoded:
+                self.markers.add(marker.decode("ascii"))
+        for marker in self.ISSUE_MARKERS:
+            if marker in encoded:
+                key = marker.decode("ascii", errors="replace")
+                self.issue_counts[key] += 1
+                self.issue_examples.setdefault(key, line[:2048])
+        keep = any(word in encoded for word in self.KEY_WORDS)
+        if (b"pcsx-vita:" in encoded or b"installed successfully!" in encoded or
+                b"screenshot" in encoded or b"Game started" in encoded):
+            self.messages.append(line[:1024])
+        if keep and self.kept_bytes < 2 * 1024 * 1024:
+            self.kept.append(line[:4096])
+            self.kept_bytes += len(line)
+
+    def _pump(self):
+        pending = b""
+        stream = self.process.stdout
+        try:
+            while True:
+                chunk = stream.read1(65536)
+                if not chunk:
+                    break
+                self.bytes_seen += len(chunk)
+                pending += chunk
+                if len(pending) > 65536 and b"\n" not in pending:
+                    self._record(pending[:65536])
+                    pending = pending[-4096:]
+                lines = pending.split(b"\n")
+                pending = lines.pop()
+                for line in lines:
+                    self._record(line)
+            if pending:
+                self._record(pending)
+        finally:
+            stream.close()
+
+    def wait_for_messages(self, fragments, timeout, stable=0.75, require_idle=True):
+        deadline = time.monotonic() + timeout
+        stable_at = None
+        while time.monotonic() < deadline:
+            if any(self.issue_counts.values()):
+                return False
+            matches = all(any(fragment in message for message in self.messages)
+                          for fragment in fragments)
+            idle = "Stopping -> Idle" in self.markers
+            if matches and (idle or not require_idle):
+                if stable_at is None:
+                    stable_at = time.monotonic()
+                if time.monotonic() - stable_at >= stable:
+                    return True
+            else:
+                stable_at = None
+            if self.process.poll() is not None:
+                return False
+            time.sleep(0.05)
+        return False
+
+    def close(self):
+        self.thread.join(timeout=10)
+        self.log.parent.mkdir(parents=True, exist_ok=True)
+        with self.log.open("a", encoding="utf-8") as out:
+            out.write(f"\n--- Vita3K {self.label}: {self.bytes_seen} bytes, "
+                      f"{self.lines_seen} lines captured ---\n")
+            for line in self.kept:
+                out.write(line + "\n")
+            for key, count in self.issue_counts.items():
+                if count:
+                    out.write(f"diagnostic count={count} marker={key}\n")
+                    out.write(f"diagnostic first={self.issue_examples[key]}\n")
+
+
+def load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot import helper {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def validate_profile():
+    checker = load_module("system12_gameplay_profile", ROOT / "tests/check_system12_gameplay.py")
+    return checker.verify_profile()
+
+
+def make_vpk(base_vpk: Path, packer: Path, mksfoex: Path, output: Path,
+             package_root: Path, title_id: str, title: str, files: list[tuple[Path, str]]):
+    staging = output.parent / (output.stem + "-stage")
+    staging.mkdir()
+    with zipfile.ZipFile(base_vpk) as archive:
+        archive.extract("sce_sys/param.sfo", staging)
+        archive.extract("eboot.bin", staging)
+    sfo = staging / "sce_sys/param.sfo"
+    subprocess.run([str(mksfoex), "-s", f"TITLE_ID={title_id}", "-d", "ATTRIBUTE2=12",
+                    title, str(sfo)], check=True, capture_output=True, text=True, timeout=30)
+    command = [str(packer), "-s", str(sfo), "-b", str(staging / "eboot.bin")]
+    for source, guest_name in files:
+        command += ["-a", f"{source.resolve()}={guest_name}"]
+    command.append(str(output))
+    subprocess.run(command, check=True, capture_output=True, text=True, timeout=180)
+    return output
+
+
+def install_vpk(emulator: Path, vpk: Path, title_id: str, log: Path, timeout: float):
+    process = subprocess.Popen([str(emulator), "--keep-config", "--log-level", "1",
+                                "--", str(vpk.resolve())], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, start_new_session=True)
+    watchdog = ProcessGroupWatchdog(process, timeout)
+    captured = CapturedGuest(process, log, f"install {title_id}")
+    try:
+        installed = captured.wait_for_messages((f"[{title_id}] installed successfully!",),
+                                               timeout, stable=0.25, require_idle=False)
+    finally:
+        watchdog.close()
+        captured.close()
+    accepted_returncodes = (0, -signal.SIGTERM, -signal.SIGKILL)
+    return (installed and not watchdog.timed_out and
+            not any(captured.issue_counts.values()) and
+            process.returncode in accepted_returncodes)
+
+
+def run_guest(emulator: Path, app_args: str, log: Path, timeout: float,
+              done_tokens: tuple[str, ...], extra_env=None):
+    environment = os.environ.copy()
+    if extra_env:
+        environment.update(extra_env)
+    process = subprocess.Popen([str(emulator), "--keep-config", "--log-level", "1",
+                                "--installed-path", TITLE_ID, "--app-args", app_args],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               env=environment, start_new_session=True)
+    watchdog = ProcessGroupWatchdog(process, timeout)
+    captured = CapturedGuest(process, log, f"game args={app_args}")
+    natural_exit = False
+    try:
+        passed = captured.wait_for_messages(done_tokens, timeout)
+    finally:
+        natural_exit = process.poll() is not None
+        watchdog.close()
+        captured.close()
+    errors = {key: count for key, count in captured.issue_counts.items() if count}
+    accepted_returncodes = (0, -signal.SIGTERM, -signal.SIGKILL)
+    passed = (passed and not watchdog.timed_out and
+              process.returncode in accepted_returncodes and
+              (not natural_exit or process.returncode == 0) and not errors)
+    return passed, errors
+
+
+def read_report(report_path: Path) -> dict:
+    lines = report_path.read_text(errors="strict").splitlines()
+    records = {}
+    for line in lines:
+        if not line.startswith("System12: "):
+            continue
+        fields = line[len("System12: "):].split()
+        if not fields:
+            continue
+        record = fields[0].split("=", 1)[0]
+        values = {}
+        for field in fields:
+            if "=" in field:
+                key, value = field.split("=", 1)
+                values[key] = value
+        records.setdefault(record, {}).update(values)
+    if "profile" not in records or "H8" not in records or "C352" not in records:
+        raise RuntimeError(f"board report is incomplete: {report_path}")
+    profile = records["profile"]
+    if (profile.get("profile") != "soulclbrac" or profile.get("machine") != "coh700" or
+            profile.get("RAM") != "4194304" or profile.get("main") != "4194304" or
+            profile.get("banked") != "33554432" or profile.get("sub") != "524288" or
+            profile.get("wave") != "16777216"):
+        raise RuntimeError(f"wrong live board profile in report: {report_path}")
+    h8 = records["H8"]
+    if h8.get("illegal") != "000000:0000":
+        raise RuntimeError(f"H8 reported an illegal instruction: {report_path}")
+    if (int(h8.get("cycles", "0")) <= 0 or int(h8.get("instructions", "0")) <= 0 or
+            h8.get("unsupported") != "0"):
+        raise RuntimeError(f"H8 did not make supported execution progress: {report_path}")
+    if int(records["C352"].get("frames", "0")) <= 0:
+        raise RuntimeError(f"C352 did not advance: {report_path}")
+    if records.get("unmapped", {}).get("reads") != "0" or \
+            records.get("unmapped", {}).get("writes") != "0":
+        raise RuntimeError(f"guest touched unmapped board addresses: {report_path}")
+    if records.get("CPU", {}).get("clock") != "50000000":
+        raise RuntimeError(f"unexpected System12 source-clock profile: {report_path}")
+    return {"lines": lines, "records": records}
+
+
+def check_capture(path: Path) -> dict:
+    data = path.read_bytes()
+    if not data.startswith(b"P6\n"):
+        raise RuntimeError(f"capture is not a P6 PPM: {path}")
+    header, _, payload = data.partition(b"\n255\n")
+    parts = header.split()
+    if len(parts) != 3 or parts[0] != b"P6":
+        raise RuntimeError(f"bad PPM header: {path}")
+    width, height = int(parts[1]), int(parts[2])
+    if not 1 <= width <= 1024 or not 1 <= height <= 512 or len(payload) != width * height * 3:
+        raise RuntimeError(f"bad PPM dimensions or payload: {path}")
+    pixel_count = width * height
+    sample_step = max(1, pixel_count // 65536)
+    colors = set()
+    nonblack = 0
+    sampled = 0
+    for i in range(0, pixel_count, sample_step):
+        rgb = payload[i * 3:i * 3 + 3]
+        colors.add(rgb)
+        sampled += 1
+        nonblack += bool(rgb[0] or rgb[1] or rgb[2])
+    return {"width": width, "height": height, "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "sampled_unique_rgb": len(colors), "sampled_nonblack": nonblack,
+            "sampled_pixels": sampled, "looks_black": nonblack == 0}
+
+
+def read_cli(base, args):
+    starter = load_module("system12_drc_helper", DRC_CHECK)
+    source_bundle, binary_relative = starter.locate_app_bundle(args.emulator)
+    isolated_bundle = base / source_bundle.name
+    shutil.copytree(source_bundle, isolated_bundle, symlinks=True)
+    emulator = isolated_bundle / binary_relative
+
+    portable = base / "portable"
+    portable.mkdir()
+    source_fs = args.firmware_fs.resolve()
+    config_template = (args.config_template or source_fs.parent / "config.yml").resolve()
+    fs = portable / "fs"
+    starter.make_isolated_config(portable / "config.yml", fs, source_fs, config_template)
+    config_path = portable / "config.yml"
+    set_png_screenshot_format(config_path)
+    return emulator, fs, portable
+
+
+def set_png_screenshot_format(config_path: Path):
+    lines = config_path.read_text(encoding="utf-8").splitlines()
+    keys = [i for i, line in enumerate(lines) if line.startswith("screenshot-format:")]
+    if len(keys) > 1:
+        raise RuntimeError("Vita3K config has duplicate screenshot-format keys")
+    if keys:
+        lines[keys[0]] = "screenshot-format: 2"
+    else:
+        lines.append("screenshot-format: 2")
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def copy_new_screenshots(screenshot_root: Path, before: set[Path], output_dir: Path, frames: int):
+    after = set(screenshot_root.rglob("*.png")) if screenshot_root.exists() else set()
+    new_files = sorted(after - before, key=lambda path: (path.stat().st_mtime_ns, str(path)))
+    if not new_files:
+        raise RuntimeError(f"Vita3K produced no native PNG screenshot by frame milestone {frames}")
+    destination = output_dir / f"native-screenshots-{frames}"
+    destination.mkdir()
+    copied = []
+    for index, path in enumerate(new_files, start=1):
+        with path.open("rb") as image_file:
+            header = image_file.read(24)
+        if (len(header) != 24 or header[:8] != b"\x89PNG\r\n\x1a\n" or
+                int.from_bytes(header[8:12], "big") != 13 or header[12:16] != b"IHDR"):
+            raise RuntimeError(f"Vita3K screenshot has no valid PNG signature/IHDR: {path}")
+        width = int.from_bytes(header[16:20], "big")
+        height = int.from_bytes(header[20:24], "big")
+        if not width or not height:
+            raise RuntimeError(f"Vita3K screenshot has invalid PNG dimensions: {path}")
+        target = destination / f"{index:02d}-{path.name}"
+        shutil.copy2(path, target)
+        copied.append({"path": str(target), "width": width, "height": height,
+                       "bytes": target.stat().st_size,
+                       "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+    return copied
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--emulator", type=Path, required=True, help="fixed Vita3K.app or its executable")
+    parser.add_argument("--vpk", type=Path, required=True, help="ARCADE_SYSTEM12=1 NEON VPK")
+    parser.add_argument("--firmware-fs", type=Path, required=True,
+                        help="local Vita3K filesystem containing vs0, os0, sa0")
+    parser.add_argument("--config-template", type=Path)
+    parser.add_argument("--vita-pack-vpk", type=Path, default=shutil.which("vita-pack-vpk"))
+    parser.add_argument("--vita-mksfoex", type=Path, default=shutil.which("vita-mksfoex"))
+    parser.add_argument("--smoke-exe", type=Path, default=ROOT / "build/vita-system12/smoke.exe")
+    parser.add_argument("--profile", type=Path, default=PROFILE)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--timeout", type=float, default=240)
+    args = parser.parse_args()
+    if (not (args.emulator.is_file() or args.emulator.is_dir()) or not args.vpk.is_file() or
+            not args.firmware_fs.is_dir() or not args.smoke_exe.is_file() or
+            not args.profile.is_dir() or args.timeout <= 0 or not args.vita_pack_vpk or
+            not args.vita_mksfoex):
+        parser.error("emulator, VPK, local firmware/profile, pack tools, and timeout are required")
+    if args.output_dir.exists():
+        parser.error("output directory already exists; choose a fresh path")
+    args.output_dir.mkdir(parents=True)
+
+    # Reuse the repository's complete manifest/CRC/SHA1/source-commit audit.
+    if args.profile.resolve() != PROFILE.resolve():
+        raise RuntimeError("custom profile directories are not accepted by this validation runner")
+    manifest = validate_profile()
+    if manifest["profile"]["description"] != "Soul Calibur (Asia, SOC14/VER.C)":
+        raise RuntimeError("unexpected game profile")
+
+    with tempfile.TemporaryDirectory(prefix="pcsx-vita-system12-gameplay-") as temp:
+        base = Path(temp)
+        emulator, fs, portable = read_cli(base, args)
+        (args.output_dir / "native-screenshot-setup.json").write_text(json.dumps({
+            "config_key": "screenshot-format", "config_value": 2,
+            "auto_screenshot_env": AUTO_SCREENSHOT_TIMES,
+            "native_capture_root": "portable/screenshots/<Vita3K title>",
+        }, indent=2) + "\n", encoding="utf-8")
+        shutil.copy2(portable / "config.yml", args.output_dir / "vita3k-config.yml")
+        smoke_vpk = make_vpk(args.vpk.resolve(), Path(args.vita_pack_vpk),
+                             Path(args.vita_mksfoex), base / "console-smoke.vpk",
+                             base, SMOKE_ID, "PCSX Vita console smoke",
+                             [(args.smoke_exe, "smoke.exe")])
+        game_vpk = make_vpk(args.vpk.resolve(), Path(args.vita_pack_vpk),
+                            Path(args.vita_mksfoex), base / "soulclbrac.vpk", base,
+                            TITLE_ID, "PCSX Vita System12 Soul Calibur",
+                            [(args.profile / name, f"soulclbrac/{name}") for name in GAME_FILES])
+
+        log = args.output_dir / "vita3k.log"
+        log.touch()
+        if not install_vpk(emulator, smoke_vpk, SMOKE_ID, log, args.timeout):
+            raise RuntimeError(f"console smoke VPK installation failed; log={log}")
+        # The console smoke app is run under its own installed title.
+        process = subprocess.Popen([str(emulator), "--keep-config", "--log-level", "1",
+            "--installed-path", SMOKE_ID, "--app-args",
+            f"pcsx-vita, ux0:app/{SMOKE_ID}/smoke.exe, --frames, 3, --verify-smoke"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+        smoke_watchdog = ProcessGroupWatchdog(process, args.timeout)
+        console_capture = CapturedGuest(process, log, "console smoke")
+        console_natural_exit = False
+        try:
+            console_ok = console_capture.wait_for_messages((
+                "pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 "
+                "sentinel=534d4f4b runs=3",), args.timeout)
+        finally:
+            console_natural_exit = process.poll() is not None
+            smoke_watchdog.close()
+            console_capture.close()
+        console_ok = (console_ok and not any(console_capture.issue_counts.values()) and
+                      not smoke_watchdog.timed_out and
+                      process.returncode in (0, -signal.SIGTERM, -signal.SIGKILL) and
+                      (not console_natural_exit or process.returncode == 0))
+        if not console_ok:
+            raise RuntimeError(f"console NEON smoke failed; log={log}")
+
+        if not install_vpk(emulator, game_vpk, TITLE_ID, log, args.timeout):
+            raise RuntimeError(f"Soul Calibur VPK installation failed; log={log}")
+        (args.output_dir / "profile-manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        results = []
+        prior_h8_cycles = 0
+        prior_pcm_frames = 0
+        guest_data = fs / "ux0/data"
+        screenshot_root = portable / "screenshots"
+        for frames in MILESTONES:
+            report_guest = f"ux0:data/system12-{frames}.txt"
+            capture_guest = f"ux0:data/system12-{frames}.ppm"
+            args_text = (f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/soulclbrac, "
+                         f"--frames, {frames}, --report-system12, {report_guest}, "
+                         f"--capture-ppm, {capture_guest}")
+            expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
+                        f"pcsx-vita: system12-capture PASS path={capture_guest}",
+                        "pcsx-vita: cpu_driver=ari64")
+            before_screenshots = (set(screenshot_root.rglob("*.png"))
+                                  if screenshot_root.exists() else set())
+            guest_ok, runtime_issues = run_guest(
+                emulator, args_text, log, args.timeout, expected,
+                extra_env={"VITA3K_AUTO_SCREENSHOT": AUTO_SCREENSHOT_TIMES})
+            if not guest_ok:
+                raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
+            report_path = guest_data / f"system12-{frames}.txt"
+            capture_path = guest_data / f"system12-{frames}.ppm"
+            if not report_path.is_file() or not capture_path.is_file():
+                raise RuntimeError(f"Vita guest did not produce evidence at {frames} frames")
+            report_out = args.output_dir / f"system12-{frames}.txt"
+            capture_out = args.output_dir / f"system12-{frames}.ppm"
+            shutil.copy2(report_path, report_out)
+            shutil.copy2(capture_path, capture_out)
+            report_info = read_report(report_out)
+            capture_info = check_capture(capture_out)
+            screenshot_error = None
+            try:
+                screenshots = copy_new_screenshots(screenshot_root, before_screenshots,
+                                                   args.output_dir, frames)
+            except RuntimeError as error:
+                screenshots = []
+                screenshot_error = str(error)
+            h8_cycles = int(report_info["records"]["H8"]["cycles"])
+            pcm_frames = int(report_info["records"]["C352"]["frames"])
+            if h8_cycles <= prior_h8_cycles or pcm_frames < prior_pcm_frames:
+                raise RuntimeError(f"board device progress stalled by frame {frames}")
+            prior_h8_cycles, prior_pcm_frames = h8_cycles, pcm_frames
+            results.append({"frames": frames, "report": report_out.name,
+                            "capture": capture_out.name,
+                            "capture_info": capture_info,
+                            "native_screenshots": screenshots,
+                            "native_screenshot_error": screenshot_error,
+                            "report_info": report_info,
+                            "runtime_issues": runtime_issues})
+            (args.output_dir / "results.json").write_text(json.dumps({
+                "vpk": str(args.vpk.resolve()), "title_id": TITLE_ID,
+                "console_smoke": "PASS", "board_execution_verified": False,
+                "host_execution_issues": any(result["runtime_issues"] for result in results),
+                "milestones": results,
+            }, indent=2) + "\n", encoding="utf-8")
+            if screenshot_error:
+                raise RuntimeError(screenshot_error)
+
+        if len({r["report_info"]["records"]["H8"]["cycles"] for r in results}) < 3:
+            raise RuntimeError("H8 cycles did not change across all requested milestones")
+
+        has_runtime_issues = any(result["runtime_issues"] for result in results)
+        (args.output_dir / "results.json").write_text(json.dumps({
+            "vpk": str(args.vpk.resolve()), "title_id": TITLE_ID,
+            "console_smoke": "PASS", "board_execution_verified": False,
+            "host_execution_issues": has_runtime_issues,
+            "milestones": results,
+        }, indent=2) + "\n", encoding="utf-8")
+    print(f"Vita3K System12 gameplay evidence captured: {args.output_dir}")
+    return 1 if has_runtime_issues else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

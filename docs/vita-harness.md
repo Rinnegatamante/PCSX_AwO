@@ -5,7 +5,7 @@ The validation targets are tracked separately:
 | Target | Recorded evidence | Remaining gate |
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
-| Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe and System 12 4/16 MiB bank, SMC, DMA and MMIO signatures pass | Actual Soul Calibur captures and board progress, then physical Vita validation |
+| Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and Soul Calibur boot/attract progress through 1,800 frames with native screenshots | Game-state/timing comparison and a playable match, then physical Vita validation |
 | Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; GXM transfer readback recovers the background pixel | Host shutdown fault, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
