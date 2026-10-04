@@ -1,0 +1,39 @@
+CC ?= clang
+CXX ?= clang++
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter
+BUILD ?= build/nscsi-hd-tests
+ARCADE := libpcsxcore/arcade
+TARGET := $(BUILD)/test_nscsi_hd
+OBJS := $(BUILD)/nscsi_bus.o $(BUILD)/nscsi_target.o $(BUILD)/ncr53cf96.o $(BUILD)/nscsi_hd.o
+
+.PHONY: all test sanitize clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $@
+
+$(BUILD)/nscsi_bus.o: $(ARCADE)/nscsi_bus.cpp $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/nscsi_target.o: $(ARCADE)/nscsi_target.cpp $(ARCADE)/nscsi_target.h $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/ncr53cf96.o: $(ARCADE)/ncr53cf96.cpp $(ARCADE)/ncr53cf96.h $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/nscsi_hd.o: $(ARCADE)/nscsi_hd.cpp $(ARCADE)/nscsi_hd.h $(ARCADE)/nscsi_target.h $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(OBJS) tests/test_nscsi_hd.cpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/test_nscsi_hd.d -I$(ARCADE) tests/test_nscsi_hd.cpp $(OBJS) -o $@
+
+-include $(OBJS:.o=.d) $(BUILD)/test_nscsi_hd.d
+
+test: $(TARGET)
+	$(TARGET)
+
+sanitize:
+	$(MAKE) -f tests/Makefile.nscsi-hd BUILD=$(BUILD)/sanitize CXXFLAGS='-std=c++17 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined -fno-omit-frame-pointer' test
+
+clean:
+	rm -rf $(BUILD)

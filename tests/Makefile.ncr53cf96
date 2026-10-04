@@ -1,0 +1,28 @@
+CC ?= clang
+CXX ?= clang++
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare
+BUILD ?= build/ncr53cf96-tests
+ARCADE := libpcsxcore/arcade
+TARGET := $(BUILD)/test-ncr53cf96
+OBJECTS := $(BUILD)/ncr53cf96.o
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(BUILD)/ncr53cf96.o: $(ARCADE)/ncr53cf96.cpp $(ARCADE)/ncr53cf96.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/ncr53cf96.d -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(OBJECTS) tests/test_ncr53cf96.cpp $(ARCADE)/ncr53cf96.h
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/test_ncr53cf96.d -I$(ARCADE) tests/test_ncr53cf96.cpp $(OBJECTS) -o $@
+
+-include $(BUILD)/ncr53cf96.d $(BUILD)/test_ncr53cf96.d
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
