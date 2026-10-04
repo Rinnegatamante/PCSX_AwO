@@ -488,6 +488,12 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
         return;
 
+    /* A GP0 upload is ordered after any earlier draws even if the frontend
+     * has not submitted its frame packet yet. Flush those splits before the
+     * backend copies guest VRAM into the persistent GL texture. This callback
+     * runs on the GPU/frontend thread; backend tasks never call it. */
+    renderer_barrier();
+
     memset(&task, 0, sizeof(task));
     task.x = x;
     task.y = y;
