@@ -27,4 +27,5 @@ typedef struct {
 int pcsx_vita_uses_dynarec(void);
 void pcsx_vita_read_smoke(pcsx_vita_smoke_result *result);
 int pcsx_vita_read_system12_drc(pcsx_vita_system12_drc_result *result);
+int pcsx_vita_write_system12_report(const char *path);
 #endif

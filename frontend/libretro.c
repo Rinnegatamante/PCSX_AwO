@@ -4385,6 +4385,27 @@ int pcsx_vita_read_system12_drc(pcsx_vita_system12_drc_result *result)
    return -1;
 #endif
 }
+
+int pcsx_vita_write_system12_report(const char *path)
+{
+#if defined(ARCADE_SYSTEM12)
+   FILE *out;
+   int failed;
+   if (!path || !path[0] || !system12_active())
+      return -1;
+   out = fopen(path, "wb");
+   if (!out)
+      return -1;
+   system12_report(out);
+   failed = ferror(out);
+   if (fclose(out) != 0)
+      failed = 1;
+   return failed ? -1 : 0;
+#else
+   (void)path;
+   return -1;
+#endif
+}
 #endif
 
 // vim:sw=3:ts=3:expandtab

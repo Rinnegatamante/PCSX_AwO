@@ -42,6 +42,12 @@ static int g_map_w = -1;
 static int g_map_h = -1;
 static uint16_t g_xmap[GAME_W];
 static uint16_t g_ymap[DISPLAY_H];
+static char g_report_path[1024];
+static char g_capture_path[1024];
+static uint16_t *g_capture_pixels;
+static size_t g_capture_capacity;
+static unsigned g_capture_width;
+static unsigned g_capture_height;
 
 static SceCtrlData g_pad;
 static int g_exit_hold;
@@ -196,6 +202,29 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     if (!data || width == 0 || height == 0)
         return;
 
+    if (g_capture_path[0] && width <= 1024 && height <= 512 && height != 0 &&
+        pitch >= (size_t)width * sizeof(uint16_t) &&
+        (size_t)width <= SIZE_MAX / height / sizeof(uint16_t) &&
+        (pitch == 0 || height <= SIZE_MAX / pitch)) {
+        size_t pixels = (size_t)width * height;
+        if (pixels > g_capture_capacity) {
+            uint16_t *replacement = realloc(g_capture_pixels, pixels * sizeof(uint16_t));
+            if (replacement) {
+                g_capture_pixels = replacement;
+                g_capture_capacity = pixels;
+            }
+        }
+        if (pixels <= g_capture_capacity) {
+            unsigned row;
+            for (row = 0; row < height; row++)
+                memcpy(g_capture_pixels + (size_t)row * width,
+                       (const uint8_t *)data + (size_t)row * pitch,
+                       (size_t)width * sizeof(uint16_t));
+            g_capture_width = width;
+            g_capture_height = height;
+        }
+    }
+
     if (g_map_w != (int)width || g_map_h != (int)height)
         rebuild_scale_map(width, height);
 
@@ -218,6 +247,40 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
     sceDisplayWaitVblankStart();
     g_front = back;
+}
+
+static int write_capture_ppm(void)
+{
+    FILE *out;
+    unsigned x, y;
+    if (!g_capture_path[0])
+        return 0;
+    if (!g_capture_pixels || !g_capture_width || !g_capture_height)
+        return -1;
+    out = fopen(g_capture_path, "wb");
+    if (!out)
+        return -1;
+    if (fprintf(out, "P6\n%u %u\n255\n", g_capture_width, g_capture_height) < 0) {
+        fclose(out);
+        return -1;
+    }
+    for (y = 0; y < g_capture_height; y++) {
+        uint8_t row[1024 * 3];
+        for (x = 0; x < g_capture_width; x++) {
+            uint16_t p = g_capture_pixels[(size_t)y * g_capture_width + x];
+            unsigned r = (p >> 11) & 31;
+            unsigned g = (p >> 5) & 63;
+            unsigned b = p & 31;
+            row[x * 3 + 0] = (uint8_t)((r << 3) | (r >> 2));
+            row[x * 3 + 1] = (uint8_t)((g << 2) | (g >> 4));
+            row[x * 3 + 2] = (uint8_t)((b << 3) | (b >> 2));
+        }
+        if (fwrite(row, 3, g_capture_width, out) != g_capture_width) {
+            fclose(out);
+            return -1;
+        }
+    }
+    return fclose(out) == 0 ? 0 : -1;
 }
 
 static size_t audio_batch_cb(const int16_t *data, size_t frames)
@@ -537,6 +600,20 @@ int main(int argc, char **argv)
             return 4;
 #endif
         }
+#ifdef ARCADE_SYSTEM12
+        if (!strcmp(argv[ret], "--report-system12")) {
+            if (ret + 1 >= argc || !argv[ret + 1][0] ||
+                strlen(argv[ret + 1]) >= sizeof(g_report_path)) return 4;
+            snprintf(g_report_path, sizeof(g_report_path), "%s", argv[++ret]);
+            continue;
+        }
+        if (!strcmp(argv[ret], "--capture-ppm")) {
+            if (ret + 1 >= argc || !argv[ret + 1][0] ||
+                strlen(argv[ret + 1]) >= sizeof(g_capture_path)) return 4;
+            snprintf(g_capture_path, sizeof(g_capture_path), "%s", argv[++ret]);
+            continue;
+        }
+#endif
         if (!system12_profile && is_game_path(argv[ret]))
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
     }
@@ -544,11 +621,28 @@ int main(int argc, char **argv)
         sceClibPrintf("pcsx-vita: --verify-smoke requires the console smoke executable\n");
         return 4;
     }
+    if ((g_report_path[0] || g_capture_path[0]) && !system12_profile) {
+        sceClibPrintf("pcsx-vita: System12 report/capture requires --system12\n");
+        return 4;
+    }
     if (verify_system12_drc_ram_mb && !system12_profile) {
         sceClibPrintf("pcsx-vita: --verify-system12-drc requires --system12 profile-directory\n");
         return 4;
     }
     if (verify_system12_drc_ram_mb && verify_smoke) return 4;
+    if (g_report_path[0] && g_capture_path[0] &&
+        !strcmp(g_report_path, g_capture_path)) return 4;
+    if (system12_profile) {
+        size_t profile_len = strlen(game_path);
+        if ((g_report_path[0] && !strncmp(g_report_path, game_path, profile_len) &&
+             (g_report_path[profile_len] == '/' || g_report_path[profile_len] == '\\')) ||
+            (g_capture_path[0] && !strncmp(g_capture_path, game_path, profile_len) &&
+             (g_capture_path[profile_len] == '/' || g_capture_path[profile_len] == '\\')))
+            return 4;
+    }
+#ifndef ARCADE_SYSTEM12
+    if (g_report_path[0] || g_capture_path[0]) return 4;
+#endif
 
     sceClibPrintf("pcsx-vita: main entered\n");
     make_dirs();
@@ -638,6 +732,24 @@ int main(int argc, char **argv)
             result.shared_mmio_byte, runs);
     }
 
+#ifdef ARCADE_SYSTEM12
+    if (g_report_path[0]) {
+        int report_result = pcsx_vita_write_system12_report(g_report_path);
+        sceClibPrintf("pcsx-vita: system12-report %s path=%s\n",
+            report_result == 0 ? "PASS" : "FAIL", g_report_path);
+        if (report_result != 0)
+            validation_result = 6;
+    }
+    if (g_capture_path[0]) {
+        int capture_result = write_capture_ppm();
+        sceClibPrintf("pcsx-vita: system12-capture %s path=%s width=%u height=%u\n",
+            capture_result == 0 ? "PASS" : "FAIL", g_capture_path,
+            g_capture_width, g_capture_height);
+        if (capture_result != 0)
+            validation_result = 7;
+    }
+#endif
+
     /* Stop SDL playback before unloading any core board or plugins. */
     audio_finish();
     retro_unload_game();
@@ -645,5 +757,6 @@ int main(int argc, char **argv)
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);
+    free(g_capture_pixels);
     return validation_result ? 5 : 0;
 }
