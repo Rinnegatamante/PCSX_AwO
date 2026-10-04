@@ -119,7 +119,7 @@ taito_fx1_result_t taito_fx1_main_write(TaitoFx1 *board, uint32_t address,
 
 /* Run nominal 4 MHz Z80 T-states. The YM2610B advances at twice that clock;
  * one-T-state scheduler slices resolve host synchronization to two YM clocks. */
-int taito_fx1_run_sound_cycles(TaitoFx1 *board, uint64_t cycles);
+taito_fx1_result_t taito_fx1_run_sound_cycles(TaitoFx1 *board, uint64_t cycles);
 
 /* Side-effecting sound bus helpers, primarily for diagnostics and tests. */
 uint8_t taito_fx1_sound_read(TaitoFx1 *board, uint16_t address);
