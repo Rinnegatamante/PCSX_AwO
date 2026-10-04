@@ -292,20 +292,21 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	vglSetShaderCachePath("ux0:data/pcsx-rearmed/shader_cache");
 	vglUseLowPrecision(GL_TRUE);
 	vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_TRUE, GL_TRUE);
-	const int initSucceeded = vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight,
-	                                         4 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X) != GL_FALSE;
+	/* vitaGL's init result reports whether it had to fall back to a smaller
+	 * display resolution. GL_FALSE is the normal exact-resolution result; it
+	 * does not mean initialization failed. This API has no failure result once
+	 * initialization has run to completion. */
+	const GLboolean resolutionFallback = vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight,
+	                                                    4 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+	if (resolutionFallback)
+	{
+		NATIVE_GPU_LOG("%s\n", "vitaGL reduced display resolution to its maximum supported size");
+	}
 	NativeGpu_BackendLock();
-	s_gpuBackendInitSucceeded = initSucceeded;
+	s_gpuBackendInitSucceeded = 1;
 	s_gpuBackendInitComplete = 1;
 	sceKernelSignalLwCondAll(&s_gpuBackendCond);
 	NativeGpu_BackendUnlock();
-	if (!initSucceeded)
-	{
-		/* Wake NativeGpu_InitBackend(), then let its failure path join and
-		 * destroy the thread/condition/mutex instead of leaving it parked. */
-		sceKernelExitThread(0);
-		return 0;
-	}
 	NativeGpu_BackendLock();
 	for (;;)
 	{
