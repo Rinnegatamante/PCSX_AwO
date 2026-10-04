@@ -10,6 +10,7 @@ USE_ASYNC_SPU ?= 1
 USE_LIBRETRO_VFS ?= 1
 NDRC_THREAD ?= 1
 GNU_LINKER ?= 1
+ARCADE_SYSTEM12 ?= 0
 
 # Dynarec options: lightrec, ari64
 DYNAREC ?= lightrec
@@ -25,6 +26,15 @@ ifeq ($(platform),)
 	else ifneq ($(findstring win,$(shell uname -a)),)
 		platform = win
 	endif
+endif
+
+# Optional native arcade boards need the runtime-sized PSX address space and
+# C++ CPU/device adapters. Keep console builds unchanged unless explicitly set.
+ifeq ($(ARCADE_SYSTEM12),1)
+CFLAGS += -DARCADE_SYSTEM12 -DPCSX_SYSTEM12 -DPCSX_SYSTEM12_SOURCE_TIMING
+ifeq ($(platform),vita)
+CXX = arm-vita-eabi-g++$(EXE_EXT)
+endif
 endif
 
 CC ?= gcc
@@ -696,7 +706,31 @@ $(info CFLAGS:      $(CFLAGS))
 $(info MAIN_LDLIBS: $(MAIN_LDLIBS))
 $(info )
 
+ifeq ($(ARCADE_SYSTEM12),1)
+OBJS += libpcsxcore/system12.o libpcsxcore/system11.o libpcsxcore/system10.o \
+	libpcsxcore/systemzn.o libpcsxcore/systemtaito.o \
+	libpcsxcore/arcade/c352.o libpcsxcore/arcade/serial_nvram.o \
+	libpcsxcore/arcade/namcos11_board.o libpcsxcore/arcade/at28c16.o \
+	libpcsxcore/arcade/pcm_wav.o libpcsxcore/arcade/namcos10_io.o \
+	libpcsxcore/arcade/nor_flash.o libpcsxcore/arcade/zn_board.o \
+	libpcsxcore/arcade/zn_mcu.o libpcsxcore/arcade/cat702.o \
+	libpcsxcore/arcade/psx_sio.o libpcsxcore/arcade/capcom_zn.o \
+	libpcsxcore/arcade/taito_fx1.o libpcsxcore/arcade/taito_sound_comm.o \
+	libpcsxcore/arcade/mb3773.o \
+	libpcsxcore/arcade/h8.o libpcsxcore/arcade/m37710.o \
+	libpcsxcore/arcade/namcos10_crypto.o libpcsxcore/arcade/namcos10_board.o \
+	libpcsxcore/arcade/z80.o libpcsxcore/arcade/qsound_hle.o \
+	libpcsxcore/arcade/ym2610.o libpcsxcore/arcade/ymfm/ymfm_opn.o \
+	libpcsxcore/arcade/ymfm/ymfm_ssg.o libpcsxcore/arcade/ymfm/ymfm_adpcm.o
+endif
+
 include Makefile
+
+ifeq ($(ARCADE_SYSTEM12),1)
+# Ensure the final link provides the C++ runtime for the board CPU/devices.
+CC_LINK = $(CXX)
+CXXFLAGS += -std=c++17
+endif
 
 # no special AS needed for gpu_neon
 plugins/gpu_neon/psx_gpu/psx_gpu_arm_neon.o: plugins/gpu_neon/psx_gpu/psx_gpu_arm_neon.S

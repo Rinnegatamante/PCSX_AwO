@@ -30,7 +30,6 @@
 #define GAME_W 725
 #define GAME_X ((DISPLAY_W - GAME_W) / 2)
 
-#define AUDIO_RATE_IN 44100
 #define AUDIO_DEVICE_FRAMES 1024
 #define AUDIO_QUEUE_TARGET_FRAMES 2048
 #define AUDIO_FRAME_BYTES (sizeof(int16_t) * 2)
@@ -346,7 +345,7 @@ static void display_finish(void)
     }
 }
 
-static int audio_init(void)
+static int audio_init(int sample_rate)
 {
     SDL_AudioSpec want;
     SDL_AudioSpec src_spec;
@@ -362,7 +361,7 @@ static int audio_init(void)
     }
 
     memset(&want, 0, sizeof(want));
-    want.freq = AUDIO_RATE_IN;
+    want.freq = sample_rate;
     want.format = SDL_AUDIO_S16;
     want.channels = 2;
 
@@ -492,6 +491,38 @@ int main(int argc, char **argv)
     int ret;
     unsigned validation_frames = 0;
     bool verify_smoke = false;
+    bool system12_profile = false;
+    struct retro_system_av_info av;
+
+    game_path[0] = '\0';
+    for (ret = 1; ret < argc; ret++) {
+        if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
+        if (!strcmp(argv[ret], "--frames")) {
+            char *end;
+            unsigned long count;
+            if (ret + 1 >= argc) return 4;
+            count = strtoul(argv[++ret], &end, 10);
+            if (*end || !count || count > 216000) return 4;
+            validation_frames = (unsigned)count; continue;
+        }
+        if (!strcmp(argv[ret], "--system12")) {
+#ifdef ARCADE_SYSTEM12
+            if (ret + 1 >= argc || !argv[ret + 1][0]) return 4;
+            system12_profile = true;
+            snprintf(game_path, sizeof(game_path), "%s", argv[++ret]);
+            continue;
+#else
+            sceClibPrintf("pcsx-vita: --system12 requires ARCADE_SYSTEM12=1\n");
+            return 4;
+#endif
+        }
+        if (!system12_profile && is_game_path(argv[ret]))
+            snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
+    }
+    if (system12_profile && verify_smoke) {
+        sceClibPrintf("pcsx-vita: --verify-smoke requires the console smoke executable\n");
+        return 4;
+    }
 
     sceClibPrintf("pcsx-vita: main entered\n");
     make_dirs();
@@ -504,12 +535,6 @@ int main(int argc, char **argv)
     }
     sceClibPrintf("pcsx-vita: display initialized\n");
 
-    ret = audio_init();
-    if (ret < 0)
-        sceClibPrintf("pcsx-vita: audio init failed 0x%x; continuing silent\n", ret);
-    else
-        sceClibPrintf("pcsx-vita: audio initialized\n");
-
     sceClibPrintf("pcsx-vita: entering retro_init\n");
     retro_set_environment(environment_cb);
     retro_set_video_refresh(video_cb);
@@ -520,18 +545,6 @@ int main(int argc, char **argv)
     retro_init();
     sceClibPrintf("pcsx-vita: retro_init complete\n");
 
-    game_path[0] = '\0';
-    for (ret = 1; ret < argc; ret++) {
-        if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
-        if (!strcmp(argv[ret], "--frames") && ret + 1 < argc) {
-            char *end; unsigned long count = strtoul(argv[++ret], &end, 10);
-            if (*end || !count || count > 216000) return 4;
-            validation_frames = (unsigned)count; continue;
-        }
-        if (is_game_path(argv[ret])) {
-            snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
-        }
-    }
     if (game_path[0] == '\0' && !find_game(game_path, sizeof(game_path))) {
         sceClibPrintf("pcsx-vita: core initialized; no game found in %s\n", APP_ROOT);
         retro_deinit();
@@ -555,6 +568,13 @@ int main(int argc, char **argv)
             sceKernelFreeMemBlock(g_vm_block);
         return 3;
     }
+
+    retro_get_system_av_info(&av);
+    ret = audio_init((int)av.timing.sample_rate);
+    if (ret < 0)
+        sceClibPrintf("pcsx-vita: audio init failed 0x%x; continuing silent\n", ret);
+    else
+        sceClibPrintf("pcsx-vita: audio initialized\n");
 
     unsigned runs = 0;
     sceClibPrintf("pcsx-vita: cpu_driver=%s\n", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter");

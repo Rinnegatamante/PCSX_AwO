@@ -1,4 +1,5 @@
 VITA_GPU ?= vitagl
+ARCADE_SYSTEM12 ?= 0
 VITAGL_DIR ?= build/vita-deps/vitaGL
 ifeq ($(VITA_GPU),neon)
 BUILTIN_VITA_GPU := neon
@@ -12,7 +13,7 @@ endif
 TARGET ?= pcsx-rearmed-vita-$(VITA_GPU)
 TITLE_ID ?= $(DEFAULT_TITLE_ID)
 TITLE ?= PCSX-ReARMed Vita $(VITA_GPU)
-CORE_NAME := pcsx_rearmed_$(VITA_GPU)
+CORE_NAME := pcsx_rearmed_$(VITA_GPU)$(if $(filter 1,$(ARCADE_SYSTEM12)),_system12,)
 CORE := $(CORE_NAME)_libretro_vita.a
 SMOKE_EXE ?=
 PACK_EXTRA := $(if $(SMOKE_EXE),-a $(SMOKE_EXE)=smoke.exe,)
@@ -33,9 +34,12 @@ LIBS := -lSDL3 $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_st
 	-lSceCamera_stub -lSceCtrl_stub -lSceTouch_stub -lSceMotion_stub -lm \
 	-lSceAppMgr_stub -lSceHid_stub -lSceAppUtil_stub -lScePgf_stub -ljpeg \
 	-lSceRtc_stub -lScePower_stub -lSceIofilemgr_stub -lcurl -lssl -lcrypto -lz
-BUILD_DIR := build-vita/$(VITA_GPU)
+ifeq ($(ARCADE_SYSTEM12),1)
+CFLAGS += -DARCADE_SYSTEM12
+endif
+BUILD_DIR := build-vita/$(VITA_GPU)$(if $(filter 1,$(ARCADE_SYSTEM12)),-system12,)
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
-CORE_ARGS := platform=vita TARGET_NAME=$(CORE_NAME) BUILTIN_GPU=$(BUILTIN_VITA_GPU) GPU_NEON_USE_C=1 VITAGL_DIR=$(VITAGL_DIR) GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
+CORE_ARGS := platform=vita ARCADE_SYSTEM12=$(ARCADE_SYSTEM12) TARGET_NAME=$(CORE_NAME) BUILTIN_GPU=$(BUILTIN_VITA_GPU) GPU_NEON_USE_C=1 VITAGL_DIR=$(VITAGL_DIR) GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0 \
 	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke'
 

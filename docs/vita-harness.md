@@ -29,9 +29,9 @@ make -f Makefile.vita VITA_GPU=vitagl SMOKE_EXE=build/mac-harness/smoke.exe
 
 The core uses shared object paths, so build the two renderer variants
 sequentially; the standalone Makefile forces the selected core to rebuild.
-`VITAGL_DIR` can select another isolated helper build directory. Currently the
-VitaGL renderer still needs its missing `ctr-native` header dependencies
-integrated before its VPK can be built.
+`VITAGL_DIR` can select another isolated helper build directory. The renderer's
+local interfaces are now in `plugins/gpu_vita_ctr/include`, with provenance
+and ABI notes in that directory's README.
 
 The standalone accepts an executable path, `--frames N` (1–216000), and
 `--verify-smoke`. The latter reads two GPU pixels through the emulated MMIO
@@ -40,29 +40,96 @@ DRC to be active and checks triangle `03ff`, background `2082` and sentinel
 `534d4f4b`; any mismatch returns 5. These private probes do not expose the
 core's internal state layout through the frontend ABI.
 
-First validate in the local `../vita3k`, as requested. For example, launch the
-NEON VPK with the emulator's comma-space argument format:
-
-```sh
-../vita3k/build/macos/bin/Vita3K.app/Contents/MacOS/Vita3K \
-  --keep-config pcsx-rearmed-vita-neon.vpk \
-  --app-args 'pcsx-vita, ux0:app/PCSXN0012/smoke.exe, --frames, 3, --verify-smoke'
-```
-
-Use `PCSXG0012` and the VitaGL VPK for the other renderer. The local validation
+First validate in the local `../vita3k`, as requested. The local validation
 used a copied Vita3K application with its own portable filesystem, config,
 logs and installed test titles, so another running emulator task could
 continue. Existing local firmware was read from that installation; no firmware
 or ROM was downloaded.
 
-Observed NEON results on the local M1/Vita3K build: the generated guest passed
-with `cpu=ari64` and the expected pixels and RAM sentinel. An initial run hit a
-host `EXC_BAD_ACCESS` during Vita3K application shutdown after the PASS. A
-subsequent run linked to the required isolated VitaGL archive passed and
-reached the emulator's `Stopping -> Idle` state. Shutdown stability still
-needs checking in the longer runs.
+`tools/vita-harness/check_vita3k.py` automates a bounded smoke run, requires the
+exact PASS and the guest's `Stopping -> Idle` state, then terminates only the
+host process it launched. Vita3K normally keeps its UI open after the guest
+exits; host-process exit is not the completion signal. The runner fails on
+guest mismatches, host crashes or timeout, and preserves the log. For an
+already installed test package in an isolated emulator copy:
+
+```sh
+python3 tools/vita-harness/check_vita3k.py \
+  --emulator build/vita-validation/emulator/Vita3K.app/Contents/MacOS/Vita3K \
+  --renderer neon --log /tmp/pcsx-vita3k-neon-check.log
+```
+
+Add `--vpk PATH` to install and launch a package instead. The runner waits for
+the matching installation result, closes its installer process, then launches
+the installed title explicitly. This local emulator does not reliably
+auto-boot a CLI-installed VPK. An absolute VPK path is placed after `--` so
+the emulator's Windows-style option parser accepts it on macOS. Installation
+output cannot satisfy the subsequent guest completion check.
+
+Observed NEON results on the local M1/Vita3K build: three consecutive runs
+passed with `cpu=ari64`, the expected pixels and RAM sentinel, and the guest's
+`Stopping -> Idle` state. The runner then closed its owned host process in
+all three runs (`/tmp/pcsx-vita3k-neon-final-{1,2,3}.log`). These runs used
+`build/vita-validation/emulator/Vita3K-fixed.app`, an isolated emulator copy
+with teardown and display-buffer lifetime fixes. Earlier runs on the original
+host build reproduced `EXC_BAD_ACCESS` after a successful guest probe and
+correctly failed overall; the guest PASS alone is insufficient. The original
+emulator checkout, binary and other running instance were not modified.
 
 This is a console executable bring-up test. It does not validate Soul Calibur
 on Vita, extended arcade RAM/banking in the DRC, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both
 renderer validations in Vita3K precede requesting a real Vita.
+
+VitaGL currently fails the same guest pixel probe: both pixels read as zero
+while the ARMv7 DRC writes the correct RAM sentinel. Its initialization API
+returns whether the requested display resolution was reduced, rather than a
+success flag; the adapter now follows that contract and reaches renderer
+initialization. An explicit `glFinish()` before synchronous VRAM readback
+does not resolve the pixel failure. The required four library build flags
+remain enabled. VitaGL is not validated yet.
+
+## VitaGL GPU geometry limits
+
+The current VitaGL backend is fixed to the console GPU's 1024x512 VRAM. Its
+CPU mirror, transfer scratch space, dirty-tile tracking, GL texture and
+framebuffer, shader UV scale, GP0 draw-area Y fields, display conversion and
+save-state snapshot all use that geometry. Guest VRAM copies also initialize
+only 1024x512 pixels. The plugin does not consult the shared GPU model or VRAM
+height selector, so upper rows of a 2 MiB GPU profile are not represented.
+
+Supporting 2 MiB VRAM requires runtime height through the renderer, cache,
+readback, guest-copy, display, and save-state paths. Type 1 additionally needs
+its distinct TPAGE field decoding, draw-area and offset semantics, and
+interleaved texture layout. The current VitaGL plugin only implements its
+console/type-2 command interpretation. A successful console VitaGL smoke test
+does not establish either arcade GPU model's support.
+
+## Opt-in libretro System 12
+
+The libretro build can include the experimental System 12 path with
+`ARCADE_SYSTEM12=1`. Load a prepared region directory as content; this selects
+its PSX memory geometry before reinitializing the already-started core, keeps
+the configured DRC backend, routes board inputs, and advertises the C352
+88.2 kHz stream. Console builds remain the default when the flag is omitted.
+The current Vita `vita_ctr` renderer is fixed at 1024x512, so that renderer's
+build rejects System 12 profiles before changing core memory or opening
+plugins. NEON uses the C GPU path with runtime VRAM height. This opt-in path
+is integration work and does not claim System 12 game validation or Vita
+2 MiB GPU runtime validation. Arcade savestates are explicitly unavailable
+because the console state format does not preserve the board's devices.
+
+Build the standalone opt-in with `make -f Makefile.vita VITA_GPU=neon
+ARCADE_SYSTEM12=1`. It uses a separate core archive and frontend object
+directory. Launch it with `--system12 ux0:data/pcsx-rearmed/REGION_DIR` to pass
+the prepared region directory directly to the core. The frontend reads the
+AV sample rate after content loading and opens its SDL input stream at
+88.2 kHz for System 12, or 44.1 kHz for console executables. The console
+`--verify-smoke` probe cannot be used for a System 12 game.
+
+The full NEON opt-in SDK build linked and packaged successfully. Its console
+smoke guest passed in the isolated fixed Vita3K host with `cpu=ari64`, both
+expected pixels, the RAM sentinel and `Stopping -> Idle`; the runner closed
+its own host process (`/tmp/pcsx-vita3k-neon-system12-build-console-smoke.log`).
+That checks console execution in the arcade-enabled binary, not a System 12
+profile's ARMv7 DRC execution or gameplay.

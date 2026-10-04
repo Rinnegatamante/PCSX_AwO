@@ -51,6 +51,8 @@ static struct {
     u64 h8_fraction, pcm_fraction, pcm_frames, sub_reads, sub_writes;
     unsigned pcm_peak;
     FILE *audio_file;
+    system12_audio_cb audio_cb;
+    void *audio_opaque;
     u64 audio_bytes;
     int audio_error;
     u32 jvs_player[2], jvs_system;
@@ -156,6 +158,12 @@ int system12_close_audio(void)
     board.audio_file = NULL;
     board.audio_error = failed;
     return failed ? -1 : 0;
+}
+
+void system12_set_audio_output(system12_audio_cb callback, void *opaque)
+{
+    board.audio_cb = callback;
+    board.audio_opaque = opaque;
 }
 
 /* Deterministic nonzero waveform fixture used only by harness validation. */
@@ -371,9 +379,16 @@ void system12_sync(u32 psx_cycle)
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
     while (board.pcm_fraction >= PSXCLK) {
         int16_t samples[256 * 4];
+        int16_t stereo[256 * 2];
         unsigned frames = board.pcm_fraction / PSXCLK, i;
         if (frames > 256) frames = 256;
         c352_generate(board.pcm, samples, frames);
+        for (i = 0; i < frames; i++) {
+            stereo[i * 2] = samples[i * 4];
+            stereo[i * 2 + 1] = samples[i * 4 + 1];
+        }
+        if (board.audio_cb)
+            board.audio_cb(board.audio_opaque, stereo, frames);
         for (i = 0; i < frames * 4; i++) {
             unsigned amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
             if (amplitude > board.pcm_peak) board.pcm_peak = amplitude;

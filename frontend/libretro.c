@@ -37,6 +37,11 @@
 #include "../libpcsxcore/cheat.h"
 #include "../libpcsxcore/r3000a.h"
 #include "../libpcsxcore/gpu.h"
+#ifdef ARCADE_SYSTEM12
+#include "../libpcsxcore/psxmem.h"
+#include "../libpcsxcore/system12.h"
+#include <sys/stat.h>
+#endif
 #include "../libpcsxcore/sio.h"
 #include "../libpcsxcore/database.h"
 #include "../plugins/dfsound/out.h"
@@ -94,6 +99,9 @@
 #endif
 
 static bool reset_pending = false;
+#ifdef ARCADE_SYSTEM12
+static int retro_system12_saved_cycle_multiplier = CYCLE_MULT_DEFAULT;
+#endif
 
 static retro_video_refresh_t video_cb;
 static retro_input_poll_t input_poll_cb;
@@ -215,7 +223,15 @@ static bool axis_bounds_modifier;
 
 //Dummy functions
 bool retro_load_game_special(unsigned game_type, const struct retro_game_info *info, size_t num_info) { return false; }
-void retro_unload_game(void) {}
+#ifdef ARCADE_SYSTEM12
+static void retro_system12_restore_console(void);
+#endif
+void retro_unload_game(void)
+{
+#ifdef ARCADE_SYSTEM12
+   retro_system12_restore_console();
+#endif
+}
 static int vout_open(void) { return 0; }
 static void vout_close(void) {}
 static int snd_init(void) { return 0; }
@@ -875,6 +891,11 @@ void pl_gun_byte2(int port, unsigned char byte)
 /* sound calls */
 static void snd_feed(void *buf, int bytes)
 {
+#ifdef ARCADE_SYSTEM12
+   /* System12 audio is delivered from the board's 88.2 kHz C352 stream. */
+   if (system12_active())
+      return;
+#endif
    if (audio_batch_cb != NULL)
       audio_batch_cb(buf, bytes / 4);
 }
@@ -1252,7 +1273,11 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 
    memset(info, 0, sizeof(*info));
    info->timing.fps              = psxGetFps();
+#ifdef ARCADE_SYSTEM12
+   info->timing.sample_rate      = system12_active() ? 88200.0 : 44100.0;
+#else
    info->timing.sample_rate      = 44100.0;
+#endif
    info->geometry.base_width     = geom_width;
    info->geometry.base_height    = geom_height;
    info->geometry.max_width      = VOUT_MAX_WIDTH;
@@ -1263,6 +1288,12 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 /* savestates */
 size_t retro_serialize_size(void)
 {
+#ifdef ARCADE_SYSTEM12
+   /* The generic state format hard-codes console RAM/ROM and does not freeze
+    * the System12 H8, C352, EEPROM, RTC, or board registers. */
+   if (system12_active())
+      return 0;
+#endif
    // it's currently 4380651-4397047 bytes,
    // but have some reserved for future
    return 0x440000;
@@ -1356,6 +1387,10 @@ struct PcsxSaveFuncs SaveFuncs = {
 bool retro_serialize(void *data, size_t size)
 {
    int ret;
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+      return false;
+#endif
    CdromFrontendId = disk_current_index;
    ret = SaveState(data);
 
@@ -1369,6 +1404,10 @@ static bool disk_set_image_index(unsigned int index);
 bool retro_unserialize(const void *data, size_t size)
 {
    int ret;
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+      return false;
+#endif
    CdromFrontendId = -1;
    ret = LoadState(data);
    if (ret)
@@ -1814,8 +1853,23 @@ static void set_retro_memmap(void)
       { flags_ram, psxRegs.ptrs.psxR, 0, 0x1fc00000, 0x5ff80000, 0, 0x080000 },
    };
 
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+   {
+      descs[0].len = PSX_RAM_SIZE;
+      descs[0].select = UINT64_C(0x5fffffff) & ~(PSX_RAM_SIZE - 1);
+      descs[2].len = PSX_ROM_SIZE;
+      descs[2].select = UINT64_C(0x5fffffff) & ~(PSX_ROM_SIZE - 1);
+   }
+#endif
+
    retromap.descriptors = descs;
    retromap.num_descriptors = sizeof(descs) / sizeof(descs[0]);
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+      retromap.num_descriptors = sizeof(descs) / sizeof(descs[0]);
+   else
+#endif
    if (Config.HLE)
       retromap.num_descriptors--;
 
@@ -1966,6 +2020,124 @@ static void show_enabled_hacks(void)
    }
 }
 
+#ifdef ARCADE_SYSTEM12
+static bool retro_path_is_system12_profile(const char *path)
+{
+   struct stat st;
+   return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static void retro_system12_audio(void *opaque, const int16_t *stereo,
+      unsigned frames)
+{
+   (void)opaque;
+   if (audio_batch_cb)
+      audio_batch_cb(stereo, frames);
+}
+
+static void retro_update_system_av_info(void)
+{
+   struct retro_system_av_info av;
+   retro_get_system_av_info(&av);
+   environ_cb(RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, &av);
+}
+
+/* `psxShutdown` releases the currently selected CPU backend and dynamic memory
+ * map. Switching the layout around it keeps Config.Cpu (and thus the DRC)
+ * selected while letting the board choose PSX RAM/ROM sizes before psxInit. */
+static void retro_system12_restore_console(void)
+{
+   if (!system12_active())
+      return;
+   if (plugins_opened)
+   {
+      ClosePlugins();
+      plugins_opened = 0;
+   }
+   psxShutdown();
+   system12_set_audio_output(NULL, NULL);
+   system12_unload();
+   Config.cycle_multiplier = retro_system12_saved_cycle_multiplier;
+   if (psxInit() == -1)
+      LogErr("failed to restore console PSX memory after System12\n");
+   retro_update_system_av_info();
+}
+
+static bool retro_load_system12_profile(const char *directory)
+{
+   int load_result;
+   unsigned i;
+
+#if defined(VITA) && defined(GPU_VITA_CTR)
+   (void)directory;
+   LogErr("System12 profile rejected: the Vita GPU backend is fixed to 1024x512 VRAM\n");
+   return false;
+#endif
+
+   if (plugins_opened)
+   {
+      ClosePlugins();
+      plugins_opened = 0;
+   }
+   if (system12_active())
+      retro_system12_restore_console();
+
+   disk_init();
+   set_cd_image(NULL);
+   retro_system12_saved_cycle_multiplier = Config.cycle_multiplier;
+   psxShutdown();
+   load_result = system12_load(directory);
+   if (load_result != 0)
+   {
+      LogErr("could not load System12 profile directory: %s (%d)\n",
+            directory, load_result);
+      Config.cycle_multiplier = retro_system12_saved_cycle_multiplier;
+      if (psxInit() == -1)
+         LogErr("failed to restore console PSX memory after rejected System12 profile\n");
+      return false;
+   }
+
+   /* The board source timing configuration uses 50 MHz / multiplier 200.
+    * The choice of CPU backend remains the one selected by the core options. */
+   Config.cycle_multiplier = 200;
+   if (psxInit() == -1)
+   {
+      psxShutdown();
+      system12_unload();
+      Config.cycle_multiplier = retro_system12_saved_cycle_multiplier;
+      psxInit();
+      return false;
+   }
+
+   system12_set_audio_output(retro_system12_audio, NULL);
+   if (LoadPlugins() == -1)
+   {
+      LogErr("could not open graphics/audio plugins for System12\n");
+      retro_system12_restore_console();
+      return false;
+   }
+   plugins_opened = 1;
+   if (OpenPlugins(0) == -1)
+   {
+      LogErr("could not open graphics/audio plugins for System12\n");
+      ClosePlugins();
+      plugins_opened = 0;
+      retro_system12_restore_console();
+      return false;
+   }
+
+   for (i = 0; i < PORTS_NUMBER; i++)
+      in_type[i] = PSE_PAD_TYPE_STANDARD;
+   is_pal_mode = false;
+   plugin_call_rearmed_cbs();
+   SysReset();
+   set_retro_memmap();
+   retro_set_audio_buff_status_cb();
+   retro_update_system_av_info();
+   return true;
+}
+#endif
+
 bool retro_load_game(const struct retro_game_info *info)
 {
    size_t i;
@@ -2033,6 +2205,13 @@ bool retro_load_game(const struct retro_game_info *info)
    is_exe = (strcasestr(info->path, ".exe") != NULL);
 
    update_variables(false);
+
+#ifdef ARCADE_SYSTEM12
+   if (retro_path_is_system12_profile(info->path))
+      return retro_load_system12_profile(info->path);
+   if (system12_active())
+      retro_system12_restore_console();
+#endif
 
    if (plugins_opened)
    {
@@ -2256,6 +2435,10 @@ size_t retro_get_memory_size(unsigned id)
    switch (id)
    {
    case RETRO_MEMORY_SYSTEM_RAM:
+#ifdef ARCADE_SYSTEM12
+      if (system12_active())
+         return PSX_RAM_SIZE;
+#endif
       return 0x200000;
    case RETRO_MEMORY_SAVE_RAM:
       if (memcard_type[0] == MEMCARDTYPE_LIBRETRO)
@@ -2575,6 +2758,11 @@ static void update_variables(bool in_flight)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       int psxclock = atoi(var.value);
+#ifdef ARCADE_SYSTEM12
+      if (system12_active())
+         Config.cycle_multiplier = 200;
+      else
+#endif
       if (strcmp(var.value, "auto") == 0 || psxclock == 0)
          Config.cycle_multiplier = CYCLE_MULT_DEFAULT;
       else
@@ -3522,12 +3710,21 @@ void retro_run(void)
    if (reset_pending)
    {
       reset_pending = false;
+#ifdef ARCADE_SYSTEM12
+      if (system12_active())
+      {
+         SysReset();
+      }
+      else
+#endif
+      {
       prepare_bios(get_bios_config_hle());
       SysReset();
       if (CheckResetManualExe())
          ;
       else if (Config.HLE)
          LoadCdromMainExe(NULL);
+      }
    }
 
    set_vout_fb();
@@ -3572,6 +3769,44 @@ void retro_run(void)
    input_poll_cb();
 
    update_input();
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+   {
+#define SYSTEM12_PAD_INPUT(name, port, id) \
+      system12_set_input(name, input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, id) != 0)
+      SYSTEM12_PAD_INPUT("p1up", 0, RETRO_DEVICE_ID_JOYPAD_UP);
+      SYSTEM12_PAD_INPUT("p1down", 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
+      SYSTEM12_PAD_INPUT("p1left", 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
+      SYSTEM12_PAD_INPUT("p1right", 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+      SYSTEM12_PAD_INPUT("p1button1", 0, RETRO_DEVICE_ID_JOYPAD_B);
+      SYSTEM12_PAD_INPUT("p1button2", 0, RETRO_DEVICE_ID_JOYPAD_A);
+      SYSTEM12_PAD_INPUT("p1button3", 0, RETRO_DEVICE_ID_JOYPAD_Y);
+      SYSTEM12_PAD_INPUT("p1button4", 0, RETRO_DEVICE_ID_JOYPAD_X);
+      SYSTEM12_PAD_INPUT("p1button5", 0, RETRO_DEVICE_ID_JOYPAD_L);
+      SYSTEM12_PAD_INPUT("p1button6", 0, RETRO_DEVICE_ID_JOYPAD_R);
+      SYSTEM12_PAD_INPUT("p1button7", 0, RETRO_DEVICE_ID_JOYPAD_L2);
+      SYSTEM12_PAD_INPUT("p1button8", 0, RETRO_DEVICE_ID_JOYPAD_R2);
+      SYSTEM12_PAD_INPUT("p1start", 0, RETRO_DEVICE_ID_JOYPAD_START);
+      SYSTEM12_PAD_INPUT("p2up", 1, RETRO_DEVICE_ID_JOYPAD_UP);
+      SYSTEM12_PAD_INPUT("p2down", 1, RETRO_DEVICE_ID_JOYPAD_DOWN);
+      SYSTEM12_PAD_INPUT("p2left", 1, RETRO_DEVICE_ID_JOYPAD_LEFT);
+      SYSTEM12_PAD_INPUT("p2right", 1, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+      SYSTEM12_PAD_INPUT("p2button1", 1, RETRO_DEVICE_ID_JOYPAD_B);
+      SYSTEM12_PAD_INPUT("p2button2", 1, RETRO_DEVICE_ID_JOYPAD_A);
+      SYSTEM12_PAD_INPUT("p2button3", 1, RETRO_DEVICE_ID_JOYPAD_Y);
+      SYSTEM12_PAD_INPUT("p2button4", 1, RETRO_DEVICE_ID_JOYPAD_X);
+      SYSTEM12_PAD_INPUT("p2button5", 1, RETRO_DEVICE_ID_JOYPAD_L);
+      SYSTEM12_PAD_INPUT("p2button6", 1, RETRO_DEVICE_ID_JOYPAD_R);
+      SYSTEM12_PAD_INPUT("p2button7", 1, RETRO_DEVICE_ID_JOYPAD_L2);
+      SYSTEM12_PAD_INPUT("p2button8", 1, RETRO_DEVICE_ID_JOYPAD_R2);
+      SYSTEM12_PAD_INPUT("p2start", 1, RETRO_DEVICE_ID_JOYPAD_START);
+      SYSTEM12_PAD_INPUT("coin1", 0, RETRO_DEVICE_ID_JOYPAD_L3);
+      SYSTEM12_PAD_INPUT("coin2", 1, RETRO_DEVICE_ID_JOYPAD_L3);
+      SYSTEM12_PAD_INPUT("service", 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
+      SYSTEM12_PAD_INPUT("test", 1, RETRO_DEVICE_ID_JOYPAD_SELECT);
+#undef SYSTEM12_PAD_INPUT
+   }
+#endif
 
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
@@ -4029,6 +4264,14 @@ void retro_deinit(void)
       plugins_opened = 0;
    }
    SysClose();
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+   {
+      system12_set_audio_output(NULL, NULL);
+      system12_unload();
+      Config.cycle_multiplier = retro_system12_saved_cycle_multiplier;
+   }
+#endif
 #ifdef _3DS
    linearFree(vram_mem);
    vram_mem = NULL;

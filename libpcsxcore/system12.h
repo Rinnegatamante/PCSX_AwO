@@ -5,6 +5,9 @@
 #include <stddef.h>
 #include "psxcommon.h"
 
+typedef void (*system12_audio_cb)(void *opaque, const int16_t *stereo,
+		unsigned frames);
+
 int system12_load(const char *directory);
 void system12_unload(void);
 int system12_active(void);
@@ -18,6 +21,8 @@ int system12_eeprom_export(unsigned char *image, size_t size);
 int system12_eeprom_import(const unsigned char *image, size_t size);
 int system12_open_audio(const char *path);
 int system12_close_audio(void);
+/* Optional 88.2 kHz stereo output; the WAV capture path can run at once. */
+void system12_set_audio_output(system12_audio_cb callback, void *opaque);
 unsigned char system12_jamma_read(unsigned offset);
 void system12_audio_test_fixture(void);
 int system12_read(u32 address, unsigned width, u32 *value);
