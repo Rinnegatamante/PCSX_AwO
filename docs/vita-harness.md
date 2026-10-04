@@ -100,7 +100,7 @@ python3 tools/vita-harness/rebuild_vita3k_fixed.py \
 ```
 
 The output directory must be fresh. The helper copies the template bundle,
-applies the patch to private source copies, recompiles six translation units,
+applies the patches to private source copies, recompiles six translation units,
 and links against untouched objects from the existing build. It records input
 source, patch and executable hashes in `pcsx-host-build.json`. This is an
 incremental build tied to those local build artifacts, not a clean upstream
@@ -139,6 +139,14 @@ archive hash separately. This instruction test does not establish game
 compatibility; actual captures are described in
 [system12-vita-gameplay.md](system12-vita-gameplay.md).
 
+The host also needs the checked-in Vulkan CPU-framebuffer screenshot patch.
+Its original `dump_frame` only looked for GXM render surfaces, while the NEON
+frontend presents pixels written directly into guest display memory. The
+fallback copies that framebuffer with its stride and native dimensions,
+checking guest memory and holding the display-buffer lifetime lock. The host
+recipe applies it and records its hash. This enables Vita3K's existing native
+screenshot function for NEON; the core's PPM probe remains separate evidence.
+
 The console probe does not validate Soul Calibur
 on Vita, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both
@@ -159,7 +167,13 @@ identified as an expected protected-memory read, rather than heap corruption.
 LLDB had stopped without passing SIGBUS to Vita3K's memory handler. Passing
 the signal lets that handler restore access and the guest continues. A
 separate fatal `Unhandled access` still occurs during host GXM-context cleanup;
-its stack reaches `gxm::destroy_all_contexts`. That shutdown fault and the
+its stack reaches `gxm::destroy_all_contexts`. A bounded instrumented run
+identified the main context at guest address `8821c7e8`: it was valid when
+created, but no longer allocated and not covered by a protection region before
+cleanup dereferenced it. The splash context at `8821d5d8` had already been
+destroyed successfully with return value zero. The main context's backing-memory
+lifetime remains unresolved (`build/vita-validation-gxm-diagnostic/vitagl-run2.log`).
+That shutdown fault and the
 triangle mismatch remain unresolved. New instruction tests run directly in
 Dynarmic without leaving an emulator or debugger window open.
 The required four library build flags remain enabled. VitaGL is not validated

@@ -42,6 +42,7 @@ WORKTREE = SRC
 APP = OUT / 'emulator/Vita3K-fixed.app'
 BIN = APP / 'Contents/MacOS/Vita3K'
 PATCH = Path(__file__).resolve().parent / 'patches/vita3k-teardown.patch'
+SCREENSHOT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-cpu-frame-dump.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -69,6 +70,8 @@ patch_env.pop('GIT_WORK_TREE', None)
 patch_env['GIT_CEILING_DIRECTORIES'] = str(SRC.parent)
 subprocess.run(['git', 'apply', '--check', str(PATCH)], check=True, cwd=SRC, env=patch_env)
 subprocess.run(['git', 'apply', str(PATCH)], check=True, cwd=SRC, env=patch_env)
+subprocess.run(['git', 'apply', '--check', str(SCREENSHOT_PATCH)], check=True, cwd=SRC, env=patch_env)
+subprocess.run(['git', 'apply', str(SCREENSHOT_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -179,6 +182,7 @@ manifest = {
     'source': str(ORIG), 'build': str(BUILD),
     'source_files_sha256': original_hashes,
     'patch_sha256': hashlib.sha256(PATCH.read_bytes()).hexdigest(),
+    'screenshot_patch_sha256': hashlib.sha256(SCREENSHOT_PATCH.read_bytes()).hexdigest(),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),

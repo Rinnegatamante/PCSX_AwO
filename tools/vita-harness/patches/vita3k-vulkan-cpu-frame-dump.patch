@@ -1,0 +1,112 @@
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -28,6 +28,7 @@
+ #include <config/state.h>
+ #include <config/version.h>
+ #include <display/state.h>
++#include <mem/functions.h>
+ #include <shader/spirv_recompiler.h>
+ #include <util/align.h>
+ #include <util/android_driver.h>
+@@ -38,7 +39,9 @@
+ #include <overlay/display_manager.h>
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <mutex>
++#include <new>
+ #include <unordered_set>
+ 
+ #ifdef __APPLE__
+@@ -1222,15 +1225,88 @@
+ }
+ 
+ std::vector<uint32_t> VKState::dump_frame(DisplayState &display, uint32_t &width, uint32_t &height) {
++    const std::shared_lock frame_lifetime_lock(display_frame_lifetime_mutex());
+     DisplayFrameInfo frame;
+     {
+         std::lock_guard<std::mutex> guard(display.display_info_mutex);
+         frame = display.next_rendered_frame;
+     }
+ 
+-    width = static_cast<uint32_t>(frame.image_size.x * res_multiplier);
+-    height = static_cast<uint32_t>(frame.image_size.y * res_multiplier);
+-    return surface_cache.dump_frame(frame.base, width, height, frame.pitch);
++    width = 0;
++    height = 0;
++    if (!frame.base || !mem || frame.image_size.x <= 0 || frame.image_size.y <= 0
++        || frame.pitch < static_cast<uint32_t>(frame.image_size.x)
++        || !std::isfinite(res_multiplier) || res_multiplier <= 0.0f) {
++        return {};
++    }
++
++    constexpr uint32_t max_dimension = 16384;
++    constexpr uint64_t max_pixels = 16U * 1024U * 1024U;
++    const uint32_t source_width = static_cast<uint32_t>(frame.image_size.x);
++    const uint32_t source_height = static_cast<uint32_t>(frame.image_size.y);
++    if (source_width > max_dimension || source_height > max_dimension)
++        return {};
++
++    const double scaled_width = static_cast<double>(source_width) * res_multiplier;
++    const double scaled_height = static_cast<double>(source_height) * res_multiplier;
++    if (scaled_width < 1.0 || scaled_height < 1.0
++        || scaled_width > max_dimension || scaled_height > max_dimension) {
++        return {};
++    }
++    const uint32_t scaled_w = static_cast<uint32_t>(scaled_width);
++    const uint32_t scaled_h = static_cast<uint32_t>(scaled_height);
++    if (static_cast<uint64_t>(scaled_w) * scaled_h > max_pixels
++        || static_cast<uint64_t>(source_width) * source_height > max_pixels) {
++        return {};
++    }
++
++    auto pixels = surface_cache.dump_frame(frame.base, scaled_w, scaled_h, frame.pitch);
++    if (pixels.size() == static_cast<size_t>(scaled_w) * scaled_h) {
++        width = scaled_w;
++        height = scaled_h;
++        return pixels;
++    }
++
++    // The CPU framebuffer path is used when this address has no GXM surface.
++    // It is a raw A8B8G8R8 guest image; other formats need an explicit converter.
++    if (frame.pixelformat != SCE_DISPLAY_PIXELFORMAT_A8B8G8R8)
++        return {};
++
++    const uint64_t row_bytes = static_cast<uint64_t>(source_width) * sizeof(uint32_t);
++    const uint64_t source_stride = static_cast<uint64_t>(frame.pitch) * sizeof(uint32_t);
++    const uint64_t source_bytes = source_stride * (source_height - 1) + row_bytes;
++    const uint64_t source_start = frame.base.address();
++    const uint64_t source_end = source_start + source_bytes;
++    constexpr uint64_t guest_address_space_end = uint64_t{ 1 } << 32;
++    if (source_start == 0 || source_end < source_start
++        || source_end > guest_address_space_end) {
++        return {};
++    }
++    for (uint64_t page = source_start & ~uint64_t{ 0xfff }; page < source_end; page += 0x1000) {
++        if (!is_valid_addr(*mem, static_cast<Address>(page)))
++            return {};
++    }
++
++    std::vector<uint32_t> frame_pixels;
++    try {
++        frame_pixels.resize(static_cast<size_t>(source_width) * source_height);
++    } catch (const std::bad_alloc &) {
++        return {};
++    }
++
++    for (uint32_t y = 0; y < source_height; ++y) {
++        const uint64_t row_address = source_start + static_cast<uint64_t>(y) * source_stride;
++        Address fault = 0;
++        if (!access_guest_memory(*mem, static_cast<Address>(row_address),
++                frame_pixels.data() + static_cast<size_t>(y) * source_width,
++                static_cast<uint32_t>(row_bytes), false, fault)) {
++            return {};
++        }
++    }
++
++    width = source_width;
++    height = source_height;
++    return frame_pixels;
+ }
+ 
+ uint32_t VKState::get_features_mask() {

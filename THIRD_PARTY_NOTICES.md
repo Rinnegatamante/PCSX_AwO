@@ -369,6 +369,14 @@ merryhime and distributed under the 0BSD license; the full terms are retained
 in `tools/vita-harness/patches/dynarmic-LICENSE.txt`. This patch affects the
 validation emulator, while the Vita core continues to use its own ari64 DRC.
 
+## Vita3K validation host patches
+
+The teardown and Vulkan CPU-framebuffer screenshot patches under
+`tools/vita-harness/patches` modify local Vita3K source, copyright the Vita3K
+team, under GPL-2.0-or-later. The GPL version 2 terms are included in `COPYING`.
+The private build manifest records source and patch hashes; these patches are
+used by the validation host and are not linked into the Vita core.
+
 ## MAME Ricoh RF5C400
 
 `libpcsxcore/arcade/rf5c400.{cpp,h}` adapts the sample engine and register map
