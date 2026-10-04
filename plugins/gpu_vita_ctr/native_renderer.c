@@ -18,6 +18,8 @@ extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX,
 #include "platform/native_adhoc.h"
 #if defined(__EMSCRIPTEN__)
 #include <GLES3/gl3.h>
+#elif defined(__vita__)
+#include <vitaGL.h>
 #else
 #include "platform/native_glad.h"
 #endif
@@ -25,6 +27,7 @@ extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX,
 #include "platform/native_renderer.h"
 
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef __vita__

@@ -1,0 +1,25 @@
+/* Renderer overlay button masks used by the CTR Native input ABI. */
+#ifndef PCSX_VITA_GPU_NAMESPACE_GAMEPAD_H
+#define PCSX_VITA_GPU_NAMESPACE_GAMEPAD_H
+
+enum Buttons
+{
+    BTN_UP = 0x00000001,
+    BTN_DOWN = 0x00000002,
+    BTN_LEFT = 0x00000004,
+    BTN_RIGHT = 0x00000008,
+    BTN_CROSS = 0x00004010,
+    BTN_SQUARE = 0x00008020,
+    BTN_CIRCLE = 0x00000040,
+    BTN_L2 = 0x00000180,
+    BTN_R2 = 0x00000200,
+    BTN_R1 = 0x00000400,
+    BTN_L1 = 0x00000800,
+    BTN_START = 0x00001000,
+    BTN_SELECT = 0x00002000,
+    BTN_L3 = 0x00010000,
+    BTN_R3 = 0x00020000,
+    BTN_TRIANGLE = 0x00040000
+};
+
+#endif

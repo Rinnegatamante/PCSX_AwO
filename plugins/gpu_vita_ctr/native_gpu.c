@@ -3339,7 +3339,9 @@ internal int ProcessPsyXPrims(P_TAG *polyTag)
 		s_gpu.overrideTexture = psytex->code[0] & 0xFFFFFF;
 		s_gpu.overrideTextureWidth = psytex->code[1] & 0xFFF;
 		s_gpu.overrideTextureHeight = psytex->code[1] >> 16 & 0xFFF;
-		s_gpu.overrideTexturePsxStp = (psytex->code[1] & PSYX_TEX_FLAG_PSX_STP) != 0;
+		/* PsyCross currently emits texture ID and dimensions only. Its private
+		 * STP extension has no producer in this tree, so do not guess a reserved bit. */
+		s_gpu.overrideTexturePsxStp = false;
 		return 2;
 	}
 	case 0x02:

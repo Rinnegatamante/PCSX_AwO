@@ -285,7 +285,7 @@ frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
  endif
 endif
 ifeq "$(BUILTIN_GPU)" "vita_ctr"
-CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -I../ctr-native/include
+CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -Iplugins/gpu_vita_ctr/include
 OBJS += plugins/gpu_vita_ctr/gpulib_if.o \
         plugins/gpu_vita_ctr/native_gpu.o \
         plugins/gpu_vita_ctr/native_renderer.o
