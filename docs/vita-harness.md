@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe and System 12 4/16 MiB bank, SMC, DMA and MMIO signatures pass | Actual Soul Calibur captures and board progress, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; GXM transfer readback recovers the background pixel | First host heap-corruption fault, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; GXM transfer readback recovers the background pixel | Host shutdown fault, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -123,11 +123,15 @@ alone did not resolve the pixel failure. A controlled GXM transfer readback
 through `vglReadPixels` recovered the background value `2082` and preserved
 the CPU mirror instead of replacing it with zero. The backend now uses that
 transfer path with the explicit fence. The triangle still reads the background
-color instead of `03ff`. A debugger subsequently caught an earlier host heap
-fault while the guest's `vitaGL Splashscreen` thread freed its vertex uniform
-ring, before the test triangle draw. A fresh isolated shader cache reproduces
-that fault. Post-fault triangle observations are insufficient to identify a
-renderer defect; investigation now targets the first corrupting write.
+color instead of `03ff`. An initial debugger stop while the guest's
+`vitaGL Splashscreen` thread freed its vertex uniform ring was subsequently
+identified as an expected protected-memory read, rather than heap corruption.
+LLDB had stopped without passing SIGBUS to Vita3K's memory handler. Passing
+the signal lets that handler restore access and the guest continues. A
+separate fatal `Unhandled access` still occurs during host GXM-context cleanup;
+its stack reaches `gxm::destroy_all_contexts`. That shutdown fault and the
+triangle mismatch remain unresolved. New instruction tests run directly in
+Dynarmic without leaving an emulator or debugger window open.
 The required four library build flags remain enabled. VitaGL is not validated
 yet (`/tmp/pcsx-vita3k-vitagl-gxm-transfer-ab.log`).
 
