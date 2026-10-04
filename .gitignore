@@ -159,9 +159,12 @@ __pycache__/
 /build/mn10200-san/
 /build/rf5c400-tests/
 /build/twinkle-tests/
+/build/zoom-board-tests/
 /build/dynarmic-vaddhn/
 /build/vita-validation-neon-fix/
 /build/vita-validation-neon-fix2/
 /build/vita-validation-gxm-diagnostic/
 /build/vita-validation-gxm-free-diagnostic*/
 /build/vita-validation-neon-capture/
+/build/vita-validation-gxm-shutdown/
+/build/mac-harness-gv/
