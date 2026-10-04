@@ -26,6 +26,11 @@ import konamigv_boards as boards
 DRIVER = boards.DRIVER
 REGION_FILES = {"maincpu:rom": "bios.bin", "eeprom": "eeprom.bin", "flash": "flash.bin"}
 PACKAGE_FILES = {"board.ini", "manifest.json", *REGION_FILES.values()}
+KNOWN_GV_SETS = {
+    "btchamp", "hyperath", "kdeadeye", "konamigv", "lacrazyc", "nagano98",
+    "naganoj", "powyak96", "simpbowl", "susume", "tmosh", "tmoshs",
+    "tmoshsp", "tmoshspa", "weddingr",
+}
 
 
 class KonamiGVPreparationError(Exception):
@@ -35,18 +40,110 @@ class KonamiGVPreparationError(Exception):
 def load_registry(path: Path = boards.DEFAULT_OUTPUT) -> dict[str, Any]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise KonamiGVPreparationError(f"cannot read System GV profiles {path}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise KonamiGVPreparationError("System GV registry root must be an object")
     rows = document.get("profiles")
-    if (document.get("schema_version") != 1 or
+    if (type(document.get("schema_version")) is not int or document.get("schema_version") != 1 or
             document.get("mame_source_commit") != mame.PINNED_MAME_COMMIT or
             document.get("mame_driver") != DRIVER or
-            document.get("family_game_count") != 15 or
+            type(document.get("family_game_count")) is not int or document.get("family_game_count") != 15 or
             not isinstance(rows, list) or len(rows) != 15):
         raise KonamiGVPreparationError("System GV registry is incomplete or not pinned to MAME")
-    if len({row.get("set") for row in rows if isinstance(row, dict)}) != 15:
-        raise KonamiGVPreparationError("System GV registry contains duplicate or malformed set rows")
+    if any(not isinstance(row, dict) for row in rows):
+        raise KonamiGVPreparationError("System GV registry contains a malformed profile row")
+    names = [row.get("set") for row in rows]
+    if (any(not isinstance(name, str) for name in names) or len(set(names)) != 15 or
+            set(names) != KNOWN_GV_SETS):
+        raise KonamiGVPreparationError("System GV registry contains duplicate or unknown set rows")
+    for row in rows:
+        _validate_profile_shape(row)
     return document
+
+
+def _validate_profile_shape(profile: Any) -> None:
+    """Reject malformed profile objects before any indexing or output changes."""
+    if not isinstance(profile, dict):
+        raise KonamiGVPreparationError("System GV profile must be an object")
+    set_name = profile.get("set")
+    if not isinstance(set_name, str) or set_name not in KNOWN_GV_SETS:
+        raise KonamiGVPreparationError("System GV profile has an unknown set name")
+    if type(profile.get("year")) is not int or profile["year"] < 1990:
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has an invalid year")
+    if type(profile.get("is_bios_root")) is not bool:
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has an invalid BIOS-root flag")
+    regions = profile.get("rom_regions")
+    if not isinstance(regions, list) or not regions:
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has no ROM regions")
+    tags: list[str] = []
+    for region in regions:
+        if not isinstance(region, dict):
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has a malformed ROM region")
+        tag, size = region.get("tag"), region.get("size")
+        if not isinstance(tag, str) or tag not in REGION_FILES:
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has an unmapped ROM region")
+        if type(size) is not int or size <= 0:
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has an invalid region size")
+        tags.append(tag)
+    if len(tags) != len(set(tags)) or "maincpu:rom" not in tags:
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has duplicate or missing region tags")
+    if "eeprom" not in tags or ("flash" in tags) != (set_name == "kdeadeye"):
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has an unexpected region map")
+    disks = profile.get("disk_media")
+    if not isinstance(disks, list) or len(disks) != (0 if profile["is_bios_root"] else 1):
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has invalid disk media")
+    for disk in disks:
+        if not isinstance(disk, dict):
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has malformed disk media")
+        name = disk.get("name")
+        if (not isinstance(name, str) or not name or Path(name).name != name or
+                "/" in name or "\\" in name):
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has an unsafe disk name")
+        if type(disk.get("index")) is not int or disk["index"] < 0:
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has invalid disk index")
+        if type(disk.get("readonly")) is not bool:
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has invalid disk readonly flag")
+        if not isinstance(disk.get("sha1"), str) or not re.fullmatch(r"[0-9a-fA-F]{40}", disk["sha1"]):
+            raise KonamiGVPreparationError(f"System GV profile {set_name} has invalid disk SHA1")
+    if profile["is_bios_root"] != (set_name == "konamigv"):
+        raise KonamiGVPreparationError(f"System GV profile {set_name} has inconsistent BIOS-root identity")
+
+
+def _validated_old_manifest(manifest_path: Path) -> tuple[dict[str, Any], set[str]]:
+    try:
+        old = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise KonamiGVPreparationError("existing output has an invalid manifest; refusing merge") from exc
+    if not isinstance(old, dict):
+        raise KonamiGVPreparationError("existing output manifest must be an object; refusing merge")
+    if (old.get("system") != "Konami System GV" or old.get("mame_driver") != DRIVER or
+            old.get("mame_source_commit") != boards.COMMIT):
+        raise KonamiGVPreparationError("existing output is not a package from the pinned System GV source")
+    old_set = old.get("mame_set")
+    try:
+        registry = load_registry()
+    except KonamiGVPreparationError:
+        raise
+    profile = next((row for row in registry["profiles"] if row["set"] == old_set), None)
+    if profile is None or profile["is_bios_root"]:
+        raise KonamiGVPreparationError("existing output manifest names an unknown System GV game")
+    old_regions = old.get("regions")
+    if not isinstance(old_regions, dict):
+        raise KonamiGVPreparationError("existing output manifest has malformed regions; refusing merge")
+    allowed = {f"{disk['name']}.chd" for disk in profile["disk_media"]}
+    allowed.update(REGION_FILES[tag] for tag in (region["tag"] for region in profile["rom_regions"]))
+    if (any(not isinstance(name, str) for name in old_regions) or
+            not set(old_regions).issubset(allowed)):
+        raise KonamiGVPreparationError("existing output manifest claims files outside its GV profile")
+    for metadata in old_regions.values():
+        if (not isinstance(metadata, dict) or type(metadata.get("size")) is not int or
+                metadata["size"] < 0 or not isinstance(metadata.get("crc32"), str) or
+                not re.fullmatch(r"[0-9a-fA-F]{8}", metadata["crc32"]) or
+                not isinstance(metadata.get("sha1"), str) or
+                not re.fullmatch(r"[0-9a-fA-F]{40}", metadata["sha1"])):
+            raise KonamiGVPreparationError("existing output manifest has invalid region metadata")
+    return old, set(old_regions)
 
 
 def _source_commit(source: Path) -> str:
@@ -191,6 +288,10 @@ def package_regions(set_name: str, profile: dict[str, Any], regions: dict[str, b
                     output_dir: Path, source_metadata: dict[str, Any],
                     disk_payloads: dict[str, bytes] | None = None,
                     disk_reports: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    _validate_profile_shape(profile)
+    canonical = next((row for row in load_registry()["profiles"] if row["set"] == set_name), None)
+    if canonical is None or profile != canonical:
+        raise KonamiGVPreparationError("System GV profile differs from the pinned registry")
     if profile.get("set") != set_name or profile.get("is_bios_root"):
         raise KonamiGVPreparationError("a game-specific System GV package requires a non-BIOS profile")
     if set(regions) != {row["tag"] for row in profile["rom_regions"]}:
@@ -202,15 +303,22 @@ def package_regions(set_name: str, profile: dict[str, Any], regions: dict[str, b
     disk_payloads = disk_payloads or {}
     disk_reports = disk_reports or []
     expected_disks = {f"{disk['name']}.chd": disk for disk in profile["disk_media"]}
+    if any(not isinstance(report, dict) for report in disk_reports):
+        raise KonamiGVPreparationError("System GV CHD report is malformed")
     if (set(disk_payloads) != {d.get("package_file") for d in disk_reports} or
             len(disk_reports) != len(profile["disk_media"])):
         raise KonamiGVPreparationError("System GV CD image set is missing, extra, or unvalidated")
     for report in disk_reports:
+        if not isinstance(report, dict):
+            raise KonamiGVPreparationError("System GV CHD report is malformed")
         filename = report.get("package_file")
         expected_disk = expected_disks.get(filename)
         validation = report.get("validation", {})
+        if not isinstance(validation, dict):
+            raise KonamiGVPreparationError("System GV CHD validation report is malformed")
         if (not expected_disk or report.get("sha1") != expected_disk["sha1"] or
                 report.get("name") != expected_disk["name"] or
+                type(validation.get("file_version")) is not int or
                 validation.get("header_sha1") != expected_disk["sha1"] or
                 validation.get("file_version") not in (3, 4, 5) or not validation.get("tracks") or
                 report.get("local_sha256") != hashlib.sha256(disk_payloads[filename]).hexdigest()):
@@ -260,15 +368,12 @@ def package_regions(set_name: str, profile: dict[str, Any], regions: dict[str, b
                 raise KonamiGVPreparationError("output path exists and is not a directory")
             shutil.copytree(output_dir, stage, dirs_exist_ok=True)
             old_manifest = stage / "manifest.json"
+            if old_manifest.exists() and not old_manifest.is_file():
+                raise KonamiGVPreparationError("existing output manifest is not a regular file")
             if old_manifest.is_file():
-                try:
-                    old = json.loads(old_manifest.read_text(encoding="utf-8"))
-                    for name in old.get("regions", {}):
-                        if (isinstance(name, str) and name not in ("", ".", "..") and
-                                Path(name).name == name and "/" not in name and "\\" not in name):
-                            (stage / name).unlink(missing_ok=True)
-                except (OSError, json.JSONDecodeError):
-                    raise KonamiGVPreparationError("existing output has an invalid manifest; refusing merge")
+                _, old_owned_files = _validated_old_manifest(old_manifest)
+                for name in old_owned_files:
+                    (stage / name).unlink(missing_ok=True)
         for name, data in payloads.items():
             (stage / name).write_bytes(data)
         (stage / "board.ini").write_text(board_ini, encoding="utf-8")

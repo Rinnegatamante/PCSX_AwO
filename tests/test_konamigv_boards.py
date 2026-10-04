@@ -68,6 +68,32 @@ class KonamiGVProfilesTest(unittest.TestCase):
             path.write_text(json.dumps(doc))
             with self.assertRaises(prep.KonamiGVPreparationError):
                 prep.load_registry(path)
+
+    def test_load_registry_rejects_malformed_shapes_and_untyped_facts(self) -> None:
+        malformed = [
+            [],
+            {**self.registry, "profiles": [None] * 15},
+        ]
+        for mutate in (
+            lambda row: row["rom_regions"][0].update(size=True),
+            lambda row: row["rom_regions"][0].update(size=524288.0),
+            lambda row: row["rom_regions"][0].update(size=-1),
+            lambda row: row["rom_regions"][0].update(tag="unmapped"),
+            lambda row: row["rom_regions"].append(dict(row["rom_regions"][0])),
+            lambda row: row["disk_media"][0].update(readonly=1),
+            lambda row: row.update(year=1996.0),
+        ):
+            doc = json.loads(json.dumps(self.registry))
+            row = next(item for item in doc["profiles"] if item["set"] == "hyperath")
+            mutate(row)
+            malformed.append(doc)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "registry.json"
+            for doc in malformed:
+                path.write_text(json.dumps(doc), encoding="utf-8")
+                with self.subTest(document=type(doc).__name__), self.assertRaises(
+                        prep.KonamiGVPreparationError):
+                    prep.load_registry(path)
             doc = json.loads(json.dumps(self.registry))
             doc["profiles"][-1]["set"] = doc["profiles"][0]["set"]
             path.write_text(json.dumps(doc))
@@ -103,17 +129,64 @@ class KonamiGVPackagingTest(unittest.TestCase):
             out = Path(temp) / "package"
             out.mkdir()
             (out / "keep.me").write_text("unrelated user file")
+            (out / "nvram.bin").write_bytes(b"persisted settings")
             outside = Path(temp) / "victim.bin"
             outside.write_text("outside package")
-            (out / "manifest.json").write_text(json.dumps(
-                {"regions": {"../../victim.bin": {}, "..\\victim.bin": {}}}), encoding="utf-8")
-            manifest = self._package_fixture("hyperath", out)
-            self.assertTrue((out / "keep.me").is_file())
+            first = self._package_fixture("hyperath", out)
+            malicious = json.loads(json.dumps(first))
+            malicious["regions"] = {"../../victim.bin": {}, "..\\victim.bin": {},
+                                    "keep.me": {}, "nvram.bin": {}}
+            (out / "manifest.json").write_text(json.dumps(malicious), encoding="utf-8")
+            before = {path.name: path.read_bytes() for path in out.iterdir() if path.is_file()}
+            with self.assertRaisesRegex(prep.KonamiGVPreparationError, "claims files outside"):
+                self._package_fixture("hyperath", out)
+            self.assertEqual(before, {path.name: path.read_bytes()
+                                      for path in out.iterdir() if path.is_file()})
             self.assertEqual("outside package", outside.read_text())
-            self.assertIn("eeprom.bin", manifest["regions"])
-            self.assertIn("gv021-j1.chd", manifest["regions"])
+
+            # A valid prior manifest is accepted, while files outside its profile survive.
+            (out / "manifest.json").write_text(json.dumps(first), encoding="utf-8")
+            valid = self._package_fixture("hyperath", out)
+            self.assertTrue((out / "keep.me").is_file())
+            self.assertEqual(b"persisted settings", (out / "nvram.bin").read_bytes())
+            self.assertEqual("outside package", outside.read_text())
+            self.assertIn("eeprom.bin", valid["regions"])
+            self.assertIn("gv021-j1.chd", valid["regions"])
             self.assertIn("region.maincpu:rom=bios.bin", (out / "board.ini").read_text())
-            self.assertFalse(manifest["game_execution_verified"])
+            self.assertFalse(valid["game_execution_verified"])
+
+    def test_malformed_or_foreign_old_manifest_rejects_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "package"
+            out.mkdir()
+            (out / "keep.me").write_bytes(b"keep")
+            base = self._package_fixture("hyperath", out)
+            cases = [[], {**base, "regions": []},
+                     {**base, "mame_driver": "other_driver"},
+                     {**base, "mame_source_commit": "0" * 40},
+                     {**base, "mame_set": "not_a_gv_game"}]
+            for malformed in cases:
+                (out / "manifest.json").write_text(json.dumps(malformed), encoding="utf-8")
+                before = {path.name: path.read_bytes() for path in out.iterdir() if path.is_file()}
+                with self.subTest(manifest=type(malformed).__name__), self.assertRaises(
+                        prep.KonamiGVPreparationError):
+                    self._package_fixture("hyperath", out)
+                self.assertEqual(before, {path.name: path.read_bytes()
+                                          for path in out.iterdir() if path.is_file()})
+
+    def test_valid_profile_change_removes_only_old_package_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "package"
+            out.mkdir()
+            self._package_fixture("kdeadeye", out)
+            (out / "keep.me").write_bytes(b"keep")
+            (out / "nvram.bin").write_bytes(b"persisted settings")
+            self._package_fixture("hyperath", out)
+            self.assertFalse((out / "flash.bin").exists())
+            self.assertFalse((out / "054uaa01.chd").exists())
+            self.assertTrue((out / "gv021-j1.chd").is_file())
+            self.assertEqual(b"keep", (out / "keep.me").read_bytes())
+            self.assertEqual(b"persisted settings", (out / "nvram.bin").read_bytes())
 
     def test_bad_profile_and_size_fail_without_touching_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -131,6 +204,23 @@ class KonamiGVPackagingTest(unittest.TestCase):
             with self.assertRaises(prep.KonamiGVPreparationError):
                 prep.package_regions("konamigv", self.profiles["konamigv"], {}, out, {})
             self.assertEqual("before", sentinel.read_text())
+
+    def test_chd_file_version_requires_an_integer_not_bool(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "package"
+            profile = self.profiles["hyperath"]
+            regions = {row["tag"]: bytes(row["size"]) for row in profile["rom_regions"]}
+            disk = profile["disk_media"][0]
+            disk_file = f"{disk['name']}.chd"
+            payload = b"fixture"
+            report = {**disk, "package_file": disk_file,
+                      "local_sha256": hashlib.sha256(payload).hexdigest(),
+                      "validation": {"file_version": True, "header_sha1": disk["sha1"],
+                                     "tracks": [{"number": 1, "type": "MODE1"}]}}
+            with self.assertRaises(prep.KonamiGVPreparationError):
+                prep.package_regions("hyperath", profile, regions, out, {},
+                                     {disk_file: payload}, [report])
+            self.assertFalse(out.exists())
 
     @unittest.skipUnless(shutil.which("chdman"), "MAME chdman is required for CHD verification test")
     def test_chdman_accepts_data_only_cd_and_checks_source_sha1(self) -> None:
