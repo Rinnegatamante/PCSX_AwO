@@ -81,13 +81,18 @@ on Vita, extended arcade RAM/banking in the DRC, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both
 renderer validations in Vita3K precede requesting a real Vita.
 
-VitaGL currently fails the same guest pixel probe: both pixels read as zero
-while the ARMv7 DRC writes the correct RAM sentinel. Its initialization API
+VitaGL currently fails the same guest pixel probe. Initially both pixels read
+as zero while the ARMv7 DRC wrote the correct RAM sentinel. Its initialization API
 returns whether the requested display resolution was reduced, rather than a
 success flag; the adapter now follows that contract and reaches renderer
 initialization. An explicit `glFinish()` before synchronous VRAM readback
-does not resolve the pixel failure. The required four library build flags
-remain enabled. VitaGL is not validated yet.
+alone did not resolve the pixel failure. A controlled GXM transfer readback
+through `vglReadPixels` recovered the background value `2082` and preserved
+the CPU mirror instead of replacing it with zero. The backend now uses that
+transfer path with the explicit fence. The triangle still reads the background
+color instead of `03ff`; draw/VRAM synchronization remains under investigation.
+The required four library build flags remain enabled. VitaGL is not validated
+yet (`/tmp/pcsx-vita3k-vitagl-gxm-transfer-ab.log`).
 
 ## VitaGL GPU geometry limits
 

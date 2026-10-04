@@ -3011,7 +3011,9 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	// READBACKS_SPEEDHACK removes vitaGL's implicit scene submission/fence.
 	// A guest VRAM read is synchronous, so finish GPU work explicitly here.
 	glFinish();
-	glReadPixels(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
+	/* Use GXM transfer readback so render-target data is resolved before
+	 * reading it. The CPU fast path can see stale render-surface storage. */
+	vglReadPixels(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
 	             readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
 	for (int row = 0; row < readRect.h; row++)
 	{
