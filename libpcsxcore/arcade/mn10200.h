@@ -12,6 +12,12 @@ typedef struct mn10200_cpu mn10200_cpu;
 
 typedef uint8_t (*mn10200_read8_fn)(void *opaque, uint32_t address);
 typedef void (*mn10200_write8_fn)(void *opaque, uint32_t address, uint8_t value);
+/* Optional aligned external word handlers.  A 16-bit data access is one bus
+ * transaction when these are supplied; absent handlers retain the historical
+ * two-byte callback behavior.  The internal 0xfc00 register window always
+ * remains decoded by the CPU core. */
+typedef uint16_t (*mn10200_read16_fn)(void *opaque, uint32_t address);
+typedef void (*mn10200_write16_fn)(void *opaque, uint32_t address, uint16_t value);
 typedef uint8_t (*mn10200_port_read_fn)(void *opaque, unsigned port, uint8_t mask);
 typedef void (*mn10200_port_write_fn)(void *opaque, unsigned port, uint8_t value, uint8_t mask);
 
@@ -21,6 +27,8 @@ typedef struct mn10200_config {
     mn10200_write8_fn write8;
     mn10200_port_read_fn port_read;
     mn10200_port_write_fn port_write;
+    mn10200_read16_fn read16;
+    mn10200_write16_fn write16;
 } mn10200_config;
 
 /* The 12A internal register window is decoded at 0x00fc00-0x00ffff before

@@ -51,10 +51,10 @@ public:
     uint16_t read_arg16(uint32_t a){return (uint16_t)(read_bus8(a)|(uint16_t(read_bus8(a+1))<<8));}
     uint32_t read_arg24(uint32_t a){return read_bus8(a)|(uint32_t(read_bus8(a+1))<<8)|(uint32_t(read_bus8(a+2))<<16);}
     uint8_t read_mem8(uint32_t a){return read_bus8(a);}
-    uint16_t read_mem16(uint32_t a){a &= ~1U; return (uint16_t)(read_bus8(a)|(uint16_t(read_bus8(a+1))<<8));}
+    uint16_t read_mem16(uint32_t a){a=(a&0xfffffeu);if(a<0xfc00||a>0xffff){if(m_config.read16){if(!enter_callback())return 0xffff;uint16_t v=m_config.read16(m_config.opaque,a);leave_callback();return v;}}return (uint16_t)(read_bus8(a)|(uint16_t(read_bus8(a+1))<<8));}
     uint32_t read_mem24(uint32_t a){a &= ~1U; return read_mem16(a)|(uint32_t(read_bus8(a+2))<<16);}
     void write_mem8(uint32_t a,uint8_t d){write_bus8(a,d);}
-    void write_mem16(uint32_t a,uint16_t d){a &= ~1U;write_bus8(a,d);write_bus8(a+1,d>>8);}
+    void write_mem16(uint32_t a,uint16_t d){a=(a&0xfffffeu);if(a<0xfc00||a>0xffff){if(m_config.write16){if(!enter_callback()){set_fault(2);return;}m_config.write16(m_config.opaque,a,d);leave_callback();return;}}write_bus8(a,d);write_bus8(a+1,d>>8);}
     void write_mem24(uint32_t a,uint32_t d){a &= ~1U;write_mem16(a,d);write_bus8(a+2,d>>16);}
     uint8_t read_port(unsigned p,uint8_t mask){if(!m_config.port_read)return 0xff; return invoke_port_read(p,mask);}
     void write_port(unsigned p,uint8_t v,uint8_t mask){if(m_config.port_write)invoke_port_write(p,v,mask);}
@@ -142,4 +142,3 @@ void mn10200_clear_fault(mn10200_cpu *c){if(c&&c->core&&!c->core->m_in_callback)
 uint8_t mn10200_read_internal(mn10200_cpu *c,uint16_t o){return c&&c->core?c->core->io_control_r(o):0xff;}
 int mn10200_write_internal(mn10200_cpu *c,uint16_t o,uint8_t v){if(!c||!c->core)return -1;if(c->core->m_in_callback||c->core->m_in_run){c->core->set_fault(4);return -1;}c->core->io_control_w(o,v);return c->core->m_fault? -1:0;}
 }
-

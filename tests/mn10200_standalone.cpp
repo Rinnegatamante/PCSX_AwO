@@ -9,6 +9,9 @@ struct Bus {
     std::vector<uint8_t> mem=std::vector<uint8_t>(1u<<24);
     mn10200_cpu *cpu=nullptr;
     uint64_t reads=0,writes=0,first_read_cycle=0;
+    uint64_t word_reads=0,word_writes=0;
+    bool reenter_word=false;
+    int word_reenter_result=0;
     uint32_t last_address=0;
     bool reenter=false;
     int reenter_result=0;
@@ -16,14 +19,40 @@ struct Bus {
 };
 static uint8_t rd(void *o,uint32_t a){auto &b=*static_cast<Bus*>(o);++b.reads;b.last_address=a;if(!b.first_read_cycle&&b.cpu)b.first_read_cycle=mn10200_get_callback_cycle(b.cpu);if(b.reenter&&b.cpu){b.reenter=false;b.reenter_result=mn10200_reset(b.cpu);}return a<b.mem.size()?b.mem[a]:0xff;}
 static void wr(void *o,uint32_t a,uint8_t v){auto &b=*static_cast<Bus*>(o);++b.writes;b.last_address=a;if(a<b.mem.size())b.mem[a]=v;}
+static uint16_t rd16(void *o,uint32_t a){auto &b=*static_cast<Bus*>(o);++b.word_reads;b.last_address=a;if(b.reenter_word&&b.cpu){b.reenter_word=false;b.word_reenter_result=mn10200_reset(b.cpu);}return uint16_t(b.mem[a])|(uint16_t(b.mem[a+1])<<8);}
+static void wr16(void *o,uint32_t a,uint16_t v){auto &b=*static_cast<Bus*>(o);++b.word_writes;b.last_address=a;b.mem[a]=uint8_t(v);b.mem[a+1]=uint8_t(v>>8);}
 static uint8_t pr(void *o,unsigned,uint8_t){return static_cast<Bus*>(o)->port_value;}
 static void pw(void *,unsigned,uint8_t,uint8_t){}
 static void put(Bus&b,uint32_t a,std::initializer_list<uint8_t> data){for(uint8_t v:data)b.mem[a++]=v;}
 static mn10200_cpu *make(Bus&b){mn10200_config c{};c.opaque=&b;c.read8=rd;c.write8=wr;c.port_read=pr;c.port_write=pw;auto *cpu=mn10200_create(&c);b.cpu=cpu;return cpu;}
+static mn10200_cpu *make_word_bus(Bus&b){mn10200_config c{};c.opaque=&b;c.read8=rd;c.write8=wr;c.read16=rd16;c.write16=wr16;c.port_read=pr;c.port_write=pw;auto *cpu=mn10200_create(&c);b.cpu=cpu;return cpu;}
 
 static void test_execution_and_external_bus(){
     Bus b; put(b,0x80000,{0xf8,0x34,0x12, 0xc0,0x00,0x20, 0xf6,0xf6});
     auto *c=make(b);assert(c);auto used=mn10200_run(c,2);assert(used==2);assert(mn10200_get_d(c,0)==0x1234);assert(b.mem[0x2000]==0x34&&b.mem[0x2001]==0x12);assert(b.writes>=2);assert(mn10200_get_pc(c)==0x80006);assert(b.first_read_cycle==1);mn10200_destroy(c);
+}
+static void test_aligned_external_word_transaction(){
+    Bus b;put(b,0x80000,{0xf8,0x34,0x12,0xc0,0x00,0x20,0xf6});
+    auto*c=make_word_bus(b);assert(c);assert(mn10200_run(c,2)==2);
+    assert(b.word_writes==1&&b.writes==0);assert(b.last_address==0x2000);
+    assert(b.mem[0x2000]==0x34&&b.mem[0x2001]==0x12);mn10200_destroy(c);
+
+    Bus r; r.mem[0x2000]=0x78; r.mem[0x2001]=0x56;
+    put(r,0x80000,{0xf4,0xc0,0x00,0x20,0x00,0xf6});
+    auto*rc=make_word_bus(r);assert(rc);assert(mn10200_run(rc,5)>=5);
+    assert(r.word_reads==1);assert(mn10200_get_d(rc,0)==0x5678);
+    mn10200_destroy(rc);
+
+    Bus overlay; put(overlay,0x80000,{0xf4,0xc0,0xd0,0xff,0x00,0xf6});
+    auto*oc=make_word_bus(overlay);assert(oc);assert(mn10200_run(oc,5)>=5);
+    assert(overlay.word_reads==0);
+    assert(mn10200_get_d(oc,0)==0x00ffa5a5u);mn10200_destroy(oc);
+
+    Bus nested; nested.mem[0x2000]=0x34;nested.mem[0x2001]=0x12;
+    put(nested,0x80000,{0xf4,0xc0,0x00,0x20,0x00,0xf6});
+    auto*nc=make_word_bus(nested);assert(nc);nested.reenter_word=true;
+    assert(mn10200_run(nc,5)>=5);assert(nested.word_reenter_result==-1);
+    assert(mn10200_get_fault(nc)==4);mn10200_destroy(nc);
 }
 static void test_arithmetic_and_slice_equivalence(){
     Bus a,b; std::initializer_list<uint8_t> program={0xf8,0xff,0x7f, 0xf9,0x01,0x00, 0x94, 0xf6, 0xf6};put(a,0x80000,program);put(b,0x80000,program);auto *ca=make(a),*cb=make(b);assert(ca&&cb);assert(mn10200_run(ca,4)>=4);for(int i=0;i<4;i++)assert(mn10200_run(cb,1)>=1);assert(mn10200_get_d(ca,0)==mn10200_get_d(cb,0));assert(mn10200_get_psw(ca)==mn10200_get_psw(cb));assert(mn10200_get_pc(ca)==mn10200_get_pc(cb));assert(mn10200_get_d(ca,0)==0x8000);assert(mn10200_get_psw(ca)&0x8);mn10200_destroy(ca);mn10200_destroy(cb);
@@ -56,4 +85,4 @@ static void test_irq_vector_and_stack(){
     assert(mn10200_run(c,5)>=5);assert(mn10200_get_pc(c)>=0x80009&&mn10200_get_pc(c)<0x80020);assert(mn10200_get_a(c,3)==0xfffffa);assert(mn10200_read_internal(c,0x00e)==0x10);assert(b.mem[0xfffffa]==0x00&&b.mem[0xfffffb]==0x0f);assert(b.mem[0xfffffc]==0x05&&b.mem[0xfffffd]==0x00&&b.mem[0xfffffe]==0x08);mn10200_destroy(c);
 }
 
-int main(){test_execution_and_external_bus();test_arithmetic_and_slice_equivalence();test_timer_and_irq_inputs();test_irq_vector_and_stack();test_illegal_opcode_nmi();test_internal_ports_reentry_reset_and_overflow();std::puts("MN10200 standalone tests passed");return 0;}
+int main(){test_execution_and_external_bus();test_aligned_external_word_transaction();test_arithmetic_and_slice_equivalence();test_timer_and_irq_inputs();test_irq_vector_and_stack();test_illegal_opcode_nmi();test_internal_ports_reentry_reset_and_overflow();std::puts("MN10200 standalone tests passed");return 0;}
