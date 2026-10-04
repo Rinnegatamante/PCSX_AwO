@@ -1,0 +1,735 @@
+{
+  "schema_version": 1,
+  "source_commit": "deb2f54fe7300e7a192690318beb860159bfd52a",
+  "source_driver": "src/mame/namco/namcos12.cpp",
+  "sets": [
+    {
+      "name": "soulclbr",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc12vera.2l",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "ceadcc9a",
+            "sha1": "68cd3d15f28178fcea8aada6067b7060edfb2913"
+          },
+          {
+            "filename": "soc12vera.2p",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "65a74cf0",
+            "sha1": "1129c078925bd02f4e9cef64cd7761968be53537"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrab",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc14verb.2l",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "6af5c5f6",
+            "sha1": "51d1e7d78d95cfc765cd219ed07b405cd920044b"
+          },
+          {
+            "filename": "soc14verb.2p",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "23e7a4c4",
+            "sha1": "a97f36cafdeff9e26fbd24e54ab8ac8080763761"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrac",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc14verc.2e",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "c40e9614",
+            "sha1": "dc20469f0d657423e472fdf5897852ab9fb8bb73"
+          },
+          {
+            "filename": "soc14verc.2j",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "80c41446",
+            "sha1": "e5620a4f0ffba913169a779df73384b7ca8780b9"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrja2",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc1vera.2l",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "37e0a203",
+            "sha1": "3915b5e530c8e70a07aa8ccedeb66633ae5f670e"
+          },
+          {
+            "filename": "soc1vera.2p",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "7cd87a35",
+            "sha1": "5a4837b6f6a49c88126a0ddbb8059a4da77127bc"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrjb",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc11verb.2e",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "9660d996",
+            "sha1": "6361abfd8b0d29848aabad6a5c517ba0d336359a"
+          },
+          {
+            "filename": "soc11verb.2j",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "49939880",
+            "sha1": "a53fb8ecd71c8d59b0e08d6233ea658ae083bc6d"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrjc",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc11verc.2l",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "f5e3679c",
+            "sha1": "b426cfc7707a6772e6aabbaf4a19b7f008324d55"
+          },
+          {
+            "filename": "soc11verc.2p",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "7537719c",
+            "sha1": "d83d4c762fa7fcfd5d84de550568e92999e5bdfb"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbrub",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc13verb.2e",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "ad7cfb1e",
+            "sha1": "7d1e7fd0024e31780335690906846e91ba063003"
+          },
+          {
+            "filename": "soc13verb.2j",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "7449c045",
+            "sha1": "1c7a8b659d0f12dded2a00bc83baeb392fd7a719"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    },
+    {
+      "name": "soulclbruc",
+      "regions": {
+        "maincpu:rom": 4194304,
+        "bankedroms": 33554432,
+        "sub": 524288,
+        "c352": 16777216
+      },
+      "loads": {
+        "maincpu:rom": [
+          {
+            "filename": "soc13verc.2l",
+            "offset": 0,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "4ba962fb",
+            "sha1": "e2b5e543d92a4157788482f3ab7c6b0e5ff30367"
+          },
+          {
+            "filename": "soc13verc.2p",
+            "offset": 1,
+            "length": 2097152,
+            "load_type": "16_BYTE",
+            "crc32": "140c40de",
+            "sha1": "352faec0fff5a8422ee7c8db2e0c946b139be03f"
+          }
+        ],
+        "bankedroms": [
+          {
+            "filename": "soc1rom0.7",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "cdc47b55",
+            "sha1": "315ea6b819de5c4883aa400f1b9f4172637757bf"
+          },
+          {
+            "filename": "soc1rom1.8",
+            "offset": 8388608,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "30d2dd5a",
+            "sha1": "1c0c467ba339e0241efb8d5c3b025a046b2ca676"
+          },
+          {
+            "filename": "soc1rom2.9",
+            "offset": 16777216,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "dbb93955",
+            "sha1": "624cd8ad94e8ae53206f798bff81784afe95e5f1"
+          },
+          {
+            "filename": "soc1fl3.6",
+            "offset": 25165824,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "24d94c38",
+            "sha1": "0f9b9ab11dd4e02086d7b9104ce2f5d4e93cd696"
+          },
+          {
+            "filename": "soc1fl4.5",
+            "offset": 29360128,
+            "length": 4194304,
+            "load_type": "",
+            "crc32": "6212090e",
+            "sha1": "ed5e50771180935a0c2e760e7369673098722201"
+          }
+        ],
+        "sub": [
+          {
+            "filename": "soc1vera.11s",
+            "offset": 0,
+            "length": 524288,
+            "load_type": "16_WORD_SWAP",
+            "crc32": "52aa206a",
+            "sha1": "5abe9d6f800fa1b9623aa08b16e9b959b840e50b"
+          }
+        ],
+        "c352": [
+          {
+            "filename": "soc1wave0.2",
+            "offset": 0,
+            "length": 8388608,
+            "load_type": "",
+            "crc32": "c100618d",
+            "sha1": "b87f88ee42ad9c5affa674e5f816d902143fed99"
+          }
+        ]
+      }
+    }
+  ]
+}

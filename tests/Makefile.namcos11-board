@@ -1,0 +1,21 @@
+CC ?= cc
+CXX ?= c++
+BUILD ?= build/namcos11-board
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+C_SOURCES = libpcsxcore/arcade/namcos11_board.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/at28c16.c tests/test_namcos11_board.c
+OBJECTS = $(addprefix $(BUILD)/,$(C_SOURCES:.c=.o)) $(BUILD)/libpcsxcore/arcade/m37710.o
+.PHONY: test clean
+test: $(BUILD)/test_namcos11_board
+	$(BUILD)/test_namcos11_board
+$(BUILD)/test_namcos11_board: $(OBJECTS)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+clean:
+	rm -rf $(BUILD)
+-include $(OBJECTS:.o=.d)
