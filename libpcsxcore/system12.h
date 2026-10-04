@@ -7,6 +7,11 @@
 
 typedef void (*system12_audio_cb)(void *opaque, const int16_t *stereo,
 		unsigned frames);
+/* Optional diagnostics hook for accesses serviced by system12_read/write only;
+ * internal DMA copies are not traced. The callback runs synchronously in the
+ * board bus handler, must not re-enter the core, and is cleared on unload. */
+typedef void (*system12_bus_trace_cb)(void *opaque, u32 address, unsigned width,
+		int is_write, u32 value, u32 pc, u32 cycle);
 
 int system12_load(const char *directory);
 void system12_unload(void);
@@ -23,6 +28,7 @@ int system12_open_audio(const char *path);
 int system12_close_audio(void);
 /* Optional 88.2 kHz stereo output; the WAV capture path can run at once. */
 void system12_set_audio_output(system12_audio_cb callback, void *opaque);
+void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque);
 unsigned char system12_jamma_read(unsigned offset);
 void system12_audio_test_fixture(void);
 int system12_read(u32 address, unsigned width, u32 *value);

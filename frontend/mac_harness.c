@@ -16,12 +16,72 @@
 #include "plugin.h"
 #include "plugin_lib.h"
 #include "gpu_vram.h"
+#include "../libpcsxcore/psxmem.h"
 #ifdef PCSX_SYSTEM12
 #include "../libpcsxcore/system12.h"
 #include "../libpcsxcore/system11.h"
 #include "../libpcsxcore/system10.h"
 #include "../libpcsxcore/systemzn.h"
 #include "../libpcsxcore/systemtaito.h"
+
+enum { BOARD_BUS_TRACE_BIN_CYCLES = 8192, BOARD_BUS_TRACE_MAX_BINS = 100000 };
+typedef struct harness_bus_trace_bin {
+  uint64_t hash;
+  uint32_t count, first_cycle, first_address, first_value, first_pc;
+  uint8_t first_width, first_write;
+} harness_bus_trace_bin;
+static void harness_system12_bus_event(void *opaque, u32 address, unsigned width,
+    int is_write, u32 value, u32 pc, u32 cycle)
+{
+  harness_bus_trace_bin *bins = opaque;
+  uint32_t index = cycle / BOARD_BUS_TRACE_BIN_CYCLES;
+  harness_bus_trace_bin *bin;
+  uint64_t fields[2];
+  unsigned i, j;
+  if (!bins || index >= BOARD_BUS_TRACE_MAX_BINS) return;
+  /* Ignore writes to MAME's declared no-op windows. They dominate the
+   * early BIOS wait loop but cannot distinguish the board's real buses. */
+  if (is_write && ((address >= 0x1f008000 && address < 0x1f008004) ||
+      (address >= 0x1f010000 && address < 0x1f010004) ||
+      (address >= 0x1f018000 && address < 0x1f018004) ||
+      (address >= 0x1f1bff08 && address < 0x1f1bff10) ||
+      (address >= 0x1f000002 && address < 0x1f000004))) return;
+  bin = &bins[index];
+  if (!bin->count) {
+    bin->hash = UINT64_C(14695981039346656037);
+    bin->first_cycle = cycle;
+    bin->first_address = address;
+    bin->first_value = value;
+    bin->first_pc = pc;
+    bin->first_width = width > 255 ? 255 : width;
+    bin->first_write = is_write != 0;
+  }
+  if (bin->count != UINT32_MAX) bin->count++;
+  fields[0] = address | ((uint64_t)(width & 0xff) << 32) |
+    ((uint64_t)(is_write != 0) << 40);
+  fields[1] = value;
+  for (i = 0; i < 2; i++)
+    for (j = 0; j < sizeof(fields[i]); j++) {
+      bin->hash ^= (fields[i] >> (j * 8)) & 0xff;
+      bin->hash *= UINT64_C(1099511628211);
+    }
+}
+
+static int write_system12_bus_trace(FILE *file,
+    const harness_bus_trace_bin *bins)
+{
+  unsigned i;
+  if (!file || !bins) return 0;
+  fputs("bin,cycle,events,fnv64,address,width,write,value,reported_pc\n", file);
+  for (i = 0; i < BOARD_BUS_TRACE_MAX_BINS; i++) {
+    const harness_bus_trace_bin *b = &bins[i];
+    if (b->count)
+      fprintf(file, "%u,%u,%u,%016" PRIx64 ",%08x,%u,%u,%08x,%08x\n",
+        i, b->first_cycle, b->count, b->hash, b->first_address,
+        b->first_width, b->first_write, b->first_value, b->first_pc);
+  }
+  return ferror(file) ? -1 : 0;
+}
 
 typedef struct HarnessBoard {
   int family;
@@ -129,7 +189,10 @@ static void usage(const char *name)
     "[--frames N] [--output FRAME.ppm] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
-    "[--trace FILE --trace-blocks N] [--max-blocks N] [--icache] [--drc]\n"
+    "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
+    "--snapshot-start CYCLES --snapshot-interval N] "
+    "[--board-bus-trace FILE] "
+    "[--max-blocks N] [--icache] [--drc]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
 
@@ -286,6 +349,16 @@ int main(int argc, char **argv)
 #endif
   const char *trace_path = NULL;
   FILE *trace = NULL;
+  const char *snapshot_path = NULL;
+  FILE *snapshots = NULL;
+  const char *bus_trace_path = NULL;
+  FILE *bus_trace_file = NULL;
+#ifdef PCSX_SYSTEM12
+  harness_bus_trace_bin *bus_trace_bins = NULL;
+  int bus_trace_finished = 0;
+#endif
+  uint64_t snapshot_interval = 262144, snapshot_start = 262144, next_snapshot = 262144;
+  unsigned int snapshot_count = 0;
   unsigned int frames = 3, start_frame, prev_cycle;
   uint64_t cycles = 0, cycle_limit;
   unsigned long blocks = 0, trace_blocks = 1000, max_blocks = 1000000000;
@@ -312,6 +385,8 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--audio-test-fixture")) audio_test_fixture = 1;
     else if (!strcmp(argv[i], "--drc")) use_drc = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
+    else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
+    else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
     else if ((!strcmp(argv[i], "--trace-blocks") || !strcmp(argv[i], "--max-blocks")) && i + 1 < argc) {
       int tracing = !strcmp(argv[i], "--trace-blocks");
       char *tail; unsigned long n;
@@ -320,6 +395,18 @@ int main(int argc, char **argv)
         usage(argv[0]); return 2;
       }
       if (tracing) trace_blocks = n; else max_blocks = n;
+    }
+    else if (!strcmp(argv[i], "--snapshot-interval") && i + 1 < argc) {
+      char *tail; unsigned long long n;
+      errno = 0; n = strtoull(argv[++i], &tail, 10);
+      if (errno || *tail || n == 0 || n > 0x100000000ULL) { usage(argv[0]); return 2; }
+      snapshot_interval = n;
+    }
+    else if (!strcmp(argv[i], "--snapshot-start") && i + 1 < argc) {
+      char *tail; unsigned long long n;
+      errno = 0; n = strtoull(argv[++i], &tail, 10);
+      if (errno || *tail) { usage(argv[0]); return 2; }
+      snapshot_start = (uint64_t)n;
     }
     else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
       char *tail; unsigned long n = strtoul(argv[++i], &tail, 10);
@@ -335,13 +422,29 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--icache")) icache = 1;
     else { usage(argv[0]); return 2; }
   }
+  next_snapshot = snapshot_start ? snapshot_start : snapshot_interval;
   if ((!exe && !board && !gpu_type1_test) || (exe && board) ||
       (gpu_type1_test && (exe || board || verify || trace_path)) || (board_test && !board) ||
       ((inputs_path || audio_path || audio_test_fixture || nvram_path) && !board) ||
+      (snapshot_path && (!board || board_family != 12)) ||
+      (bus_trace_path && (!board || board_family != 12)) ||
+      (inputs_path && !strcmp(inputs_path, output)) ||
+      (trace_path && inputs_path && !strcmp(trace_path, inputs_path)) ||
       (nvram_path && ((!strcmp(nvram_path, output)) ||
         (inputs_path && !strcmp(nvram_path, inputs_path)) ||
         (audio_path && !strcmp(nvram_path, audio_path)) ||
-        (trace_path && !strcmp(nvram_path, trace_path)))) ||
+        (trace_path && !strcmp(nvram_path, trace_path)) ||
+        (snapshot_path && !strcmp(nvram_path, snapshot_path)) ||
+        (bus_trace_path && !strcmp(nvram_path, bus_trace_path)))) ||
+      (snapshot_path && ((trace_path && !strcmp(snapshot_path, trace_path)) ||
+        (inputs_path && !strcmp(snapshot_path, inputs_path)) ||
+        (audio_path && !strcmp(snapshot_path, audio_path)) ||
+        !strcmp(snapshot_path, output))) ||
+      (bus_trace_path && ((trace_path && !strcmp(bus_trace_path, trace_path)) ||
+        (snapshot_path && !strcmp(bus_trace_path, snapshot_path)) ||
+        (inputs_path && !strcmp(bus_trace_path, inputs_path)) ||
+        (audio_path && !strcmp(bus_trace_path, audio_path)) ||
+        !strcmp(bus_trace_path, output))) ||
       (audio_test_fixture && (!board_test || !audio_path || board_family != 12))) {
     usage(argv[0]); return 2;
   }
@@ -351,6 +454,38 @@ int main(int argc, char **argv)
     fputs("block,cycle,pc,opcode", trace);
     for (i = 0; i < 32; i++) fprintf(trace, ",r%d", i);
     fputc('\n', trace);
+  }
+  if (snapshot_path) {
+    snapshots = fopen(snapshot_path, "w");
+    if (!snapshots) { perror(snapshot_path); if (trace) fclose(trace); return 1; }
+    fputs("cycles,frame,pc,opcode,sr,cause,interrupt,i_stat,i_mask,ram_vector80,"
+      "ram_d2190,ram_d2194,ram_d2198,ram_d219c,ram_d21a0,ram_d21a4,"
+      "ram_d21a8,ram_d21ac,ram_d21b0,ram_d21b4,ram_d21b8,ram_d21bc,"
+      "ram_d21c0,ram_d21c4,ram_d21c8,ram_d21cc,ram_d21d0,ram_d21d4,"
+      "ram_d21d8,ram_d21dc", snapshots);
+    for (i = 0; i < 32; i++) fprintf(snapshots, ",r%d", i);
+    fputc('\n', snapshots);
+  }
+  if (bus_trace_path) {
+#ifdef PCSX_SYSTEM12
+    bus_trace_bins = calloc(BOARD_BUS_TRACE_MAX_BINS, sizeof(*bus_trace_bins));
+    bus_trace_file = fopen(bus_trace_path, "w");
+    if (!bus_trace_bins || !bus_trace_file) {
+      perror(bus_trace_path);
+      free(bus_trace_bins);
+      if (trace) fclose(trace);
+      if (snapshots) fclose(snapshots);
+      if (bus_trace_file) fclose(bus_trace_file);
+      return 1;
+    }
+    fprintf(stderr, "System12 bus trace: %u-cycle bins, %u bins (%" PRIu64
+      "-cycle horizon); reported_pc is block state, not instruction-exact under DRC\n",
+      BOARD_BUS_TRACE_BIN_CYCLES, BOARD_BUS_TRACE_MAX_BINS,
+      (uint64_t)BOARD_BUS_TRACE_BIN_CYCLES * BOARD_BUS_TRACE_MAX_BINS);
+#else
+    fprintf(stderr, "Rebuild with BOARD=1 for System12 bus tracing.\n");
+    return 2;
+#endif
   }
   memset(&Config, 0, sizeof(Config));
   Config.HLE = 1;
@@ -438,6 +573,10 @@ int main(int argc, char **argv)
   if (board && !result && apply_input_events(input_events, input_event_count,
       &next_input_event, 0)) result = 1;
 #endif
+#ifdef PCSX_SYSTEM12
+  if (bus_trace_bins)
+    system12_set_bus_trace(harness_system12_bus_event, bus_trace_bins);
+#endif
   cycle_limit = (uint64_t)PSXCLK * frames / 30 + PSXCLK;
   clock_gettime(CLOCK_MONOTONIC, &begin);
   while (!result && !interrupted && frame_counter - start_frame < frames) {
@@ -467,6 +606,13 @@ int main(int argc, char **argv)
     cycles += (uint32_t)(psxRegs.cycle - prev_cycle);
     prev_cycle = psxRegs.cycle;
 #ifdef PCSX_SYSTEM12
+    /* Stop permanently before a later 32-bit CPU cycle wrap could reuse the
+     * early bins. The harness's elapsed cycle count is monotonic. */
+    if (bus_trace_bins && !bus_trace_finished &&
+        cycles >= (uint64_t)BOARD_BUS_TRACE_BIN_CYCLES * BOARD_BUS_TRACE_MAX_BINS) {
+      system12_set_bus_trace(NULL, NULL);
+      bus_trace_finished = 1;
+    }
     if (board) {
       int sync_result = selected_board->sync(psxRegs.cycle);
       if (sync_result < 0) {
@@ -483,6 +629,35 @@ int main(int argc, char **argv)
       }
     }
 #endif
+    if (snapshots && snapshot_count < 200000 && cycles >= next_snapshot) {
+      unsigned int r;
+      fprintf(snapshots, "%" PRIu64 ",%u,%08x,%08x,%08x,%08x,%08x,%04x,%04x,%08x"
+        ",%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x"
+        ",%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x",
+        cycles, frame_counter - start_frame, psxRegs.pc, psxRegs.code,
+        psxRegs.CP0.n.SR, psxRegs.CP0.n.Cause, psxRegs.interrupt,
+        psxHu16(0x1070), psxHu16(0x1074), psxMemRead32(&psxRegs, 0x80000080),
+        psxMemRead32(&psxRegs, 0x800d2190), psxMemRead32(&psxRegs, 0x800d2194),
+        psxMemRead32(&psxRegs, 0x800d2198), psxMemRead32(&psxRegs, 0x800d219c),
+        psxMemRead32(&psxRegs, 0x800d21a0), psxMemRead32(&psxRegs, 0x800d21a4),
+        psxMemRead32(&psxRegs, 0x800d21a8), psxMemRead32(&psxRegs, 0x800d21ac),
+        psxMemRead32(&psxRegs, 0x800d21b0), psxMemRead32(&psxRegs, 0x800d21b4),
+        psxMemRead32(&psxRegs, 0x800d21b8), psxMemRead32(&psxRegs, 0x800d21bc),
+        psxMemRead32(&psxRegs, 0x800d21c0), psxMemRead32(&psxRegs, 0x800d21c4),
+        psxMemRead32(&psxRegs, 0x800d21c8), psxMemRead32(&psxRegs, 0x800d21cc),
+        psxMemRead32(&psxRegs, 0x800d21d0), psxMemRead32(&psxRegs, 0x800d21d4),
+        psxMemRead32(&psxRegs, 0x800d21d8), psxMemRead32(&psxRegs, 0x800d21dc));
+      for (r = 0; r < 32; r++) fprintf(snapshots, ",%08x", psxRegs.GPR.r[r]);
+      fputc('\n', snapshots);
+      snapshot_count++;
+      do {
+        if (UINT64_MAX - next_snapshot < snapshot_interval) {
+          next_snapshot = UINT64_MAX;
+          break;
+        }
+        next_snapshot += snapshot_interval;
+      } while (next_snapshot <= cycles);
+    }
     /* Bound a malformed boot that changes timer registers or loses vsync. */
     if (cycles > cycle_limit || blocks >= max_blocks) {
       fprintf(stderr, "execution limit reached before requested vsync count\n");
@@ -498,6 +673,15 @@ int main(int argc, char **argv)
   free(input_events);
 #endif
   if (trace && fclose(trace)) result = 1;
+  if (snapshots && fclose(snapshots)) result = 1;
+#ifdef PCSX_SYSTEM12
+  if (bus_trace_bins) {
+    system12_set_bus_trace(NULL, NULL);
+    if (write_system12_bus_trace(bus_trace_file, bus_trace_bins)) result = 1;
+    if (fclose(bus_trace_file)) result = 1;
+    free(bus_trace_bins);
+  }
+#endif
   if (harness_write_ppm(output, 0, 0)) result = 1;
   if (verify) {
     unsigned short center = harness_vram_pixel(160, 100);

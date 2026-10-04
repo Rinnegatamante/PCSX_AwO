@@ -70,6 +70,21 @@ static struct {
     u32 last_unknown_address, last_unknown_pc;
     int active;
 } board;
+static system12_bus_trace_cb bus_trace_cb;
+static void *bus_trace_opaque;
+
+void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque)
+{
+    bus_trace_cb = callback;
+    bus_trace_opaque = opaque;
+}
+
+static void trace_bus(u32 address, unsigned width, int is_write, u32 value)
+{
+    if (bus_trace_cb)
+        bus_trace_cb(bus_trace_opaque, address, width, is_write, value,
+            psxRegs.pc, psxRegs.cycle);
+}
 
 static const struct { const char *name; unsigned player, mask; } player_inputs[] = {
     {"p1start", 0, 0x00000080}, {"p1up", 0, 0x00000020},
@@ -567,6 +582,8 @@ int system12_load(const char *directory)
 void system12_unload(void)
 {
     /* Call after psxShutdown(): sizes are needed to unmap the core. */
+    bus_trace_cb = NULL;
+    bus_trace_opaque = NULL;
 #ifndef DRC_DISABLE
     new_dynarec_set_code_span_provider(NULL);
 #endif
@@ -661,6 +678,7 @@ int system12_read(u32 address, unsigned width, u32 *value)
          (a >= 0x1ff00000 && a < 0x1ff00004))) {
         board.has_tektagt_dma = 1;
         *value = 0;
+        trace_bus(a, width, 0, 0);
         return 1;
     }
     /* Non-LUT fallback also permits execution from valid banked ROM. */
@@ -670,6 +688,7 @@ int system12_read(u32 address, unsigned width, u32 *value)
                 ? board.banked[board.bank * WINDOW_SIZE + ((a + i) & (WINDOW_SIZE - 1))]
                 : 0xff) << (i * 8);
         *value = v;
+        trace_bus(a, width, 0, v);
         return 1;
     }
     if (a < 0x1f000000 || a >= 0x1f800000)
@@ -697,6 +716,7 @@ int system12_read(u32 address, unsigned width, u32 *value)
         board.last_unknown_pc = psxRegs.pc;
     }
     *value = v;
+    trace_bus(a, width, 0, v);
     return 1;
 }
 
@@ -709,6 +729,7 @@ int system12_write(u32 address, unsigned width, u32 value)
     if (board.tektagt_dma && a >= 0x1fb00000 && a < 0x1fb00004) {
         if (!(a & 2)) board.tektagt_dma_offset = value & 0xffff;
         else board.tektagt_dma_offset |= (value & 0xffff) << 16;
+        trace_bus(a, width, 1, value);
         return 1;
     }
     if (a < 0x1f000000 || a >= 0x1f800000)
@@ -761,6 +782,7 @@ int system12_write(u32 address, unsigned width, u32 value)
         board.last_unknown_address = a;
         board.last_unknown_pc = psxRegs.pc;
     }
+    trace_bus(a, width, 1, value);
     return 1;
 }
 

@@ -163,6 +163,16 @@ the output. The smoke stays at 320×240 and origin (0, 0).
 cycle, PC, opcode and 32 general registers. It defaults to 1000 trace rows
 and supports up to one million; execution continues after tracing finishes.
 
+For System12, `--cycle-snapshots FILE --snapshot-start CYCLES
+--snapshot-interval N` records CPU registers, interrupt state, the RAM exception
+vector and Soul Calibur's copy-loop instruction words at `800d2190..800d21dc`.
+It stops recording after 200,000 snapshots. DRC PCs/opcodes are saved block
+state and may be stale; these samples are not instruction-exact checkpoints.
+`--board-bus-trace FILE` records event counts and FNV-1a hashes in 8,192-cycle
+bins for board MMIO and banked-ROM fallback reads. It omits declared no-op
+writes and stops after 819,200,000 elapsed cycles. Standard PSX hardware/DMA
+register accesses are outside this hook. Both options are disabled by default.
+
 Check the executable architecture and the rasterizer instructions with:
 
 ```sh
