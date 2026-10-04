@@ -151,3 +151,7 @@ __pycache__/
 /build/tms57002/
 /build/zsg2-san/
 /frame.ppm
+/build/konamigv-tests/
+/build/konamigq-tests/
+/build/mn10200/
+/build/mn10200-san/

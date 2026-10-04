@@ -1,0 +1,41 @@
+.DEFAULT_GOAL := test
+CC ?= clang
+CXX ?= clang++
+BUILD ?= build/konamigv-tests
+OPT ?= -O2 -g
+ARCADE := libpcsxcore/arcade
+CFLAGS := -std=c99 $(OPT) -Wall -Wextra -Werror
+CXXFLAGS := -std=c++17 $(OPT) -Wall -Wextra -Werror -Wno-unused-parameter
+OBJS := $(BUILD)/nscsi_bus.o $(BUILD)/nscsi_target.o $(BUILD)/nscsi_cd.o \
+	$(BUILD)/ncr53cf96.o $(BUILD)/i8251.o \
+	$(BUILD)/mb89371.o $(BUILD)/eeprom93c46.o $(BUILD)/konamigv.o
+TARGET := $(BUILD)/test_konamigv
+
+.PHONY: test sanitize clean
+$(BUILD):
+	@mkdir -p $(BUILD)
+$(BUILD)/nscsi_bus.o: $(ARCADE)/nscsi_bus.cpp $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/nscsi_target.o: $(ARCADE)/nscsi_target.cpp $(ARCADE)/nscsi_target.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/nscsi_cd.o: $(ARCADE)/nscsi_cd.cpp $(ARCADE)/nscsi_cd.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/ncr53cf96.o: $(ARCADE)/ncr53cf96.cpp $(ARCADE)/ncr53cf96.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/konamigv.o: $(ARCADE)/konamigv.cpp $(ARCADE)/konamigv.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/i8251.o: $(ARCADE)/i8251.c $(ARCADE)/i8251.h | $(BUILD)
+	$(CC) $(CFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/mb89371.o: $(ARCADE)/mb89371.c $(ARCADE)/mb89371.h $(ARCADE)/i8251.h | $(BUILD)
+	$(CC) $(CFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(BUILD)/eeprom93c46.o: $(ARCADE)/eeprom93c46.c $(ARCADE)/eeprom93c46.h | $(BUILD)
+	$(CC) $(CFLAGS) -I$(ARCADE) -MMD -MP -c $< -o $@
+$(TARGET): tests/test_konamigv.cpp $(OBJS)
+	$(CXX) $(CXXFLAGS) -I$(ARCADE) $^ -o $@
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.konamigv BUILD=$(BUILD)/sanitize OPT='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
+-include $(OBJS:.o=.d)
