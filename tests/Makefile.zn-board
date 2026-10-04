@@ -1,0 +1,17 @@
+CC ?= clang
+CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/zn-board-tests
+TARGET := $(BUILD)/test-zn-board
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(TARGET): libpcsxcore/arcade/zn_board.c libpcsxcore/arcade/zn_board.h libpcsxcore/arcade/cat702.c libpcsxcore/arcade/cat702.h libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/at28c16.h libpcsxcore/arcade/zn_mcu.c libpcsxcore/arcade/zn_mcu.h tests/test_zn_board.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/zn_board.c libpcsxcore/arcade/cat702.c libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/zn_mcu.c tests/test_zn_board.c -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

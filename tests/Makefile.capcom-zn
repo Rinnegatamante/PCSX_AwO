@@ -1,0 +1,33 @@
+CC ?= clang
+CXX ?= clang++
+CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Werror
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/capcom-zn-tests
+TARGET := $(BUILD)/test-capcom-zn
+ARCADE := libpcsxcore/arcade
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD)/capcom_zn.o: $(ARCADE)/capcom_zn.c $(ARCADE)/capcom_zn.h $(ARCADE)/z80.h $(ARCADE)/qsound_hle.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -MMD -MP -MF $(BUILD)/capcom_zn.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/z80.o: $(ARCADE)/z80.cpp $(ARCADE)/z80.h
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/z80.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/qsound_hle.o: $(ARCADE)/qsound_hle.cpp $(ARCADE)/qsound_hle.h
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/qsound_hle.d -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(BUILD)/capcom_zn.o $(BUILD)/z80.o $(BUILD)/qsound_hle.o tests/test_capcom_zn.cpp
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/test_capcom_zn.d -I$(ARCADE) tests/test_capcom_zn.cpp $(BUILD)/capcom_zn.o $(BUILD)/z80.o $(BUILD)/qsound_hle.o -o $@
+
+-include $(BUILD)/capcom_zn.d $(BUILD)/z80.d $(BUILD)/qsound_hle.d $(BUILD)/test_capcom_zn.d
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
