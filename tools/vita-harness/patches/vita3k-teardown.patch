@@ -1,0 +1,195 @@
+diff --git a/vita3k/app/src/app_init.cpp b/vita3k/app/src/app_init.cpp
+index c5d693d..3f4ecab 100644
+--- a/vita3k/app/src/app_init.cpp
++++ b/vita3k/app/src/app_init.cpp
+@@ -467,6 +467,9 @@ void shutdown_app_runtime(EmuEnvState &state) {
+     state.audio.stop_all_ports();
+ 
+     gxm::shutdown(state);
++    // Stop rendering before guest threads can free memory still referenced by
++    // the renderer's in-flight frame.
++    renderer::stop_render_thread(*state.renderer);
+ 
+     state.net.abort_all();
+     state.http.shutdown_connections();
+@@ -478,7 +481,6 @@ void shutdown_app_runtime(EmuEnvState &state) {
+     state.audio.deinit();
+ 
+     state.renderer->preclose_action();
+-    renderer::stop_render_thread(*state.renderer);
+     gxm::destroy_all_contexts(state, true);
+     gxm::destroy_all_render_targets(state, true);
+     state.gxm.deinit();
+diff --git a/vita3k/display/include/display/state.h b/vita3k/display/include/display/state.h
+index 8f9b3a6..d7e3edf 100644
+--- a/vita3k/display/include/display/state.h
++++ b/vita3k/display/include/display/state.h
+@@ -24,6 +24,7 @@
+ #include <atomic>
+ #include <memory>
+ #include <mutex>
++#include <shared_mutex>
+ #include <thread>
+ #include <vector>
+ 
+@@ -95,3 +96,5 @@ struct DisplayState {
+ 
+     void deinit();
+ };
++
++std::shared_mutex &display_frame_lifetime_mutex();
+diff --git a/vita3k/display/src/display.cpp b/vita3k/display/src/display.cpp
+index 35383cd..758faaa 100644
+--- a/vita3k/display/src/display.cpp
++++ b/vita3k/display/src/display.cpp
+@@ -35,6 +35,11 @@ static constexpr int64_t TARGET_MICRO_PER_FRAME = 1000000LL / TARGET_FPS;
+ static constexpr int predict_threshold = 3;
+ static constexpr int max_expected_swapchain_size = 6;
+ 
++std::shared_mutex &display_frame_lifetime_mutex() {
++    static std::shared_mutex mutex;
++    return mutex;
++}
++
+ static void vblank_sync_thread(EmuEnvState &emuenv) {
+     DisplayState &display = emuenv.display;
+ 
+@@ -250,4 +255,4 @@ void DisplayState::deinit() {
+     fps_hack = false;
+     // pretty sure we set this on game boot
+     fullscreen = false;
+-}
+\ No newline at end of file
++}
+diff --git a/vita3k/kernel/src/kernel.cpp b/vita3k/kernel/src/kernel.cpp
+index 5b629d2..6c1bb31 100644
+--- a/vita3k/kernel/src/kernel.cpp
++++ b/vita3k/kernel/src/kernel.cpp
+@@ -61,7 +61,7 @@ static int SDLCALL thread_function(void *data) {
+     assert(data != nullptr);
+     const ThreadParams params = *static_cast<const ThreadParams *>(data);
+     SDL_SignalSemaphore(params.host_may_destroy_params);
+-    const ThreadStatePtr thread = params.kernel->get_thread(params.thid);
++    ThreadStatePtr thread = params.kernel->get_thread(params.thid);
+ #ifdef TRACY_ENABLE
+     if (!thread->name.empty()) {
+         tracy::SetThreadName(thread->name.c_str());
+@@ -73,11 +73,17 @@ static int SDLCALL thread_function(void *data) {
+ 
+     thread->run_loop();
+     const uint32_t r0 = read_reg(*thread->cpu, 0);
++    const SceUID thread_id = thread->id;
++    const int processor_id = get_processor_id(*thread->cpu);
+ 
+     {
+         std::lock_guard<std::mutex> lock(params.kernel->mutex);
+-        params.kernel->threads.erase(thread->id);
+-        params.kernel->corenum_allocator.free_corenum(get_processor_id(*thread->cpu));
++        params.kernel->threads.erase(thread_id);
++        params.kernel->corenum_allocator.free_corenum(processor_id);
++        // The map no longer owns this thread. Drop the host thread's reference
++        // before waking process_exit(), so ThreadState-owned memory blocks are
++        // released while MemState is still alive.
++        thread.reset();
+         params.kernel->thread_deleted_cond.notify_all();
+     }
+ 
+diff --git a/vita3k/modules/SceDisplay/SceDisplay.cpp b/vita3k/modules/SceDisplay/SceDisplay.cpp
+index e084a37..16e75c9 100644
+--- a/vita3k/modules/SceDisplay/SceDisplay.cpp
++++ b/vita3k/modules/SceDisplay/SceDisplay.cpp
+@@ -120,8 +120,25 @@ EXPORT(int, _sceDisplayGetResolutionInfoInternal) {
+ 
+ EXPORT(SceInt32, _sceDisplaySetFrameBuf, const SceDisplayFrameBuf *pFrameBuf, SceDisplaySetBufSync sync, uint32_t *pFrameBuf_size) {
+     TRACY_FUNC(_sceDisplaySetFrameBuf, pFrameBuf, sync, pFrameBuf_size);
+-    if (!pFrameBuf)
++    if (!pFrameBuf) {
++        if (sync != SCE_DISPLAY_SETBUF_NEXTFRAME && sync != SCE_DISPLAY_SETBUF_IMMEDIATE) {
++            return RET_ERROR(SCE_DISPLAY_ERROR_INVALID_UPDATETIMING);
++        }
++
++        const std::unique_lock frame_lifetime_lock(display_frame_lifetime_mutex());
++        {
++            const std::lock_guard info_lock(emuenv.display.display_info_mutex);
++            emuenv.display.sce_frame = {};
++            emuenv.display.next_rendered_frame = {};
++            for (auto &predicted_frame : emuenv.display.predicted_frames) {
++                predicted_frame.frame_info = {};
++            }
++        }
++        emuenv.renderer->should_display = true;
++        emuenv.display.last_setframe_vblank_count = emuenv.display.vblank_count.load();
++        emuenv.frame_count++;
+         return SCE_DISPLAY_ERROR_OK;
++    }
+     if (pFrameBuf->size != sizeof(SceDisplayFrameBuf) && pFrameBuf->size != sizeof(SceDisplayFrameBuf2)) {
+         return RET_ERROR(SCE_DISPLAY_ERROR_INVALID_VALUE);
+     }
+diff --git a/vita3k/renderer/src/gl/renderer.cpp b/vita3k/renderer/src/gl/renderer.cpp
+index 32d0f9e..5064e98 100644
+--- a/vita3k/renderer/src/gl/renderer.cpp
++++ b/vita3k/renderer/src/gl/renderer.cpp
+@@ -643,6 +643,7 @@ void get_surface_data(GLState &renderer, GLContext &context, uint32_t *pixels, S
+ void GLState::render_frame(DisplayState &display, const GxmState &gxm, MemState &mem) {
+     should_display = false;
+ 
++    const std::shared_lock frame_lifetime_lock(display_frame_lifetime_mutex());
+     DisplayFrameInfo display_frame;
+     {
+         std::lock_guard<std::mutex> guard(display.display_info_mutex);
+@@ -650,9 +651,6 @@ void GLState::render_frame(DisplayState &display, const GxmState &gxm, MemState
+     }
+ 
+     const bool has_overlays = overlay_manager && overlay_manager->has_visible();
+-    if (!display_frame.base && !has_overlays)
+-        return;
+-
+     SceFVector2 vp_pos = { 0.0f, 0.0f };
+     SceFVector2 vp_size = { 0.0f, 0.0f };
+ 
+@@ -741,6 +739,13 @@ void GLState::render_frame(DisplayState &display, const GxmState &gxm, MemState
+         glBindTexture(GL_TEXTURE_2D, last_texture);
+ 
+         screen_renderer.render(vp_pos, vp_size, need_uv ? uvs : nullptr, static_cast<GLuint>(surface_handle), texture_size, default_fbo);
++    } else {
++        glBindFramebuffer(GL_FRAMEBUFFER, default_fbo);
++        glDisable(GL_SCISSOR_TEST);
++        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
++        glViewport(0, 0, static_cast<GLsizei>(fb_w), static_cast<GLsizei>(fb_h));
++        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     }
+ 
+     update_overlays();
+diff --git a/vita3k/renderer/src/vulkan/renderer.cpp b/vita3k/renderer/src/vulkan/renderer.cpp
+index f4b6c44..b5d2564 100644
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -1087,6 +1087,7 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState
+     // we are displaying this frame, wait for a new one
+     should_display = false;
+ 
++    const std::shared_lock frame_lifetime_lock(display_frame_lifetime_mutex());
+     DisplayFrameInfo frame;
+     {
+         std::lock_guard<std::mutex> guard(display.display_info_mutex);
+@@ -1101,9 +1102,6 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState
+         overlay_manager->unlock_shared();
+     }
+ 
+-    if (!frame.base && !has_overlays)
+-        return;
+-
+     if (!screen_renderer.acquire_swapchain_image())
+         return;
+ 
+@@ -1196,7 +1194,8 @@ void VKState::render_frame(DisplayState &display, const GxmState &gxm, MemState
+         }
+ 
+         screen_renderer.render(surface_handle, layout, viewport);
+-    } else if (has_overlays) {
++    } else {
++        // A detached Vita framebuffer clears the host display to black.
+         screen_renderer.begin_default_render_pass();
+     }
+ 

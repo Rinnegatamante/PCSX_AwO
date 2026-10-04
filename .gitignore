@@ -111,6 +111,7 @@ psx_gpu_offsets_update
 /build/vita-system12/
 /build/vita-deps/
 /build/vita-validation/
+/build/vita-validation-repro/
 /pcsx-rearmed-vita-neon.elf
 /pcsx-rearmed-vita-neon.velf
 /pcsx-rearmed-vita-neon.vpk

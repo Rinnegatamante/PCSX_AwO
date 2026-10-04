@@ -76,6 +76,27 @@ host build reproduced `EXC_BAD_ACCESS` after a successful guest probe and
 correctly failed overall; the guest PASS alone is insufficient. The original
 emulator checkout, binary and other running instance were not modified.
 
+The host patch and incremental rebuild recipe are checked in under
+`tools/vita-harness`. To reproduce the validation app from an existing,
+compatible macOS Vita3K CMake build:
+
+```sh
+python3 tools/vita-harness/rebuild_vita3k_fixed.py \
+  --source ../vita3k \
+  --app-template build/vita-validation/emulator/Vita3K-fixed.app \
+  --output build/vita-validation-repro
+```
+
+The output directory must be fresh. The helper copies the template bundle,
+applies the patch to private source copies, recompiles six translation units,
+and links against untouched objects from the existing build. It records input
+source, patch and executable hashes in `pcsx-host-build.json`. This is an
+incremental build tied to those local build artifacts, not a clean upstream
+build. Give its app a separate portable profile before running it. The recipe
+was rebuilt and its NEON console probe passed with the expected signature,
+`Stopping -> Idle`, and owned-process closure in
+`/tmp/pcsx-vita3k-host-recipe-console-1.log`.
+
 This is a console executable bring-up test. It does not validate Soul Calibur
 on Vita, extended arcade RAM/banking in the DRC, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both
