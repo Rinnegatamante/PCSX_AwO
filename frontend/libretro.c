@@ -731,7 +731,7 @@ static void *pl_vita_mmap(unsigned long addr, size_t size,
 
    psx_map_t *custom_map = custom_psx_maps;
 
-   for (; custom_map->size; custom_map++)
+   for (; custom_map < custom_psx_maps + sizeof(custom_psx_maps) / sizeof(custom_psx_maps[0]); custom_map++)
    {
       if (custom_map->size == size && custom_map->tag == tag && !custom_map->used)
       {
@@ -750,7 +750,7 @@ static void pl_vita_munmap(void *ptr, size_t size, enum psxMapTag tag)
 
    psx_map_t *custom_map = custom_psx_maps;
 
-   for (; custom_map->size; custom_map++)
+   for (; custom_map < custom_psx_maps + sizeof(custom_psx_maps) / sizeof(custom_psx_maps[0]); custom_map++)
    {
       if ((custom_map->buffer == ptr))
       {
