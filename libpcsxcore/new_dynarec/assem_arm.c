@@ -2396,6 +2396,21 @@ static void do_miniht_insert(struct compile_state *st, u_int return_address,
 // CPU-architecture-specific initialization
 static void arch_init(void)
 {
+#ifdef VITA
+  size_t bank_index, i;
+
+  for (bank_index = 0; bank_index < NDRC_TRAMP_BANKS; bank_index++) {
+    struct ndrc_tramp_bank *bank = &ndrc->tramp.bank[bank_index];
+    uintptr_t diff = (u_char *)&bank->f - (u_char *)&bank->ops - 8;
+    struct tramp_insns *ops = bank->ops;
+    assert(!(diff & 3));
+    assert(diff < 0x1000);
+    start_tcache_write(ops, (u_char *)ops + sizeof(bank->ops));
+    for (i = 0; i < ARRAY_SIZE(bank->ops); i++)
+      ops[i].ldrpc = 0xe5900000 | rd_rn_rm(15,15,0) | diff;
+    end_tcache_write(ops, (u_char *)ops + sizeof(bank->ops), 1);
+  }
+#else
   uintptr_t diff = (u_char *)&ndrc->tramp.f - (u_char *)&ndrc->tramp.ops - 8;
   struct tramp_insns *ops = ndrc->tramp.ops;
   size_t i;
@@ -2405,6 +2420,7 @@ static void arch_init(void)
   for (i = 0; i < ARRAY_SIZE(ndrc->tramp.ops); i++)
     ops[i].ldrpc = 0xe5900000 | rd_rn_rm(15,15,0) | diff; // ldr pc, [=val]
   end_tcache_write(ops, (u_char *)ops + sizeof(ndrc->tramp.ops), 1);
+#endif
 }
 
 static void arch_begin_block(void)

@@ -50,6 +50,9 @@
 #include "revision.h"
 
 #include <libretro.h>
+#ifdef VITA
+#include <psp2/kernel/sysmem.h>
+#endif
 #include "libretro_core_options.h"
 
 #ifdef USE_LIBRETRO_VFS
@@ -662,6 +665,7 @@ typedef struct
 } psx_map_t;
 
 static void *addr = NULL;
+static SceUID vita_map_block = -1;
 
 static psx_map_t custom_psx_maps[] = {
    { NULL, 0x800000, MAP_TAG_LUTS },
@@ -675,9 +679,25 @@ static psx_map_t custom_psx_maps[] = {
 static int init_vita_mmap()
 {
    void *tmpaddr;
-   addr = malloc(64 * 1024 * 1024);
-   if (addr == NULL)
+   int ret;
+
+   vita_map_block = sceKernelAllocMemBlock("pcsx-vita-mmap",
+      SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, 64 * 1024 * 1024, NULL);
+   if (vita_map_block < 0) {
+      SysPrintf("vita mmap: memblock allocation failed: %08x\n", vita_map_block);
       return -1;
+   }
+
+   ret = sceKernelGetMemBlockBase(vita_map_block, &addr);
+   if (ret < 0 || addr == NULL) {
+      SysPrintf("vita mmap: get base failed: %08x\n", ret);
+      sceKernelFreeMemBlock(vita_map_block);
+      vita_map_block = -1;
+      addr = NULL;
+      return -1;
+   }
+
+   SysPrintf("vita mmap: memblock %08x base %p\n", vita_map_block, addr);
    tmpaddr = (void *)(((size_t)addr + 0xFFFFFF) & ~0xFFFFFF);
    custom_psx_maps[0].buffer = tmpaddr + 0x0000000;
    custom_psx_maps[1].buffer = tmpaddr + 0x0800000;
@@ -686,12 +706,6 @@ static int init_vita_mmap()
    custom_psx_maps[4].buffer = tmpaddr + 0x1000000;
    custom_psx_maps[5].buffer = tmpaddr + 0x2000000;
    memset(tmpaddr, 0, 0x2210000);
-#if 0
-   int n;
-   for(n = 0; n < 5; n++){
-   sceClibPrintf("addr reserved %x\n",custom_psx_maps[n].buffer);
-   }
-#endif
    return 0;
 }
 
@@ -702,7 +716,10 @@ static void deinit_vita_mmap()
       custom_psx_maps[i].buffer = NULL;
       custom_psx_maps[i].used = 0;
    }
-   free(addr);
+   if (vita_map_block >= 0)
+      sceKernelFreeMemBlock(vita_map_block);
+   vita_map_block = -1;
+   addr = NULL;
 }
 
 static void *pl_vita_mmap(unsigned long addr, size_t size,

@@ -110,7 +110,7 @@ extern uintptr_t mini_ht[32][2];
 #define MAX_OUTPUT_BLOCK_SIZE (1 << MAX_OUTPUT_BLOCK_SIZE_SHIFT) // 262144
 #define PAGE_COUNT 1024
 
-#if defined(HAVE_CONDITIONAL_CALL) && !defined(DESTRUCTIVE_SHIFT)
+#if defined(HAVE_CONDITIONAL_CALL) && !defined(DESTRUCTIVE_SHIFT) && !defined(VITA)
 #define INVALIDATE_USE_COND_CALL
 #endif
 
@@ -123,18 +123,31 @@ extern uintptr_t mini_ht[32][2];
 #ifdef VITA
 // apparently Vita has a 16MB limit, so either we cut tc in half,
 // or use this hack (it's a hack because tc size was designed to be power-of-2)
-#define TC_REDUCE_BYTES 4096
+#define NDRC_TRAMP_BANKS       4
+#define NDRC_TRAMP_ARRAY_BYTES 4096
+#define TC_REDUCE_BYTES        (NDRC_TRAMP_BANKS * NDRC_TRAMP_ARRAY_BYTES * 2)
+
+struct ndrc_tramp_bank
+{
+  struct tramp_insns ops[NDRC_TRAMP_ARRAY_BYTES / sizeof(struct tramp_insns)];
+  const void *f[NDRC_TRAMP_ARRAY_BYTES / sizeof(void *)];
+};
+
+struct ndrc_tramp
+{
+  struct ndrc_tramp_bank bank[NDRC_TRAMP_BANKS];
+};
 #else
 #define TC_REDUCE_BYTES 0
-#endif
-
-struct ndrc_globals ndrc_g;
 
 struct ndrc_tramp
 {
   struct tramp_insns ops[2048 / sizeof(struct tramp_insns)];
   const void *f[2048 / sizeof(void *)];
 };
+#endif
+
+struct ndrc_globals ndrc_g;
 
 struct ndrc_mem
 {
@@ -1634,6 +1647,29 @@ static const char *fpofs_name(u_int ofs)
 
 static void *get_trampoline(const void *f)
 {
+#ifdef VITA
+  struct ndrc_tramp *tramp = NDRC_WRITE_OFFSET(&ndrc->tramp);
+  size_t bank_index, i;
+
+  for (bank_index = 0; bank_index < NDRC_TRAMP_BANKS; bank_index++) {
+    struct ndrc_tramp_bank *bank = &tramp->bank[bank_index];
+    for (i = 0; i < ARRAY_SIZE(bank->f); i++) {
+      if (bank->f[i] == f || bank->f[i] == NULL)
+        break;
+    }
+    if (i != ARRAY_SIZE(bank->f)) {
+      if (bank->f[i] == NULL) {
+        start_tcache_write(&bank->f[i], &bank->f[i + 1]);
+        bank->f[i] = f;
+        end_tcache_write(&bank->f[i], &bank->f[i + 1], 1);
+      }
+      return &ndrc->tramp.bank[bank_index].ops[i];
+    }
+  }
+
+  SysPrintf("trampoline banks are full, last func %p\n", f);
+  abort();
+#else
   struct ndrc_tramp *tramp = NDRC_WRITE_OFFSET(&ndrc->tramp);
   size_t i;
 
@@ -1655,6 +1691,7 @@ static void *get_trampoline(const void *f)
 #endif
   }
   return &ndrc->tramp.ops[i];
+#endif
 }
 
 static void emit_far_jump(const void *f)
@@ -9767,7 +9804,7 @@ static int noinline new_recompile_block(u_int addr)
       emit_writeword(0, &psxRegs.pc);
       emit_test(1, 1);
     }
-    #ifdef __aarch64__
+    #if defined(__aarch64__) || defined(VITA)
     emit_jeq(out + 4*2);
     emit_far_jump(new_dyna_leave);
     #else
@@ -9782,7 +9819,7 @@ static int noinline new_recompile_block(u_int addr)
     emit_readbyte(&psxRegs.stop, 1);
     emit_readword(&psxRegs.pc, 0);
     emit_cmpimm(1, 0xf0u); // see psxbios.c
-    #ifdef __aarch64__
+    #if defined(__aarch64__) || defined(VITA)
     emit_jl(out + 4*2);
     emit_far_jump(new_dyna_leave);
     #else
@@ -9794,7 +9831,7 @@ static int noinline new_recompile_block(u_int addr)
       emit_movimm(st.start, 1);
       emit_cmp(0, 1);
     }
-    #ifdef __aarch64__
+    #if defined(__aarch64__) || defined(VITA)
     emit_jeq(out + 4*2);
     emit_far_jump(jump_to_new_pc);
     #else
