@@ -603,9 +603,10 @@ int main(int argc, char **argv)
             result.triangle, result.background, result.sentinel, runs);
     }
 
+    /* Stop SDL playback before unloading any core board or plugins. */
+    audio_finish();
     retro_unload_game();
     retro_deinit();
-    audio_finish();
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);
