@@ -376,23 +376,34 @@ static void test_timer_and_chunk_equivalence(void)
     double period_cycles = (1.0 / (double)frequency / 2.0) *
                            K054539_DEFAULT_CLOCK_HZ;
     uint64_t due = (uint64_t)ceil(period_cycles);
+    uint64_t next = 0;
     assert(chip && a && b);
+    assert(!k054539_next_timer_cycle(chip, &next) && next == UINT64_MAX);
+    assert(!k054539_next_timer_cycle(NULL, &next) && next == UINT64_MAX);
+    assert(!k054539_next_timer_cycle(chip, NULL));
 
     wr(chip, 0x227, 0);
+    assert(k054539_next_timer_cycle(chip, &next) && next == due);
     assert(timer.count == 1 && timer.cycle[0] == 0 && timer.state[0] == 0);
     wr(chip, 0x22f, 0x20);
     assert(k054539_advance_cycles(chip, due - 1, NULL, NULL) == 0);
     assert(timer.count == 1);
+    assert(k054539_next_timer_cycle(chip, &next) && next == due);
     assert(k054539_advance_cycles(chip, 1, NULL, NULL) == 0);
     assert(timer.count == 2 && timer.state[1] == 1 && timer.cycle[1] == due);
+    assert(k054539_next_timer_cycle(chip, &next) &&
+           next == (uint64_t)ceil(period_cycles * 2));
     wr(chip, 0x22f, 0x01); /* output disabled; scheduled timer still runs */
     assert(timer.count == 3 && timer.state[2] == 0);
+    assert(k054539_next_timer_cycle(chip, &next) &&
+           next == (uint64_t)ceil(period_cycles * 2));
     assert(k054539_advance_cycles(chip, due * 2, NULL, NULL) == 0);
     assert(timer.count == 3);
     wr(chip, 0x22f, 0x21);
     assert(k054539_advance_cycles(chip, due, NULL, NULL) == 0);
     assert(timer.count >= 4 && timer.state[timer.count - 1] == 1);
     k054539_reset(chip);
+    assert(!k054539_next_timer_cycle(chip, &next) && next == UINT64_MAX);
     {
         size_t count = timer.count;
         assert(k054539_advance_cycles(chip, due * 3, NULL, NULL) == 0);

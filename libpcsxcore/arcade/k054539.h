@@ -52,6 +52,10 @@ K054539 *k054539_create(const K054539Config *config);
 void k054539_destroy(K054539 *chip);
 uint32_t k054539_sample_rate(const K054539 *chip);
 uint64_t k054539_cycles(const K054539 *chip);
+/* Absolute chip-clock deadline of the next timer event, including events with
+ * the IRQ output masked. Returns 1 when scheduled within the exact timer
+ * horizon; otherwise 0 and writes UINT64_MAX. Does not include stream ticks. */
+int k054539_next_timer_cycle(const K054539 *chip, uint64_t *cycle);
 
 /* Advance relative chip-clock cycles. Emits one raw sample callback for each
  * /384 stream tick and timer edges in source order. -1 reports bad input,

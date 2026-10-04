@@ -368,6 +368,21 @@ uint64_t k054539_cycles(const K054539 *chip)
     return chip == NULL ? 0 : chip->cycles;
 }
 
+int k054539_next_timer_cycle(const K054539 *chip, uint64_t *cycle)
+{
+    double due;
+    if (cycle == NULL)
+        return 0;
+    *cycle = UINT64_MAX;
+    if (chip == NULL || !chip->timer_active)
+        return 0;
+    due = ceil(chip->timer_next_cycle);
+    if (!isfinite(due) || due < 0.0 || due >= K054539_MAX_EXACT_TIMER_CYCLE)
+        return 0;
+    *cycle = (uint64_t)due;
+    return 1;
+}
+
 static void timer_event(K054539 *chip)
 {
     if (chip->regs[0x22f] & 0x20) {
