@@ -1,0 +1,12 @@
+CXX ?= c++
+BUILD ?= build/m37710
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+SOURCES = libpcsxcore/arcade/m37710.cpp tests/m37710_standalone.cpp
+.PHONY: test clean
+test: $(BUILD)/test_m37710
+	$(BUILD)/test_m37710
+$(BUILD)/test_m37710: $(SOURCES) $(wildcard libpcsxcore/arcade/m37710*.inc) $(wildcard tests/m37710*.inc) libpcsxcore/arcade/m37710.h
+	mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $@
+clean:
+	rm -rf $(BUILD)
