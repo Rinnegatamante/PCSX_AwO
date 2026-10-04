@@ -283,6 +283,13 @@ frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
  plugins/gpu_neon/psx_gpu/psx_gpu_simd.o: CFLAGS += -DSIMD_BUILD
  endif
 endif
+ifeq "$(BUILTIN_GPU)" "vita_ctr"
+CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -I../ctr-native/include
+OBJS += plugins/gpu_vita_ctr/gpulib_if.o \
+        plugins/gpu_vita_ctr/native_gpu.o \
+        plugins/gpu_vita_ctr/native_renderer.o
+frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_VITA_CTR
+endif
 ifeq "$(BUILTIN_GPU)" "peops"
 CFLAGS += -DGPU_PEOPS
 # note: code is not safe for strict-aliasing? (Castlevania problems)

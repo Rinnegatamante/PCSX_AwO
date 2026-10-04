@@ -152,6 +152,12 @@ void renderer_flush_queues(void);
 void renderer_set_interlace(int enable, int is_odd);
 void renderer_set_config(const struct rearmed_cbs *config);
 void renderer_notify_screen_change(const struct psx_gpu_screen *screen);
+#ifdef GPU_VITA_CTR
+void renderer_barrier(void);
+void renderer_sync_vram_to_cpu(int x, int y, int w, int h);
+int  renderer_present_frame(struct psx_gpu *gpu, int src_x, int src_y);
+void renderer_present_blank(void);
+#endif
 
 int  vout_init(void);
 int  vout_finish(void);

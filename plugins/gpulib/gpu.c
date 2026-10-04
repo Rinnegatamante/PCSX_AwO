@@ -36,8 +36,13 @@ static void sync_renderer(struct psx_gpu *gpu)
 {
   if (gpu_async_enabled(gpu))
     gpu_async_sync(gpu);
-  else
+  else {
+#ifdef GPU_VITA_CTR
+    renderer_barrier();
+#else
     renderer_flush_queues();
+#endif
+  }
 }
 
 static void sync_renderer_ecmds(struct psx_gpu *gpu)
@@ -587,6 +592,9 @@ static noinline void start_vram_transfer(struct psx_gpu *gpu, uint32_t pos_word,
   //sync_renderer(gpu);
 
   if (is_read) {
+#ifdef GPU_VITA_CTR
+    renderer_sync_vram_to_cpu(gpu->dma.x, gpu->dma.y, gpu->dma.w, gpu->dma.h);
+#endif
     const uint16_t *mem = VRAM_MEM_XY(gpu->vram, gpu->dma.x, gpu->dma.y);
     gpu->status |= PSX_GPU_STATUS_IMG;
     // XXX: wrong for width 1
@@ -656,7 +664,12 @@ int do_vram_copy(uint16_t *vram, const uint32_t *ex_regs, const uint32_t *params
   uint16_t lbuf[128];
   uint32_t x, y;
 
+#ifdef GPU_VITA_CTR
+  renderer_sync_vram_to_cpu(sx, sy, w, h);
+  renderer_sync_vram_to_cpu(dx, dy, w, h);
+#else
   renderer_flush_queues();
+#endif
 
   if (unlikely((sx < dx && dx < sx + w) || sx + w > 1024 || dx + w > 1024 || msb))
   {
@@ -1092,6 +1105,9 @@ long GPUfreeze(uint32_t type, GPUFreeze_t *freeze, uint16_t **vram_ptr)
       }
 
       sync_renderer(&gpu);
+#ifdef GPU_VITA_CTR
+      renderer_sync_vram_to_cpu(0, 0, 1024, 512);
+#endif
       memcpy(freeze->ulControl, gpu.regs, sizeof(gpu.regs));
       memcpy(freeze->ulControl + 0xe0, gpu.ex_regs, sizeof(gpu.ex_regs));
       freeze->ulStatus = gpu.status;

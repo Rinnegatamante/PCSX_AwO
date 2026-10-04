@@ -90,6 +90,10 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
     return 0;
 
   check_mode_change(gpu, 0);
+#ifdef GPU_VITA_CTR
+  gpu->state.dims_changed = 0;
+  return renderer_present_frame(gpu, src_x, src_y);
+#endif
   if (gpu->state.enhancement_active) {
     if (!gpu->state.enhancement_was_active)
       return 0; // buffer not ready yet
@@ -119,6 +123,10 @@ void vout_blank(struct psx_gpu *gpu)
   int h = gpu->screen.vres;
 
   check_mode_change(gpu, 0);
+#ifdef GPU_VITA_CTR
+  renderer_present_blank();
+  return;
+#endif
   if (gpu->state.enhancement_active) {
     w *= 2;
     h *= 2;

@@ -333,12 +333,12 @@ else ifeq ($(platform), vita)
 	CFLAGS += -fno-asynchronous-unwind-tables -ftree-vectorize
 	#CFLAGS += -funroll-loops # ~280K bloat
 	CFLAGS += -fno-optimize-sibling-calls # broken arm->thumb tailcalls?
-	CFLAGS += -I$(VITASDK)/include -Ifrontend/vita
+	CFLAGS += -I../vitagl/source -I$(VITASDK)/include -Ifrontend/vita
 	CFLAGS += -DNO_DYLIB
 	ASFLAGS += -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neon
 
 	HAVE_NEON_ASM = 1
-	BUILTIN_GPU = neon
+	BUILTIN_GPU = vita_ctr
 
 	DYNAREC = ari64
 	ARCH = arm
