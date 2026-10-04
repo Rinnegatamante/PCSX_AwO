@@ -6,6 +6,7 @@ BUILD ?= build/mac-harness
 TARGET := $(BUILD)/pcsx-harness
 BOARD ?= 1
 HAVE_CHD ?= 1
+SYSTEM12_TIMING ?= 0
 CFLAGS := -arch arm64 -O2 -g -std=gnu99 -Wall -Wno-unknown-pragmas \
   -I$(BUILD) -Iinclude -Ifrontend -include stdio.h -DDRC_DISABLE -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD \
   -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP -DP_HAVE_MMAP=1 \
@@ -42,6 +43,9 @@ ifeq ($(HAVE_CHD),1)
 CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp libpcsxcore/arcade/chd_cd.cpp
 endif
 CFLAGS += -DPCSX_SYSTEM12
+ifeq ($(SYSTEM12_TIMING),1)
+CFLAGS += -DPCSX_SYSTEM12_SOURCE_TIMING
+endif
 endif
 OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o)) $(LIBCHDR_EXTRA_OBJECTS)
 

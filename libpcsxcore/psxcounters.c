@@ -66,7 +66,7 @@ static const u32 CountToOverflow  = 0;
 static const u32 CountToTarget    = 1;
 
 static const u32 HSyncTotal[]     = { 263, 314 };
-#define VBlankStart 240 // todo: depend on the actual GPU setting
+#define VBlankStart vblankStart()
 
 #define VERBOSE_LEVEL 0
 
@@ -83,9 +83,40 @@ static u32 hsync_steps = 0;
 #define FPS_FRACTIONAL_PAL  (53203425/314./3406) // ~49.75
 #define FPS_FRACTIONAL_NTSC (53693175/263./3413) // ~59.81
 
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+static inline double system12SourceFps(void)
+{
+    u32 status = SWAP32(HW_GPU_STATUS);
+    if (status & (1u << 20)) return 50.0;
+    return status & (1u << 19) ? 59.9400523286 : 59.8260978565;
+}
+#endif
+
+static inline u32 hsyncTotal(void)
+{
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+    if (system12_active()) return HSyncTotal[!!(SWAP32(HW_GPU_STATUS) & (1u << 20))];
+#endif
+    return HSyncTotal[Config.PsxType];
+}
+
+static inline u32 vblankStart(void)
+{
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+    if (system12_active()) {
+        double blank_lines = hsyncTotal() * system12SourceFps() / 400.0;
+        return hsyncTotal() - (u32)(blank_lines + 0.999999);
+    }
+#endif
+    return 240;
+}
+
 static inline
 u32 frameCycles(void)
 {
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+    if (system12_active()) return (u32)(PSXCLK / system12SourceFps());
+#endif
     int ff = Config.FractionalFramerate >= 0
         ? Config.FractionalFramerate : Config.hacks.fractional_Framerate;
     if (ff)
@@ -101,6 +132,9 @@ u32 frameCycles(void)
 // used to inform the frontend about the exact framerate
 double psxGetFps()
 {
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+    if (system12_active()) return system12SourceFps();
+#endif
     int ff = Config.FractionalFramerate >= 0
         ? Config.FractionalFramerate : Config.hacks.fractional_Framerate;
     if (ff)
@@ -113,6 +147,9 @@ double psxGetFps()
 static inline
 u32 lineCycles(void)
 {
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+    if (system12_active()) return frameCycles() / hsyncTotal();
+#endif
     // should be more like above, but our timing is already poor anyway
     if (Config.PsxType)
         return PSXCLK / 50 / HSyncTotal[1];
@@ -336,9 +373,9 @@ static void scheduleRcntBase(void)
     if (hSyncCount < VBlankStart)
         hsync_steps = VBlankStart - hSyncCount;
     else
-        hsync_steps = HSyncTotal[Config.PsxType] - hSyncCount;
+        hsync_steps = hsyncTotal() - hSyncCount;
 
-    if (hSyncCount + hsync_steps == HSyncTotal[Config.PsxType])
+    if (hSyncCount + hsync_steps == hsyncTotal())
     {
         rcnts[3].cycle = frameCycles();
     }
@@ -346,8 +383,15 @@ static void scheduleRcntBase(void)
     {
         // clk / 50 / 314 ~= 2157.25
         // clk / 60 / 263 ~= 2146.31
-        u32 mult = Config.PsxType ? 8836089 : 8791293;
-        rcnts[3].cycle = hsync_steps * mult >> 12;
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+        if (system12_active())
+            rcnts[3].cycle = frameCycles() - PSXCLK / 400;
+        else
+#endif
+        {
+            u32 mult = Config.PsxType ? 8836089 : 8791293;
+            rcnts[3].cycle = hsync_steps * mult >> 12;
+        }
     }
 }
 
@@ -412,7 +456,7 @@ void psxRcntUpdate()
         }
         
         // Update lace.
-        if( hSyncCount >= HSyncTotal[Config.PsxType] )
+        if( hSyncCount >= hsyncTotal() )
         {
             u32 status, field = 0;
             rcnts[3].cycleStart += frameCycles();

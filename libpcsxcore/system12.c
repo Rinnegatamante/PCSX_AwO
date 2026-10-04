@@ -801,8 +801,15 @@ void system12_report(FILE *out)
     fprintf(out, "System12: settings frames=%" PRIu64 " last=%02x:%02x RTC wirebits=%u\n",
         board.settings.frames_received, board.settings.last_address, board.settings.last_value,
         board.rtc.bit_count);
-    fprintf(out, "System12: CPU pc=%08x opcode=%08x ra=%08x; timing still console\n",
-        psxRegs.pc, intFakeFetch(psxRegs.pc), psxRegs.GPR.n.ra);
+    fprintf(out, "System12: CPU pc=%08x opcode=%08x ra=%08x; clock=%u cycle_multiplier=%d timing=%s\n",
+        psxRegs.pc, intFakeFetch(psxRegs.pc), psxRegs.GPR.n.ra,
+        PSXCLK, Config.cycle_multiplier,
+#ifdef PCSX_SYSTEM12_SOURCE_TIMING
+        "source-experiment"
+#else
+        "console"
+#endif
+    );
 }
 
 int system12_selftest(void)

@@ -204,7 +204,7 @@ four input clocks to one execution cycle and retires one instruction per
 execution cycle in its main loop. Its nominal instruction budget is therefore
 25,000,000 instructions per second under that source model.
 
-The current native harness retains the PCSX console counter clock of
+The default native harness retains the PCSX console counter clock of
 33,868,800 Hz and the default interpreter cycle multiplier of 175 (1.75
 counter cycles per instruction). This gives about 19,353,600 instructions per
 second before exceptions and other execution effects. These are two different
@@ -212,6 +212,18 @@ emulation timing models; the earlier match demonstration does not establish
 that CPU-to-video timing matches MAME. H8 and C352 clocks are scheduled against
 the PCSX counter timebase, so replacing only the CPU instruction multiplier
 would require a deliberate comparison of the entire board clock model.
+
+An opt-in `SYSTEM12_TIMING=1` build now selects a 50 MHz counter timebase and
+cycle multiplier 200 for System 12, giving the source's nominal 25 million
+instructions/second. It derives frame duration from the active GPU PAL/NTSC
+and interlace bits, with MAME's 2.5 ms vblank pulse. This remains an experiment;
+it does not claim cycle-accurate CPU stalls, GPU timing or serial waveforms.
+Both default and experimental builds completed a 12,000-frame Soul Calibur
+replay with visible gameplay, C352 output and zero reported H8 unsupported
+instructions or board unmapped accesses. The experimental frame, H8 and audio
+counts follow MAME's active 59.8260978565 Hz interval, but the captures do not
+show identical game states at equal frames. See the repeatable
+[gameplay comparison](system12-gameplay-test.md) for counts and limitations.
 
 Vertical System 12 work now prioritizes a repeatable sustained-gameplay replay,
 control coverage and CPU/GPU/H8/C352 timing comparison with MAME. Other board
