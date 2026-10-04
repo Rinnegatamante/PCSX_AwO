@@ -109,6 +109,36 @@ was rebuilt and its NEON console probe passed with the expected signature,
 `Stopping -> Idle`, and owned-process closure in
 `/tmp/pcsx-vita3k-host-recipe-console-1.log`.
 
+The actual System 12 game exposed a missing A32 `VADDHN` instruction in the
+local host's Dynarmic decoder. This is the emulator executing the Vita's ARM
+code; the Vita core still uses ari64 for its guest MIPS CPU. Unsupported
+`vaddhn.i32` operations produced corrupted NEON textures and repeated host
+diagnostics, so the console probe alone did not detect this failure.
+The checked-in patch adds the narrowing high-half add. Its direct JIT test
+checks 16/32/64-bit source lanes, modular sums, high registers, sibling
+preservation, source/destination aliasing, and the opcode observed in the game.
+
+To rebuild and test that dependency, then link it into a fresh private host:
+
+```sh
+python3 tools/vita-harness/build_dynarmic_vaddhn.py
+python3 tools/vita-harness/rebuild_vita3k_fixed.py \
+  --source ../vita3k \
+  --app-template build/vita-validation-repro/emulator/Vita3K-fixed.app \
+  --dynarmic-archive build/dynarmic-vaddhn/libdynarmic.a \
+  --output build/vita-validation-neon-fix
+```
+
+The Dynarmic helper reconstructs the three frontend files from the dependency's
+committed base and applies the patch in a private staging directory. It
+preserves the configured build's other backend changes, refuses unexpected
+edits to those frontend files, builds only the Dynarmic target, and runs the
+test with a 15-second timeout. Its manifest records the dependency revision
+and source, patch and tested archive hashes. The host recipe records the linked
+archive hash separately. This instruction test does not establish game
+compatibility; actual captures are described in
+[system12-vita-gameplay.md](system12-vita-gameplay.md).
+
 The console probe does not validate Soul Calibur
 on Vita, the VitaGL renderer, sound
 quality, performance or physical hardware. System 12 integration and both

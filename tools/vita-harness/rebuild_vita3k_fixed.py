@@ -21,12 +21,16 @@ parser.add_argument('--source', type=Path, required=True, help='Local Vita3K sou
 parser.add_argument('--build', type=Path, help='Existing build directory; defaults to SOURCE/build/macos')
 parser.add_argument('--app-template', type=Path, required=True, help='Built app bundle to copy, including resources/frameworks')
 parser.add_argument('--output', type=Path, required=True, help='Fresh isolated output directory')
-args = parser.parse_args()
-ORIG = args.source.resolve()
-BUILD = (args.build or ORIG / 'build/macos').resolve()
-OUT = args.output.resolve()
-if not ORIG.is_dir() or not BUILD.is_dir() or not args.app_template.is_dir():
+parser.add_argument('--dynarmic-archive', type=Path,
+                    help='Tested patched Dynarmic archive to link into this private host')
+options = parser.parse_args()
+ORIG = options.source.resolve()
+BUILD = (options.build or ORIG / 'build/macos').resolve()
+OUT = options.output.resolve()
+if not ORIG.is_dir() or not BUILD.is_dir() or not options.app_template.is_dir():
     parser.error('source, build and app template must exist')
+if options.dynarmic_archive and not options.dynarmic_archive.is_file():
+    parser.error('Dynarmic archive must exist')
 if OUT.exists():
     parser.error('output already exists; use a fresh directory')
 if OUT == ORIG or ORIG in OUT.parents or OUT == BUILD or BUILD in OUT.parents:
@@ -38,7 +42,7 @@ WORKTREE = SRC
 APP = OUT / 'emulator/Vita3K-fixed.app'
 BIN = APP / 'Contents/MacOS/Vita3K'
 PATCH = Path(__file__).resolve().parent / 'patches/vita3k-teardown.patch'
-shutil.copytree(args.app_template.resolve(), APP)
+shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
     ('app', 'src/app_init.cpp', 'vita3k/app/src/app_init.cpp', 'app_init.cpp.o'),
@@ -150,6 +154,15 @@ rewrites = {
     'modules/libmodules.a': str(OBJ / 'libmodules.a'),
     'renderer/librenderer.a': str(OBJ / 'librenderer.a'),
 }
+dynarmic_input = BUILD / 'external/dynarmic/src/dynarmic/libdynarmic.a'
+if options.dynarmic_archive:
+    original_link_path = '../external/dynarmic/src/dynarmic/libdynarmic.a'
+    if words.count(original_link_path) != 1:
+        raise RuntimeError('existing link command does not identify one Dynarmic archive')
+    dynarmic_input = options.dynarmic_archive.resolve()
+    private_dynarmic = OBJ / 'libdynarmic.a'
+    shutil.copy2(dynarmic_input, private_dynarmic)
+    rewrites[original_link_path] = str(private_dynarmic)
 rewritten = [rewrites.get(w, w) for w in words]
 for i, word in enumerate(rewritten):
     if word == '-o':
@@ -167,6 +180,8 @@ manifest = {
     'source_files_sha256': original_hashes,
     'patch_sha256': hashlib.sha256(PATCH.read_bytes()).hexdigest(),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
+    'dynarmic_archive': str(dynarmic_input),
+    'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),
     'validation_scope': 'incremental macOS arm64 host; untouched CMake objects reused',
 }
 (OUT / 'pcsx-host-build.json').write_text(json.dumps(manifest, indent=2) + '\n')

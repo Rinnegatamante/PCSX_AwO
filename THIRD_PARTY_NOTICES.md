@@ -353,12 +353,23 @@ register implementation from `src/devices/cpu/mn10200/mn10200.cpp/.h`, copyright
 Olivier Galibert, R. Belmont and hap, at the pinned MAME revision above. Full
 BSD-3-Clause terms are retained in `mn10200_LICENSE.txt`.
 
-## MAME Ricoh RF5C400
+## MAME Konami Twinkle sound board
 
 The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives
 its bus map and interrupt wiring from MAME `src/mame/konami/twinkle.cpp`,
 copyright smf and R. Belmont, BSD-3-Clause. Retained terms are in
 `libpcsxcore/arcade/twinkle_board_LICENSE.txt`.
+
+## Dynarmic Vita3K validation patch
+
+`tools/vita-harness/patches/vita3k-neon.patch` adds A32 VADDHN translation to
+the local Vita3K Dynarmic dependency at commit
+`86458a0bd369d63ba4c2ef812cacbb6c9080c065`. Dynarmic is copyright 2017
+merryhime and distributed under the 0BSD license; the full terms are retained
+in `tools/vita-harness/patches/dynarmic-LICENSE.txt`. This patch affects the
+validation emulator, while the Vita core continues to use its own ari64 DRC.
+
+## MAME Ricoh RF5C400
 
 `libpcsxcore/arcade/rf5c400.{cpp,h}` adapts the sample engine and register map
 from `src/devices/sound/rf5c400.cpp/.h`, copyright Ville Linde, with improvements

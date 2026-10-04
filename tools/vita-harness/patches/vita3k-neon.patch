@@ -1,0 +1,62 @@
+diff --git a/external/dynarmic/src/dynarmic/frontend/A32/decoder/asimd.inc b/external/dynarmic/src/dynarmic/frontend/A32/decoder/asimd.inc
+index d0dfd867..aea6a8ea 100644
+--- a/external/dynarmic/src/dynarmic/frontend/A32/decoder/asimd.inc
++++ b/external/dynarmic/src/dynarmic/frontend/A32/decoder/asimd.inc
+@@ -59,7 +59,7 @@ INST(v8_SHA256SU1,          "SHA256SU1",                "111100110D10nnnndddd110
+ // Three registers of different lengths
+ INST(asimd_VADDL,           "VADDL/VADDW",              "1111001U1Dzznnnndddd000oN0M0mmmm") // ASIMD
+ INST(asimd_VSUBL,           "VSUBL/VSUBW",              "1111001U1Dzznnnndddd001oN0M0mmmm") // ASIMD
+-//INST(asimd_VADDHN,          "VADDHN",                   "111100101-----------0100-0-0----") // ASIMD
++INST(asimd_VADDHN,          "VADDHN",                   "111100101Dzznnnndddd0100N0M0mmmm") // ASIMD
+ //INST(asimd_VRADDHN,         "VRADDHN",                  "111100111-----------0100-0-0----") // ASIMD
+ INST(asimd_VABAL,           "VABAL",                    "1111001U1Dzznnnndddd0101N0M0mmmm") // ASIMD
+ //INST(asimd_VSUBHN,          "VSUBHN",                   "111100101-----------0110-0-0----") // ASIMD
+diff --git a/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h b/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h
+index 44ac2450..56d13add 100644
+--- a/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h
++++ b/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/a32_translate_impl.h
+@@ -888,6 +888,7 @@ struct TranslatorVisitor final {
+     // Advanced SIMD three registers with different lengths
+     bool asimd_VADDL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool op, bool N, bool M, size_t Vm);
+     bool asimd_VSUBL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool op, bool N, bool M, size_t Vm);
++    bool asimd_VADDHN(bool D, size_t sz, size_t Vn, size_t Vd, bool N, bool M, size_t Vm);
+     bool asimd_VABAL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool N, bool M, size_t Vm);
+     bool asimd_VABDL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool N, bool M, size_t Vm);
+     bool asimd_VMLAL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool op, bool N, bool M, size_t Vm);
+diff --git a/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp b/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp
+index a69f39bf..55e7fb4a 100644
+--- a/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp
++++ b/external/dynarmic/src/dynarmic/frontend/A32/translate/impl/asimd_three_regs.cpp
+@@ -911,6 +911,32 @@ bool TranslatorVisitor::asimd_VSUBL(bool U, bool D, size_t sz, size_t Vn, size_t
+     });
+ }
+ 
++bool TranslatorVisitor::asimd_VADDHN(bool D, size_t sz, size_t Vn, size_t Vd, bool N, bool M, size_t Vm) {
++    if (sz == 0b11) {
++        return UndefinedInstruction();
++    }
++
++    /* Both source operands are Q registers; their encoded D-register numbers
++       must therefore be even. The destination is one unrestricted D register. */
++    if (mcl::bit::get_bit<0>(Vn) || mcl::bit::get_bit<0>(Vm)) {
++        return UndefinedInstruction();
++    }
++
++    const size_t esize = 8U << sz;
++    const size_t wide_esize = esize * 2;
++    const auto d = ToVector(false, Vd, D);
++    const auto n = ToVector(true, Vn, N);
++    const auto m = ToVector(true, Vm, M);
++    const auto reg_n = ir.GetVector(n);
++    const auto reg_m = ir.GetVector(m);
++    const auto wide_sum = ir.VectorAdd(wide_esize, reg_n, reg_m);
++    const auto high_half = ir.VectorLogicalShiftRight(wide_esize, wide_sum, static_cast<u8>(esize));
++    const auto result = ir.VectorNarrow(wide_esize, high_half);
++
++    ir.SetVector(d, result);
++    return true;
++}
++
+ bool TranslatorVisitor::asimd_VABAL(bool U, bool D, size_t sz, size_t Vn, size_t Vd, bool N, bool M, size_t Vm) {
+     return AbsoluteDifferenceLong(*this, U, D, sz, Vn, Vd, N, M, Vm, AccumulateBehavior::Accumulate);
+ }
