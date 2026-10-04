@@ -1,0 +1,62 @@
+.DEFAULT_GOAL := test
+CC := xcrun clang
+CXX := xcrun clang++
+PYTHON ?= python3
+BUILD ?= build/konamigq-tests
+OPT ?= -O2 -g
+include tools/mac-harness/libchdr.mk
+ARCADE := libpcsxcore/arcade
+GEN := $(BUILD)/generated
+INCLUDES := -I$(GEN) -I$(ARCADE) -I$(ARCADE)/m68000 -I$(ARCADE)/tms57002
+CFLAGS := -arch arm64 -std=gnu99 $(OPT) -Wall $(LIBCHDR_CFLAGS)
+STRICT_CFLAGS := -Wall -Wextra -Werror
+CXXFLAGS := -arch arm64 -std=c++20 $(OPT) -Wall -Wextra -Werror -Wno-unused-parameter $(LIBCHDR_CFLAGS)
+LIB_OBJECTS := $(addprefix $(BUILD)/,$(LIBCHDR_SOURCES:.c=.o)) $(LIBCHDR_EXTRA_OBJECTS)
+CPP_SOURCES := $(ARCADE)/konamigq.cpp $(ARCADE)/nscsi_bus.cpp $(ARCADE)/nscsi_target.cpp $(ARCADE)/nscsi_hd.cpp $(ARCADE)/ncr53cf96.cpp $(ARCADE)/chd_hd.cpp $(ARCADE)/m68000.cpp $(ARCADE)/tms57002.cpp $(ARCADE)/tms57002/tms57002_core.cpp $(ARCADE)/tms57002/tms57kdec.cpp $(ARCADE)/tms57002/tmsops.cpp
+C_SOURCES := $(ARCADE)/i8251.c $(ARCADE)/mb89371.c $(ARCADE)/eeprom93c46.c $(ARCADE)/k056800.c $(ARCADE)/k054539.c
+GEN_SOURCES := $(GEN)/m68000-decode.cpp $(GEN)/m68000-sdf.cpp $(GEN)/m68000-sdp.cpp
+CPP_OBJECTS := $(patsubst $(ARCADE)/%.cpp,$(BUILD)/%.o,$(CPP_SOURCES))
+C_OBJECTS := $(patsubst $(ARCADE)/%.c,$(BUILD)/%.o,$(C_SOURCES))
+GEN_OBJECTS := $(patsubst $(GEN)/%.cpp,$(BUILD)/%.o,$(GEN_SOURCES))
+OBJECTS := $(LIB_OBJECTS) $(CPP_OBJECTS) $(C_OBJECTS) $(GEN_OBJECTS)
+TARGET := $(BUILD)/test_konamigq
+TEST_DEP := $(BUILD)/test_konamigq.d
+
+.PHONY: test sanitize clean
+$(GEN)/m68000-decode.cpp: $(ARCADE)/m68000/m68000.lst $(ARCADE)/m68000/m68000gen.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(ARCADE)/m68000/m68000gen.py decode $< $@
+$(GEN)/m68000-sdf.cpp: $(ARCADE)/m68000/m68000.lst $(ARCADE)/m68000/m68000gen.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(ARCADE)/m68000/m68000gen.py sdf $< $@
+$(GEN)/m68000-sdp.cpp: $(ARCADE)/m68000/m68000.lst $(ARCADE)/m68000/m68000gen.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(ARCADE)/m68000/m68000gen.py sdp $< $@
+$(GEN)/m68000-head.h: $(ARCADE)/m68000/m68000.lst $(ARCADE)/m68000/m68000gen.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(ARCADE)/m68000/m68000gen.py header $< $@
+$(GEN)/tms57002.hxx: $(ARCADE)/tms57002/tmsinstr.lst $(ARCADE)/tms57002/tmsmake.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(ARCADE)/tms57002/tmsmake.py s $< $@
+$(BUILD)/%.o: $(ARCADE)/%.cpp $(GEN)/m68000-head.h $(GEN)/tms57002.hxx
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+$(BUILD)/%.o: $(ARCADE)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) -arch arm64 -std=gnu99 $(OPT) $(STRICT_CFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+$(BUILD)/%.o: $(GEN)/%.cpp $(GEN)/m68000-head.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+$(TARGET): tests/test_konamigq.cpp $(OBJECTS) $(GEN)/m68000-head.h $(GEN)/tms57002.hxx
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -MF $(TEST_DEP) -MT $@ $< $(OBJECTS) -lz -lm -o $@
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(PYTHON) tests/check_konamigq.py --test $(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.konamigq BUILD=$(BUILD)/sanitize OPT='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
+-include $(OBJECTS:.o=.d)
+-include $(TEST_DEP)
