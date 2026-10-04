@@ -113,11 +113,14 @@ faults, malformed images and interrupted runs leave an existing file intact.
 The image stores persistent cells, not pending write timers or a save state.
 Device resets preserve EEPROM data and an in-flight 200 microsecond write.
 
+`--frames` accepts 1 through 216000 vsyncs for sustained gameplay captures.
 Execution is limited by the requested emulated vsync count, with cycle and block
 caps for boots that stop producing vsync. CPU quanta end at a taken branch or
 4096 calls to the core's public interpreter step; this keeps branchless code
 bounded while preserving branch and load-delay semantics. SIGINT and SIGTERM
-stop between steps. The optional `--max-blocks N` defaults to one billion.
+stop between steps. The optional `--max-blocks N` defaults to one billion and
+accepts up to 100 billion for long replays. Input CSV frames accept the same
+216000-frame upper bound as `--frames`.
 The harness prints frame, cycle, block, PC, flip and wall-time counters.
 `--icache` enables the existing PCSX interpreter instruction-cache model;
 it is off by default. System 10 tests also execute banked code with this enabled.

@@ -234,7 +234,7 @@ static int load_input_events(const char *path, harness_input_event **out,
     if (!strcmp(frame_s, "frame") && !strcmp(control, "control") &&
         !strcmp(pressed_s, "pressed")) continue;
     errno = 0; frame = strtoull(frame_s, &end, 10);
-    if (errno || end == frame_s || *end || frame > 3600 ||
+    if (errno || end == frame_s || *end || frame > 216000 ||
         (have_frame && frame < last_frame) || !input_control_known(control)) {
       failed = 1; break;
     }
@@ -314,14 +314,14 @@ int main(int argc, char **argv)
       int tracing = !strcmp(argv[i], "--trace-blocks");
       char *tail; unsigned long n;
       errno = 0; n = strtoul(argv[++i], &tail, 10);
-      if (errno || *tail || n == 0 || n > (tracing ? 1000000UL : 1000000000UL)) {
+      if (errno || *tail || n == 0 || n > (tracing ? 1000000UL : 100000000000UL)) {
         usage(argv[0]); return 2;
       }
       if (tracing) trace_blocks = n; else max_blocks = n;
     }
     else if (!strcmp(argv[i], "--frames") && i + 1 < argc) {
       char *tail; unsigned long n = strtoul(argv[++i], &tail, 10);
-      if (*tail || n == 0 || n > 3600) { usage(argv[0]); return 2; }
+      if (*tail || n == 0 || n > 216000) { usage(argv[0]); return 2; }
       frames = n;
     }
     else if (!strcmp(argv[i], "--gpu-type1-test") || !strcmp(argv[i], "--gpu-type1-test-1m")) {
