@@ -1,0 +1,4594 @@
+{
+  "schema_version": 1,
+  "mame_source_commit": "deb2f54fe7300e7a192690318beb860159bfd52a",
+  "mame_driver": "sony/zn.cpp",
+  "source_sha256": "a67147062fbfc231449bf4d5e3b5181a43033b9adc08b8ab1c61582951843045",
+  "source_complete_rom_start_count": 116,
+  "family_game_count": 22,
+  "class_counts": {
+    "taito_fx1s_state": 10,
+    "taito_fx1z_state": 8,
+    "gdarius_state": 4
+  },
+  "board_type_counts": {
+    "FX1S": 10,
+    "FX1Z": 12
+  },
+  "bios_roots": [
+    "coh1000t"
+  ],
+  "fx1s_required_regions": [
+    "maincpu:rom",
+    "cat702_1",
+    "cat702_2",
+    "bankedroms",
+    "audiocpu",
+    "ym2610b:adpcma"
+  ],
+  "profiles": [
+    {
+      "year": 1995,
+      "set": "coh1000t",
+      "parent": null,
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Taito FX-1",
+      "flags": "MACHINE_IS_BIOS_ROOT | MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": true,
+      "bios_parent": null,
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "ROMREGION_ERASEFF",
+          "erase": 255,
+          "files": []
+        },
+        {
+          "tag": "audiocpu",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "ROMREGION_ERASEFF",
+          "erase": 255,
+          "files": []
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "ROMREGION_ERASEFF",
+          "erase": 255,
+          "files": []
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "BIOS root has no game program"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "ftimpact",
+      "parent": "ftimpcta",
+      "machine": "coh1000tb",
+      "input": "znt2p",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Fighters' Impact (Ver 2.02O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-09.4",
+              "size": 524288,
+              "crc32": "d457bfc7",
+              "sha1": "e974a9c3e7b0748ef89d78e76a7dbb763c42b6f7",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-07.3",
+              "size": 524288,
+              "crc32": "829be1cc",
+              "sha1": "64b139d7c3696ab2f0b9a4842c19a38fe6a8cede",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-01.1",
+              "size": 4194304,
+              "crc32": "8cc4be0c",
+              "sha1": "9ca15558a83b7e332e50accf1f7852444a7ce730",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-02.2",
+              "size": 4194304,
+              "crc32": "8e8b4c82",
+              "sha1": "55c9d4d3a08fc3226a75ab3a674be433af83e289",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-03.12",
+              "size": 4194304,
+              "crc32": "43b1c085",
+              "sha1": "6e53550e9be0d2f415fc6b4f3b8a71185c5370b2",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-10.14",
+              "size": 524288,
+              "crc32": "2b2ad1b1",
+              "sha1": "6d064d0b6805d43ce42929ac8f5645b56384f53c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 6291456,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-04.27",
+              "size": 4194304,
+              "crc32": "09a66d35",
+              "sha1": "f0df24bc9bfc9eb0f5150dc035c19fc5b8a39bf9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-05.28",
+              "size": 2097152,
+              "crc32": "3fb57636",
+              "sha1": "aa38bfac11ecf10fd55143cf4525a2a529be8bb6",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt05",
+              "size": 8,
+              "crc32": "66045c83",
+              "sha1": "b040fa87e855fd512fa99e80056d37aba895805b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "ftimpactj",
+      "parent": "ftimpcta",
+      "machine": "coh1000tb",
+      "input": "znt2p",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Fighters' Impact (Ver 2.02J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-06.4",
+              "size": 524288,
+              "crc32": "3a59deeb",
+              "sha1": "4377c5829fb5b6f5d0120caf992b1ee714897641",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-07.3",
+              "size": 524288,
+              "crc32": "829be1cc",
+              "sha1": "64b139d7c3696ab2f0b9a4842c19a38fe6a8cede",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-01.1",
+              "size": 4194304,
+              "crc32": "8cc4be0c",
+              "sha1": "9ca15558a83b7e332e50accf1f7852444a7ce730",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-02.2",
+              "size": 4194304,
+              "crc32": "8e8b4c82",
+              "sha1": "55c9d4d3a08fc3226a75ab3a674be433af83e289",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-03.12",
+              "size": 4194304,
+              "crc32": "43b1c085",
+              "sha1": "6e53550e9be0d2f415fc6b4f3b8a71185c5370b2",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-10.14",
+              "size": 524288,
+              "crc32": "2b2ad1b1",
+              "sha1": "6d064d0b6805d43ce42929ac8f5645b56384f53c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 6291456,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-04.27",
+              "size": 4194304,
+              "crc32": "09a66d35",
+              "sha1": "f0df24bc9bfc9eb0f5150dc035c19fc5b8a39bf9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-05.28",
+              "size": 2097152,
+              "crc32": "3fb57636",
+              "sha1": "aa38bfac11ecf10fd55143cf4525a2a529be8bb6",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt05",
+              "size": 8,
+              "crc32": "66045c83",
+              "sha1": "b040fa87e855fd512fa99e80056d37aba895805b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "ftimpactu",
+      "parent": "ftimpcta",
+      "machine": "coh1000tb",
+      "input": "znt2p",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Fighters' Impact (Ver 2.02A)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-08.4",
+              "size": 524288,
+              "crc32": "a3508f51",
+              "sha1": "fd4c3cc186e280497dc905ebda92472d5b72b1b4",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-07.3",
+              "size": 524288,
+              "crc32": "829be1cc",
+              "sha1": "64b139d7c3696ab2f0b9a4842c19a38fe6a8cede",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-01.1",
+              "size": 4194304,
+              "crc32": "8cc4be0c",
+              "sha1": "9ca15558a83b7e332e50accf1f7852444a7ce730",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-02.2",
+              "size": 4194304,
+              "crc32": "8e8b4c82",
+              "sha1": "55c9d4d3a08fc3226a75ab3a674be433af83e289",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-03.12",
+              "size": 4194304,
+              "crc32": "43b1c085",
+              "sha1": "6e53550e9be0d2f415fc6b4f3b8a71185c5370b2",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-10.14",
+              "size": 524288,
+              "crc32": "2b2ad1b1",
+              "sha1": "6d064d0b6805d43ce42929ac8f5645b56384f53c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 6291456,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-04.27",
+              "size": 4194304,
+              "crc32": "09a66d35",
+              "sha1": "f0df24bc9bfc9eb0f5150dc035c19fc5b8a39bf9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-05.28",
+              "size": 2097152,
+              "crc32": "3fb57636",
+              "sha1": "aa38bfac11ecf10fd55143cf4525a2a529be8bb6",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt05",
+              "size": 8,
+              "crc32": "66045c83",
+              "sha1": "b040fa87e855fd512fa99e80056d37aba895805b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1997,
+      "set": "ftimpcta",
+      "parent": "coh1000t",
+      "machine": "coh1000tb",
+      "input": "znt2p",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Fighters' Impact A (Ver 2.00J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-13.4",
+              "size": 1048576,
+              "crc32": "7f078d7b",
+              "sha1": "df9800dd6885dbc33736c5143d877b0847221061",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-14.3",
+              "size": 1048576,
+              "crc32": "0c5f474f",
+              "sha1": "ce7031ba860297b99cddd6d0177f07e03520faeb",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-01.1",
+              "size": 4194304,
+              "crc32": "8cc4be0c",
+              "sha1": "9ca15558a83b7e332e50accf1f7852444a7ce730",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-02.2",
+              "size": 4194304,
+              "crc32": "8e8b4c82",
+              "sha1": "55c9d4d3a08fc3226a75ab3a674be433af83e289",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-03.12",
+              "size": 4194304,
+              "crc32": "43b1c085",
+              "sha1": "6e53550e9be0d2f415fc6b4f3b8a71185c5370b2",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-10.14",
+              "size": 524288,
+              "crc32": "2b2ad1b1",
+              "sha1": "6d064d0b6805d43ce42929ac8f5645b56384f53c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 6291456,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e25-04.27",
+              "size": 4194304,
+              "crc32": "09a66d35",
+              "sha1": "f0df24bc9bfc9eb0f5150dc035c19fc5b8a39bf9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e25-05.28",
+              "size": 2097152,
+              "crc32": "3fb57636",
+              "sha1": "aa38bfac11ecf10fd55143cf4525a2a529be8bb6",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt05",
+              "size": 8,
+              "crc32": "66045c83",
+              "sha1": "b040fa87e855fd512fa99e80056d37aba895805b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1997,
+      "set": "gdarius",
+      "parent": "gdarius2",
+      "machine": "coh1002tb",
+      "input": "znt2p",
+      "state": "gdarius_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "G-Darius (Ver 2.02O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1002TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 2097152,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-09.ic4",
+              "size": 1048576,
+              "crc32": "f457794d",
+              "sha1": "43571770b239298e3442d3da8aa4f4507380d639",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-10.ic3",
+              "size": 1048576,
+              "crc32": "6ba4d941",
+              "sha1": "75f2d8c920d29102c09e041fc3198e32ad57dbaf",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-01.1",
+              "size": 4194304,
+              "crc32": "bdaaa251",
+              "sha1": "a42daa706ee859c2b66be179e08c0ad7990f919e",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-02.2",
+              "size": 4194304,
+              "crc32": "a47aab5d",
+              "sha1": "64b58e47035ad9d8d6dcaf475cbcc3ad85f4d82f",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-03.12",
+              "size": 4194304,
+              "crc32": "a883b6a5",
+              "sha1": "b8d00d944c90f8cd9c2b076688f4c68b2e6d557a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-07.14",
+              "size": 524288,
+              "crc32": "2252c7c1",
+              "sha1": "92b9908e0d87cad6587f1acc0eef69eaae8c6a98",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-04.27",
+              "size": 4194304,
+              "crc32": "6ee35e68",
+              "sha1": "fdfe63203d8cecf84cb869039fb893d5b63cdd67",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt07",
+              "size": 8,
+              "crc32": "ccf2f332",
+              "sha1": "6eb07cd5fab29f5536fd94aa88a2b09f28cc3494",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: gdarius_state / coh1002tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1997,
+      "set": "gdarius2",
+      "parent": "coh1000t",
+      "machine": "coh1002tb",
+      "input": "znt2p",
+      "state": "gdarius_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "G-Darius Ver.2 (Ver 2.03J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1002TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 2097152,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-12.4",
+              "size": 1048576,
+              "crc32": "b23266c3",
+              "sha1": "80aaddaaf10e40280ade4c7d11f45ddab47ee9a6",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-11.3",
+              "size": 1048576,
+              "crc32": "766f73df",
+              "sha1": "9ce24c153920d259bc7fdef0778083eb6d639be3",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-01.1",
+              "size": 4194304,
+              "crc32": "bdaaa251",
+              "sha1": "a42daa706ee859c2b66be179e08c0ad7990f919e",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-02.2",
+              "size": 4194304,
+              "crc32": "a47aab5d",
+              "sha1": "64b58e47035ad9d8d6dcaf475cbcc3ad85f4d82f",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-03.12",
+              "size": 4194304,
+              "crc32": "a883b6a5",
+              "sha1": "b8d00d944c90f8cd9c2b076688f4c68b2e6d557a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-07.14",
+              "size": 524288,
+              "crc32": "2252c7c1",
+              "sha1": "92b9908e0d87cad6587f1acc0eef69eaae8c6a98",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-04.27",
+              "size": 4194304,
+              "crc32": "6ee35e68",
+              "sha1": "fdfe63203d8cecf84cb869039fb893d5b63cdd67",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt07",
+              "size": 8,
+              "crc32": "ccf2f332",
+              "sha1": "6eb07cd5fab29f5536fd94aa88a2b09f28cc3494",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: gdarius_state / coh1002tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1997,
+      "set": "gdariusj",
+      "parent": "gdarius2",
+      "machine": "coh1002tb",
+      "input": "znt2p",
+      "state": "gdarius_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "G-Darius (Ver 2.01J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1002TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 2097152,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-06.4",
+              "size": 1048576,
+              "crc32": "2980c30d",
+              "sha1": "597321642125c3ae37581c2d9abc2723c7909996",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-05.3",
+              "size": 1048576,
+              "crc32": "750e5b13",
+              "sha1": "68fe9cbd7d506cfd587dccc40b6ae0b0b6ee7c29",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-01.1",
+              "size": 4194304,
+              "crc32": "bdaaa251",
+              "sha1": "a42daa706ee859c2b66be179e08c0ad7990f919e",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-02.2",
+              "size": 4194304,
+              "crc32": "a47aab5d",
+              "sha1": "64b58e47035ad9d8d6dcaf475cbcc3ad85f4d82f",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-03.12",
+              "size": 4194304,
+              "crc32": "a883b6a5",
+              "sha1": "b8d00d944c90f8cd9c2b076688f4c68b2e6d557a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-07.14",
+              "size": 524288,
+              "crc32": "2252c7c1",
+              "sha1": "92b9908e0d87cad6587f1acc0eef69eaae8c6a98",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-04.27",
+              "size": 4194304,
+              "crc32": "6ee35e68",
+              "sha1": "fdfe63203d8cecf84cb869039fb893d5b63cdd67",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt07",
+              "size": 8,
+              "crc32": "ccf2f332",
+              "sha1": "6eb07cd5fab29f5536fd94aa88a2b09f28cc3494",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: gdarius_state / coh1002tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1997,
+      "set": "gdariusu",
+      "parent": "gdarius2",
+      "machine": "coh1002tb",
+      "input": "znt2p",
+      "state": "gdarius_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "G-Darius (Ver 2.02A)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1002TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 2097152,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-08.ic4",
+              "size": 1048576,
+              "crc32": "835049db",
+              "sha1": "2b230c8fd6c6ea4e30740fda28f631344b018b79",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-10.ic3",
+              "size": 1048576,
+              "crc32": "6ba4d941",
+              "sha1": "75f2d8c920d29102c09e041fc3198e32ad57dbaf",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-01.1",
+              "size": 4194304,
+              "crc32": "bdaaa251",
+              "sha1": "a42daa706ee859c2b66be179e08c0ad7990f919e",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-02.2",
+              "size": 4194304,
+              "crc32": "a47aab5d",
+              "sha1": "64b58e47035ad9d8d6dcaf475cbcc3ad85f4d82f",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e39-03.12",
+              "size": 4194304,
+              "crc32": "a883b6a5",
+              "sha1": "b8d00d944c90f8cd9c2b076688f4c68b2e6d557a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-07.14",
+              "size": 524288,
+              "crc32": "2252c7c1",
+              "sha1": "92b9908e0d87cad6587f1acc0eef69eaae8c6a98",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e39-04.27",
+              "size": 4194304,
+              "crc32": "6ee35e68",
+              "sha1": "fdfe63203d8cecf84cb869039fb893d5b63cdd67",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt07",
+              "size": 8,
+              "crc32": "ccf2f332",
+              "sha1": "6eb07cd5fab29f5536fd94aa88a2b09f28cc3494",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: gdarius_state / coh1002tb / znt2p",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "mgcldate",
+      "parent": "mgcldtex",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Magical Date / Magical Date - Dokidoki Kokuhaku Daisakusen (Ver 2.02J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-05.2",
+              "size": 524288,
+              "crc32": "72fc7f7b",
+              "sha1": "50d9e84bc74fb63ec1900ab149051888bc3d03a5",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-06.7",
+              "size": 524288,
+              "crc32": "d11c3881",
+              "sha1": "f7046c5bed4818152edcf697a49664b0bcf12a1b",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-01.1",
+              "size": 4194304,
+              "crc32": "cf5f1d01",
+              "sha1": "5417f8aef5c8d0e9e63ba8c68efb5b3ef37b4693",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-02.6",
+              "size": 4194304,
+              "crc32": "61c8438c",
+              "sha1": "bdbe6079cc634c0cd6580f76619eb2944c9a31d9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-03.12",
+              "size": 2097152,
+              "crc32": "190d1618",
+              "sha1": "838a651d32752015baa7e8caea62fd739631b8be",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-07.22",
+              "size": 131072,
+              "crc32": "adf3feb5",
+              "sha1": "bae5bc3fad99a92a3492be1b775dab861007eb3b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 4194304,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-04.15",
+              "size": 4194304,
+              "crc32": "c72f9eea",
+              "sha1": "7ab8b412a8ed00a42016acb7d13d3b074155780a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt06",
+              "size": 8,
+              "crc32": "ce282fc9",
+              "sha1": "dfc1f679ec70f2ff32869cfeb452acf9ac154aef",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1997,
+      "set": "mgcldtex",
+      "parent": "coh1000t",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Magical Date EX / Magical Date - Sotsugyou Kokuhaku Daisakusen (Ver 2.01J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-08.2",
+              "size": 1048576,
+              "crc32": "3d42cd28",
+              "sha1": "9017922e835a359ba5126c8a9e8c27380a5ce081",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-09.7",
+              "size": 1048576,
+              "crc32": "db7ec115",
+              "sha1": "fa6f18de71ba997389d887d7ffe745aa25e24c20",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-01.1",
+              "size": 4194304,
+              "crc32": "cf5f1d01",
+              "sha1": "5417f8aef5c8d0e9e63ba8c68efb5b3ef37b4693",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-02.6",
+              "size": 4194304,
+              "crc32": "61c8438c",
+              "sha1": "bdbe6079cc634c0cd6580f76619eb2944c9a31d9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e32-03.12",
+              "size": 2097152,
+              "crc32": "190d1618",
+              "sha1": "838a651d32752015baa7e8caea62fd739631b8be",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-10.22",
+              "size": 131072,
+              "crc32": "adf3feb5",
+              "sha1": "bae5bc3fad99a92a3492be1b775dab861007eb3b",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 4194304,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e32-04.15",
+              "size": 4194304,
+              "crc32": "c72f9eea",
+              "sha1": "7ab8b412a8ed00a42016acb7d13d3b074155780a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt06",
+              "size": 8,
+              "crc32": "ce282fc9",
+              "sha1": "dfc1f679ec70f2ff32869cfeb452acf9ac154aef",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "psyforce",
+      "parent": "coh1000t",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Psychic Force (Ver 2.4O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-09_.2",
+              "size": 524288,
+              "crc32": "997e4500",
+              "sha1": "4a90b452c9a877ccec55a11f36c4cbc6df1f1f41",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-06_.7",
+              "size": 524288,
+              "crc32": "f6341d63",
+              "sha1": "99dc27aa694ae5951148054291912a486726e8c9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-02.16",
+              "size": 2097152,
+              "crc32": "03b50064",
+              "sha1": "0259537e86b266b3f34308c4fc0bcc04c037da71",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-03.19",
+              "size": 2097152,
+              "crc32": "8372f839",
+              "sha1": "646b3919b6be63412c11850ec1524685abececc0",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-04.21",
+              "size": 2097152,
+              "crc32": "397b71aa",
+              "sha1": "48743c362503c1d2dbeb3c8be4cb2aaaae015b88",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-07.22",
+              "size": 131072,
+              "crc32": "739af589",
+              "sha1": "dbb4d1c6d824a99ccf27168e2c21644e19811523",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-01.15",
+              "size": 2097152,
+              "crc32": "808b8340",
+              "sha1": "d8bde850dd9b5b71e94ea707d2d728754f907977",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt03",
+              "size": 8,
+              "crc32": "5799d8c9",
+              "sha1": "72cf1ed0958959d085ca5f8ab8b4f883ab1cd162",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "psyforcej",
+      "parent": "psyforce",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Psychic Force (Ver 2.4J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-05_.2",
+              "size": 524288,
+              "crc32": "7770242c",
+              "sha1": "dd37575d3d9ffdef60fe0e4cab6c9e42d087f714",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-10_.7",
+              "size": 524288,
+              "crc32": "f6341d63",
+              "sha1": "99dc27aa694ae5951148054291912a486726e8c9",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-02.16",
+              "size": 2097152,
+              "crc32": "03b50064",
+              "sha1": "0259537e86b266b3f34308c4fc0bcc04c037da71",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-03.19",
+              "size": 2097152,
+              "crc32": "8372f839",
+              "sha1": "646b3919b6be63412c11850ec1524685abececc0",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-04.21",
+              "size": 2097152,
+              "crc32": "397b71aa",
+              "sha1": "48743c362503c1d2dbeb3c8be4cb2aaaae015b88",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-07.22",
+              "size": 131072,
+              "crc32": "739af589",
+              "sha1": "dbb4d1c6d824a99ccf27168e2c21644e19811523",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-01.15",
+              "size": 2097152,
+              "crc32": "808b8340",
+              "sha1": "d8bde850dd9b5b71e94ea707d2d728754f907977",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt03",
+              "size": 8,
+              "crc32": "5799d8c9",
+              "sha1": "72cf1ed0958959d085ca5f8ab8b4f883ab1cd162",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "psyforcex",
+      "parent": "psyforce",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Psychic Force EX (Ver 2.0J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-11.2",
+              "size": 524288,
+              "crc32": "29ebebc9",
+              "sha1": "48a3371460d69ae5ba58d3e24615f389bf43b2cc",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-12.7",
+              "size": 524288,
+              "crc32": "7426ffc5",
+              "sha1": "24b0132241e2e49109e585b082bf4ab67f86b294",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-02.16",
+              "size": 2097152,
+              "crc32": "03b50064",
+              "sha1": "0259537e86b266b3f34308c4fc0bcc04c037da71",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-03.19",
+              "size": 2097152,
+              "crc32": "8372f839",
+              "sha1": "646b3919b6be63412c11850ec1524685abececc0",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e22-04.21",
+              "size": 2097152,
+              "crc32": "397b71aa",
+              "sha1": "48743c362503c1d2dbeb3c8be4cb2aaaae015b88",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-07.22",
+              "size": 131072,
+              "crc32": "739af589",
+              "sha1": "dbb4d1c6d824a99ccf27168e2c21644e19811523",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e22-01.15",
+              "size": 2097152,
+              "crc32": "808b8340",
+              "sha1": "d8bde850dd9b5b71e94ea707d2d728754f907977",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt03",
+              "size": 8,
+              "crc32": "5799d8c9",
+              "sha1": "72cf1ed0958959d085ca5f8ab8b4f883ab1cd162",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1996,
+      "set": "raystorm",
+      "parent": "coh1000t",
+      "machine": "coh1000tb",
+      "input": "raystorm",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "RayStorm (Ver 2.06A)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-xx.ic4",
+              "size": 524288,
+              "crc32": "33f63638",
+              "sha1": "fdda33ffc9902b3605a3272fae5a614e93856a86",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-xx.ic3",
+              "size": 524288,
+              "crc32": "5eeed3b2",
+              "sha1": "d8bb1613d7285eabdc6f0a2d231d2eeeb52f307b",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-02.1",
+              "size": 4194304,
+              "crc32": "9f70950d",
+              "sha1": "b3e4f925a61ae2e5dd4cc5d7ec3030a0d5c2c04d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-03.2",
+              "size": 4194304,
+              "crc32": "6c1f0a5d",
+              "sha1": "1aac37a7ff23e54021a4cec18c9bb93242337180",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 16,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-09.14",
+              "size": 524288,
+              "crc32": "808589e1",
+              "sha1": "46ada4c6d68c2462186a0b962abb435ee740c0ba",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-04.27",
+              "size": 4194304,
+              "crc32": "f403493a",
+              "sha1": "3e49fd2a060a3893e26f14cc3cf47c4ba91e17d4",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt04",
+              "size": 8,
+              "crc32": "013363df",
+              "sha1": "f04d04c7c858a8e2eaff0c51e782ad76d6ebbed1",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / raystorm",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "raystormj",
+      "parent": "raystorm",
+      "machine": "coh1000tb",
+      "input": "raystorm",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "RayStorm (Ver 2.05J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-05.4",
+              "size": 524288,
+              "crc32": "40097ab9",
+              "sha1": "67e73568b35515c2c5a9119e97ac4709baff8c5a",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-06.3",
+              "size": 524288,
+              "crc32": "d70cdf46",
+              "sha1": "da6163d69d3ea9c1e3f4b7961a548f1f9d8d9909",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-02.1",
+              "size": 4194304,
+              "crc32": "9f70950d",
+              "sha1": "b3e4f925a61ae2e5dd4cc5d7ec3030a0d5c2c04d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-03.2",
+              "size": 4194304,
+              "crc32": "6c1f0a5d",
+              "sha1": "1aac37a7ff23e54021a4cec18c9bb93242337180",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-09.14",
+              "size": 524288,
+              "crc32": "808589e1",
+              "sha1": "46ada4c6d68c2462186a0b962abb435ee740c0ba",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-04.27",
+              "size": 4194304,
+              "crc32": "f403493a",
+              "sha1": "3e49fd2a060a3893e26f14cc3cf47c4ba91e17d4",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt04",
+              "size": 8,
+              "crc32": "013363df",
+              "sha1": "f04d04c7c858a8e2eaff0c51e782ad76d6ebbed1",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / raystorm",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "raystormo",
+      "parent": "raystorm",
+      "machine": "coh1000tb",
+      "input": "raystorm",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "RayStorm (Ver 2.05O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-08.4",
+              "size": 524288,
+              "crc32": "ae071b95",
+              "sha1": "0e1597220808d6e3998ef1e9d88779e0187ba0af",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-06.3",
+              "size": 524288,
+              "crc32": "d70cdf46",
+              "sha1": "da6163d69d3ea9c1e3f4b7961a548f1f9d8d9909",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-02.1",
+              "size": 4194304,
+              "crc32": "9f70950d",
+              "sha1": "b3e4f925a61ae2e5dd4cc5d7ec3030a0d5c2c04d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-03.2",
+              "size": 4194304,
+              "crc32": "6c1f0a5d",
+              "sha1": "1aac37a7ff23e54021a4cec18c9bb93242337180",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-09.14",
+              "size": 524288,
+              "crc32": "808589e1",
+              "sha1": "46ada4c6d68c2462186a0b962abb435ee740c0ba",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-04.27",
+              "size": 4194304,
+              "crc32": "f403493a",
+              "sha1": "3e49fd2a060a3893e26f14cc3cf47c4ba91e17d4",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt04",
+              "size": 8,
+              "crc32": "013363df",
+              "sha1": "f04d04c7c858a8e2eaff0c51e782ad76d6ebbed1",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / raystorm",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1996,
+      "set": "raystormu",
+      "parent": "raystorm",
+      "machine": "coh1000tb",
+      "input": "raystorm",
+      "state": "taito_fx1z_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "RayStorm (Ver 2.05A)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000TB",
+      "board_type": "FX1Z",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "MN10200",
+      "sound_device": "ZSG-2/TMS57002",
+      "sample_region": "taito_zoom:zsg2",
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-07.4",
+              "size": 524288,
+              "crc32": "d9002b03",
+              "sha1": "bdb0aa88536c4c98c150ece87387930b3dbdd258",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-06.3",
+              "size": 524288,
+              "crc32": "d70cdf46",
+              "sha1": "da6163d69d3ea9c1e3f4b7961a548f1f9d8d9909",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-02.1",
+              "size": 4194304,
+              "crc32": "9f70950d",
+              "sha1": "b3e4f925a61ae2e5dd4cc5d7ec3030a0d5c2c04d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e24-03.2",
+              "size": 4194304,
+              "crc32": "6c1f0a5d",
+              "sha1": "1aac37a7ff23e54021a4cec18c9bb93242337180",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:mn10200",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-09.14",
+              "size": 524288,
+              "crc32": "808589e1",
+              "sha1": "46ada4c6d68c2462186a0b962abb435ee740c0ba",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "taito_zoom:zsg2",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e24-04.27",
+              "size": 4194304,
+              "crc32": "f403493a",
+              "sha1": "3e49fd2a060a3893e26f14cc3cf47c4ba91e17d4",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt04",
+              "size": 8,
+              "crc32": "013363df",
+              "sha1": "f04d04c7c858a8e2eaff0c51e782ad76d6ebbed1",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": null,
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "unsupported board class/config/input: taito_fx1z_state / coh1000tb / raystorm",
+        "missing FX1S media regions: audiocpu, ym2610b:adpcma",
+        "unsupported FX1S regions: taito_zoom:mn10200, taito_zoom:zsg2"
+      ]
+    },
+    {
+      "year": 1995,
+      "set": "sfchamp",
+      "parent": "coh1000t",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Super Football Champ (Ver 2.5O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-12.2",
+              "size": 524288,
+              "crc32": "72304685",
+              "sha1": "2e6f645871e19a49fcdfbdca49c6be415471eadf",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-13.7",
+              "size": 524288,
+              "crc32": "fa4d01ee",
+              "sha1": "27efd8e2107d71213d35f2a58762ed8812f809d3",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-02.12",
+              "size": 2097152,
+              "crc32": "c7b4fe29",
+              "sha1": "7f823bd61abf2b15d3ba62bca829a5b1acacfd09",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-03.16",
+              "size": 2097152,
+              "crc32": "76392346",
+              "sha1": "2c5b70c4708208f866feea0472fcc72333061124",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-04.19",
+              "size": 2097152,
+              "crc32": "fc3731da",
+              "sha1": "58948aad8d7bb7a8449d2bf12e9d5e6d7b4426b5",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-05.21",
+              "size": 2097152,
+              "crc32": "2e984c50",
+              "sha1": "6d8255e38c67d68bf489c9885663ed2edf148188",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-09.22",
+              "size": 131072,
+              "crc32": "bb5a5319",
+              "sha1": "0bb700cafc157d3af663cc9bebb8167487ff2852",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-01.15",
+              "size": 2097152,
+              "crc32": "dbd1408c",
+              "sha1": "ef81064f2f95e5ae25eb1f10d1e78f27f9e294f5",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt02",
+              "size": 8,
+              "crc32": "b1585ac7",
+              "sha1": "d967eea539de2dd7a8d13fa2785c3033065bed9c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "sfchampj",
+      "parent": "sfchamp",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Super Football Champ (Ver 2.4J)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-07.2",
+              "size": 524288,
+              "crc32": "1b484e1c",
+              "sha1": "f29f40a9988475d8abbb126095b0716133c087a0",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-08.7",
+              "size": 524288,
+              "crc32": "6a5558cd",
+              "sha1": "75b26bcaaa213283e7e0dace69ee58f305b4572d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-02.12",
+              "size": 2097152,
+              "crc32": "c7b4fe29",
+              "sha1": "7f823bd61abf2b15d3ba62bca829a5b1acacfd09",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-03.16",
+              "size": 2097152,
+              "crc32": "76392346",
+              "sha1": "2c5b70c4708208f866feea0472fcc72333061124",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-04.19",
+              "size": 2097152,
+              "crc32": "fc3731da",
+              "sha1": "58948aad8d7bb7a8449d2bf12e9d5e6d7b4426b5",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-05.21",
+              "size": 2097152,
+              "crc32": "2e984c50",
+              "sha1": "6d8255e38c67d68bf489c9885663ed2edf148188",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-09.22",
+              "size": 131072,
+              "crc32": "bb5a5319",
+              "sha1": "0bb700cafc157d3af663cc9bebb8167487ff2852",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-01.15",
+              "size": 2097152,
+              "crc32": "dbd1408c",
+              "sha1": "ef81064f2f95e5ae25eb1f10d1e78f27f9e294f5",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt02",
+              "size": 8,
+              "crc32": "b1585ac7",
+              "sha1": "d967eea539de2dd7a8d13fa2785c3033065bed9c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "sfchampo",
+      "parent": "sfchamp",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Super Football Champ (Ver 2.4O)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-11.2",
+              "size": 524288,
+              "crc32": "f5462f30",
+              "sha1": "44eb03a9b51e2d8dd14fe2ed36dbcf17035a22c7",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-08.7",
+              "size": 524288,
+              "crc32": "6a5558cd",
+              "sha1": "75b26bcaaa213283e7e0dace69ee58f305b4572d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-02.12",
+              "size": 2097152,
+              "crc32": "c7b4fe29",
+              "sha1": "7f823bd61abf2b15d3ba62bca829a5b1acacfd09",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-03.16",
+              "size": 2097152,
+              "crc32": "76392346",
+              "sha1": "2c5b70c4708208f866feea0472fcc72333061124",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-04.19",
+              "size": 2097152,
+              "crc32": "fc3731da",
+              "sha1": "58948aad8d7bb7a8449d2bf12e9d5e6d7b4426b5",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-05.21",
+              "size": 2097152,
+              "crc32": "2e984c50",
+              "sha1": "6d8255e38c67d68bf489c9885663ed2edf148188",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-09.22",
+              "size": 131072,
+              "crc32": "bb5a5319",
+              "sha1": "0bb700cafc157d3af663cc9bebb8167487ff2852",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-01.15",
+              "size": 2097152,
+              "crc32": "dbd1408c",
+              "sha1": "ef81064f2f95e5ae25eb1f10d1e78f27f9e294f5",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt02",
+              "size": 8,
+              "crc32": "b1585ac7",
+              "sha1": "d967eea539de2dd7a8d13fa2785c3033065bed9c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": 1995,
+      "set": "sfchampu",
+      "parent": "sfchamp",
+      "machine": "coh1000ta",
+      "input": "znt2p",
+      "state": "taito_fx1s_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito America",
+      "description": "Super Football Champ (Ver 2.4A)",
+      "flags": "MACHINE_SUPPORTS_SAVE",
+      "board_model": "COH1000T",
+      "board_type": "FX1S",
+      "board_family": "Taito FX-1",
+      "main_ram_size": 4194304,
+      "vram_size": 1048576,
+      "cpu_device": "CXD8530CQ",
+      "cpu_clock_hz": 67737600,
+      "gpu_device": "CXD8561Q",
+      "gpu_clock_hz": 53693175,
+      "sound_cpu_device": "Z80",
+      "sound_cpu_clock_hz": 4000000,
+      "sound_device": "YM2610B",
+      "sound_clock_hz": 8000000,
+      "sound_latch_device": "TC0140SYT",
+      "sample_region": "ym2610b:adpcma",
+      "sample_devices": [
+        "ADPCM-A",
+        "ADPCM-B"
+      ],
+      "watchdog_device": "MB3773",
+      "bank_select_register": 531890176,
+      "bank_select_mask": 3,
+      "watchdog_clock_bit": 5,
+      "is_bios_root": false,
+      "bios_parent": "coh1000t",
+      "required_regions": [
+        "maincpu:rom",
+        "cat702_1",
+        "cat702_2",
+        "bankedroms",
+        "audiocpu",
+        "ym2610b:adpcma"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m534002c-14.ic353",
+              "size": 524288,
+              "crc32": "e3f23b6e",
+              "sha1": "e18907cf8c6ba54d96edba0a9a00487a90219e0d",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_1",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt01.ic652",
+              "size": 8,
+              "crc32": "daac13e7",
+              "sha1": "96d94f2b06fb7ecd91454969f4959a583ffb9d5a",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "upd78081",
+          "size": 8192,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "78081g503.ic655",
+              "size": 8192,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "bankedroms",
+          "size": 16777216,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-10.2",
+              "size": 524288,
+              "crc32": "82411fa6",
+              "sha1": "0aa1764b7ff68258ef76a41355c50d5067262d75",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-08.7",
+              "size": 524288,
+              "crc32": "6a5558cd",
+              "sha1": "75b26bcaaa213283e7e0dace69ee58f305b4572d",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-02.12",
+              "size": 2097152,
+              "crc32": "c7b4fe29",
+              "sha1": "7f823bd61abf2b15d3ba62bca829a5b1acacfd09",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-03.16",
+              "size": 2097152,
+              "crc32": "76392346",
+              "sha1": "2c5b70c4708208f866feea0472fcc72333061124",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-04.19",
+              "size": 2097152,
+              "crc32": "fc3731da",
+              "sha1": "58948aad8d7bb7a8449d2bf12e9d5e6d7b4426b5",
+              "status": "good",
+              "bios_id": null
+            },
+            {
+              "filename": "e18-05.21",
+              "size": 2097152,
+              "crc32": "2e984c50",
+              "sha1": "6d8255e38c67d68bf489c9885663ed2edf148188",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "audiocpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-09.22",
+              "size": 131072,
+              "crc32": "bb5a5319",
+              "sha1": "0bb700cafc157d3af663cc9bebb8167487ff2852",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "ym2610b:adpcma",
+          "size": 2097152,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "e18-01.15",
+              "size": 2097152,
+              "crc32": "dbd1408c",
+              "sha1": "ef81064f2f95e5ae25eb1f10d1e78f27f9e294f5",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "cat702_2",
+          "size": 8,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tt02",
+              "size": 8,
+              "crc32": "b1585ac7",
+              "sha1": "d967eea539de2dd7a8d13fa2785c3033065bed9c",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [],
+      "optional_undumped_regions": [
+        "upd78081"
+      ],
+      "optional_undumped_media_review": {
+        "tag": "upd78081",
+        "size": 8192,
+        "filename": "78081g503.ic655",
+        "status": "NO_DUMP",
+        "handling": "omitted_from_media_package_no_substitute",
+        "source_proof": "FX1S uses taito_fx1s_state/coh1000ta; class/config do not instantiate upd78081, while zn_state::zn_base instantiates the distinct ZNMCU",
+        "known_limitation": "upd78081 image remains undumped; no emulation or firmware-completeness claim is made"
+      },
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    }
+  ]
+}

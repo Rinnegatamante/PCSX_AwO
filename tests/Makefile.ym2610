@@ -1,0 +1,24 @@
+CXX ?= clang++
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare
+BUILD ?= build/ym2610-tests
+TARGET := $(BUILD)/test-ym2610
+SOURCES := libpcsxcore/arcade/ym2610.cpp \
+	libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
+	libpcsxcore/arcade/ymfm/ymfm_adpcm.cpp \
+	libpcsxcore/arcade/ymfm/ymfm_ssg.cpp \
+	tests/ym2610_standalone.cpp
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(TARGET): $(SOURCES) libpcsxcore/arcade/ym2610.h $(wildcard libpcsxcore/arcade/ymfm/*) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade -Ilibpcsxcore/arcade/ymfm $(SOURCES) -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

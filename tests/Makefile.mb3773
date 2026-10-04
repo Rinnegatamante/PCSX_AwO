@@ -1,0 +1,12 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/mb3773-tests
+TARGET := $(BUILD)/test-mb3773
+.PHONY: test clean
+$(TARGET): libpcsxcore/arcade/mb3773.c libpcsxcore/arcade/mb3773.h tests/test_mb3773.c
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/mb3773.c tests/test_mb3773.c -o $@
+test: $(TARGET)
+	$(TARGET)
+clean:
+	rm -rf $(BUILD)

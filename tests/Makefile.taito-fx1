@@ -1,0 +1,54 @@
+CC ?= clang
+CXX ?= clang++
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare
+BUILD ?= build/taito-fx1-tests
+ARCADE := libpcsxcore/arcade
+YMFM := $(ARCADE)/ymfm
+TARGET := $(BUILD)/test-taito-fx1
+OBJECTS := $(BUILD)/taito_fx1.o $(BUILD)/mb3773.o $(BUILD)/taito_sound_comm.o \
+	$(BUILD)/z80.o $(BUILD)/ym2610.o $(BUILD)/ymfm_opn.o \
+	$(BUILD)/ymfm_adpcm.o $(BUILD)/ymfm_ssg.o
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(BUILD)/taito_fx1.o: $(ARCADE)/taito_fx1.c $(ARCADE)/taito_fx1.h $(ARCADE)/mb3773.h $(ARCADE)/taito_sound_comm.h $(ARCADE)/ym2610.h $(ARCADE)/z80.h | $(BUILD)
+	$(CC) $(CFLAGS) -MMD -MP -MF $(BUILD)/taito_fx1.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/mb3773.o: $(ARCADE)/mb3773.c $(ARCADE)/mb3773.h | $(BUILD)
+	$(CC) $(CFLAGS) -MMD -MP -MF $(BUILD)/mb3773.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/taito_sound_comm.o: $(ARCADE)/taito_sound_comm.c $(ARCADE)/taito_sound_comm.h | $(BUILD)
+	$(CC) $(CFLAGS) -MMD -MP -MF $(BUILD)/taito_sound_comm.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/z80.o: $(ARCADE)/z80.cpp $(ARCADE)/z80.h $(wildcard $(ARCADE)/z80_*.inc) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/z80.d -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/ym2610.o: $(ARCADE)/ym2610.cpp $(ARCADE)/ym2610.h $(wildcard $(YMFM)/*) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/ym2610.d -I$(ARCADE) -I$(YMFM) -c $< -o $@
+
+$(BUILD)/ymfm_opn.o: $(YMFM)/ymfm_opn.cpp $(wildcard $(YMFM)/*) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/ymfm_opn.d -I$(ARCADE) -I$(YMFM) -c $< -o $@
+
+$(BUILD)/ymfm_adpcm.o: $(YMFM)/ymfm_adpcm.cpp $(wildcard $(YMFM)/*) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/ymfm_adpcm.d -I$(ARCADE) -I$(YMFM) -c $< -o $@
+
+$(BUILD)/ymfm_ssg.o: $(YMFM)/ymfm_ssg.cpp $(wildcard $(YMFM)/*) | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/ymfm_ssg.d -I$(ARCADE) -I$(YMFM) -c $< -o $@
+
+$(TARGET): $(OBJECTS) tests/test_taito_fx1.cpp $(ARCADE)/taito_fx1.h
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/test_taito_fx1.d -I$(ARCADE) tests/test_taito_fx1.cpp $(OBJECTS) -o $@
+
+-include $(BUILD)/taito_fx1.d $(BUILD)/mb3773.d $(BUILD)/taito_sound_comm.d \
+	$(BUILD)/z80.d $(BUILD)/ym2610.d $(BUILD)/ymfm_opn.d \
+	$(BUILD)/ymfm_adpcm.d $(BUILD)/ymfm_ssg.d $(BUILD)/test_taito_fx1.d
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

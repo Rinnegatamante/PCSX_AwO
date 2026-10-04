@@ -1,0 +1,19 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/taito-sound-comm-tests
+TARGET := $(BUILD)/test-taito-sound-comm
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(TARGET): libpcsxcore/arcade/taito_sound_comm.c libpcsxcore/arcade/taito_sound_comm.h tests/test_taito_sound_comm.c | $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/taito_sound_comm.c tests/test_taito_sound_comm.c -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)
