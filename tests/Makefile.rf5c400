@@ -1,0 +1,19 @@
+CXX ?= clang++
+BUILD ?= build/rf5c400-tests
+OPT ?= -O2 -g
+FLAGS := -std=c++17 $(OPT) -Wall -Wextra -Werror
+TARGET := $(BUILD)/test-rf5c400
+.PHONY: test sanitize clean
+$(BUILD):
+	mkdir -p $@
+$(BUILD)/rf5c400.o: libpcsxcore/arcade/rf5c400.cpp libpcsxcore/arcade/rf5c400.h | $(BUILD)
+	$(CXX) $(FLAGS) -MMD -MP -c $< -o $@
+$(TARGET): tests/test_rf5c400.cpp $(BUILD)/rf5c400.o libpcsxcore/arcade/rf5c400.h
+	$(CXX) $(FLAGS) -Ilibpcsxcore/arcade -MMD -MP -MF $(BUILD)/test.d $< $(BUILD)/rf5c400.o -o $@
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.rf5c400 BUILD=$(BUILD)/sanitize OPT='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
+-include $(BUILD)/rf5c400.d $(BUILD)/test.d

@@ -352,3 +352,11 @@ BSD-3-Clause notices are retained in `konamigv_LICENSE.txt` and
 register implementation from `src/devices/cpu/mn10200/mn10200.cpp/.h`, copyright
 Olivier Galibert, R. Belmont and hap, at the pinned MAME revision above. Full
 BSD-3-Clause terms are retained in `mn10200_LICENSE.txt`.
+
+## MAME Ricoh RF5C400
+
+`libpcsxcore/arcade/rf5c400.{cpp,h}` adapts the sample engine and register map
+from `src/devices/sound/rf5c400.cpp/.h`, copyright Ville Linde, with improvements
+credited upstream to the hoot development team. The source revision is the
+pinned MAME revision above. Full BSD-3-Clause terms are retained in
+`rf5c400_LICENSE.txt`.

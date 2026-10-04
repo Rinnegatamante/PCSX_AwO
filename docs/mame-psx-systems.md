@@ -45,7 +45,7 @@ family is considered finished.
 | Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD tested and common board under review, native integration and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
-| Konami Twinkle | 90–95% | Shared PSX/SCSI/MC68000 foundations; board, RF5C400, media/session I/O and game validation pending |
+| Konami Twinkle | 90–95% | Shared PSX/SCSI/MC68000 and standalone RF5C400 foundations; board, sound integration, media/session I/O and game validation pending |
 | Namco System 10 | 30–45% | Native MEM(M)/MEM(N) guests exercise crypto, bank fetch, NAND DMA, inputs and GPU; authentic games and add-on boards pending |
 | Namco System 11 | 25–40% | Native MIPS/C76 guests exercise banks, keycus, controls, EEPROM and sound; authentic C76/game media and variant validation pending |
 | Namco System 12 | 30–45% | Soul Calibur Asia C reaches a match with C352 audio; other variants, link/gun/JVS/CDXA, timing and sustained gameplay validation pending |
