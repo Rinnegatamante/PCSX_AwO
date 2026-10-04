@@ -171,8 +171,14 @@ its stack reaches `gxm::destroy_all_contexts`. A bounded instrumented run
 identified the main context at guest address `8821c7e8`: it was valid when
 created, but no longer allocated and not covered by a protection region before
 cleanup dereferenced it. The splash context at `8821d5d8` had already been
-destroyed successfully with return value zero. The main context's backing-memory
-lifetime remains unresolved (`build/vita-validation-gxm-diagnostic/vitagl-run2.log`).
+destroyed successfully with return value zero. A second trace identifies the
+release as `ksceKernelFreeMemBlock`, UID 1, base `88000000`, size 128 MiB;
+the DRC's 16 MiB VM block is UID 5 and is separate. The packaged guest ELF's
+exit path calls `_exit -> _free_vita_newlib -> _free_vita_heap ->
+sceKernelFreeMemBlock` before `sceKernelExitProcess`. Thus guest newlib teardown
+releases the external heap containing VitaGL's main context before the host
+tries to destroy that still-registered context. The resource-lifetime fix is
+pending (`build/vita-validation-gxm-free-diagnostic3/vitagl-free-trace.log`).
 That shutdown fault and the
 triangle mismatch remain unresolved. New instruction tests run directly in
 Dynarmic without leaving an emulator or debugger window open.
