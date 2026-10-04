@@ -62,7 +62,7 @@ the 800-frame run's native image showed the first-power-on screen, and the
 1,800-frame run's timed native captures reached the Soul Calibur title. Its
 final source PPM shows Sophitia in the attract sequence with the earlier
 VADDHN-related texture stripes gone. These wall-clock screenshots precede the
-final frame count. No playable match has been verified. Inspect the captures and compare
+final frame count. The replay below now demonstrates match progress. Compare
 game state with the separate MAME/native replay evidence before making claims
 about gameplay. The runner leaves ROM regions and Vita firmware out of the repository.
 
@@ -76,3 +76,29 @@ unsupported, or unmapped accesses. H8 cycles reached 509,466,008, C352 produced
 2,653,468 sample frames, and DMA5 transferred 1,585,008 bytes. Twelve runner
 tests pass. These are execution and capture checks, rather than physical Vita
 or full gameplay validation.
+
+## Observed 12,000-frame replay
+
+The local replay in `/tmp/pcsx-vita-system12-replay-20261005/results.json`
+completed with ari64 and NEON, consumed all 177 events, produced the expected
+terminal joypad `0002/0000` and JAMMA `ff/bf/ff/ff`, then reached
+`Stopping -> Idle`. The runner exited zero and left no Vita3K process running.
+Its VPK SHA-256 is
+`55258ebe8a94aa7b9a3c3d73e1340379d6103ecb06d5c66ef3f91ca3e1e8aa81`;
+the host SHA-256 is
+`64146926b9a820ff89217bd31d165601dc9d87de67ebfa7511934693a46ec8a9`.
+
+Visual inspection of the 23 native PNGs shows character selection, a Stage 1
+Voldo/Astaroth fight with movement and damage, and progression to Stage 2
+Voldo/Sophitia. The final RGB565 source capture is 512×240 and shows Stage 2
+with the fight timer at 10. H8 executed 598,527,313 instructions over
+3,396,681,168 cycles, C352 produced 17,691,047 frames, and DMA5 transferred
+6,309,696 bytes without truncation. H8 illegal/unsupported instructions,
+unmapped accesses, and host ARM fallback/crash diagnostics were all zero.
+
+This is a verified local replay with observed match progression, not a complete
+System 12 compatibility result. The same CSV selected Ivy in the native Mac
+DRC run and Voldo in this ARMv7 run, so timing/game-state equivalence remains
+unverified. `board_execution_verified` remains false in the machine-readable
+result, and this run does not establish physical Vita performance or VitaGL
+support.

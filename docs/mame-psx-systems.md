@@ -17,7 +17,7 @@ the installed listxml reports MAME 0.287.
 | `konami/twinkle.cpp` | Konami Twinkle | 19 | `bmiidx`, `bmiidx8` | CD/DVD media, MC68000/RF5C400 sound and network/session I/O | Standalone sound-board MC68000/RF5C400, sample RAM and mailbox/periodic IRQ fixtures pass; native PSX integration, ATA/media and authentic games remain pending |
 | `namco/namcos10.cpp` | Namco System 10 | 45 | `taiko2`, `mrdrilrg`, `ballpom` | Main PCB and MEM PCB generations; optional EXIO, CD-ROM on some sets | Native synthetic MEM(M)/MEM(N) MIPS execution, bank fetch, NAND DMA, GPU and I/O pass; real game boot and add-on boards unverified |
 | `namco/namcos11.cpp` | Namco System 11 | 36 | `tekken`, `souledge`, `danceyes` | COH-100/110 CPU boards; motherboard and ROM daughterboard revisions; C76, C352, keycus | Native COH-100/110 synthetic MIPS/C76 execution, banks, inputs/ADC, audio and EEPROM pass; real game boot unverified |
-| `namco/namcos12.cpp` | Namco System 12 / System 11 Plus | 58 | `tekken3`, `soulclbr`, `truckk` | COH-700/716; System 12 motherboard and ROM daughterboard revisions; JVS, H8 I/O, link/gun, CDXA add-on boards | COH-700 Soul Calibur Asia C reaches attract and coin/start/selection into a match; other board variants remain unverified |
+| `namco/namcos12.cpp` | Namco System 12 / System 11 Plus | 58 | `tekken3`, `soulclbr`, `truckk` | COH-700/716; System 12 motherboard and ROM daughterboard revisions; JVS, H8 I/O, link/gun, CDXA add-on boards | COH-700 Soul Calibur Asia C has 12,000-frame DRC/NEON replays on Mac and ARMv7 Vita3K with observed Stage 2 match progress; timing equivalence, physical Vita, VitaGL and other board variants remain unverified |
 
 The JSON inventory lists every set, including machine description, parent/ROM
 parent, BIOS/runnable flags, CPU and audio chips with clocks, GPU and other
@@ -27,7 +27,7 @@ peripherals, and the current support boundary. Values that cannot be assigned
 to one set from MAME data are labeled at family level; per-set GPU and CPU
 identities remain in the JSON records.
 
-## Estimated work remaining (2026-10-04)
+## Estimated work remaining (2026-10-05)
 
 These ranges are engineering estimates of remaining work across the complete
 family, including its declared peripherals and validation. They are not measured
@@ -48,12 +48,16 @@ family is considered finished.
 | Konami Twinkle | 90–95% | Sound-board MC68000/RF5C400, banked wave RAM and IRQ/mailbox fixtures pass; native PSX board, ATA/media/session I/O and game validation pending |
 | Namco System 10 | 30–45% | Native MEM(M)/MEM(N) guests exercise crypto, bank fetch, NAND DMA, inputs and GPU; authentic games and add-on boards pending |
 | Namco System 11 | 25–40% | Native MIPS/C76 guests exercise banks, keycus, controls, EEPROM and sound; authentic C76/game media and variant validation pending |
-| Namco System 12 | 30–45% | Soul Calibur Asia C reaches a match with C352 audio; other variants, link/gun/JVS/CDXA, timing and sustained gameplay validation pending |
+| Namco System 12 | 30–45% | Soul Calibur Asia C reaches Stage 2 on Mac/Vita3K with C352 progress; other variants, link/gun/JVS/CDXA, timing comparison, physical Vita/VitaGL and broader gameplay validation pending |
 
 For the original **Soul Calibur Asia C + headless M1 harness** target alone,
 the estimated remaining work is **15–25%**: sustained gameplay and audio/timing
 comparison, broader control coverage and robustness. That estimate must not be
 applied to all 58 System 12 registrations. See [recorded runtime evidence](system12.md).
+The [ARMv7 Vita3K replay](system12-vita-gameplay.md) also completed 12,000 frames,
+consumed all 177 inputs and retained 23 native captures with zero ARM, H8 or
+unmapped-access diagnostics. It selected a different fighter from the Mac
+replay, so it does not establish timing or state equivalence.
 The source counts of 491 registrations include BIOS roots and regional clones;
 one successful game does not establish compatibility with all those entries.
 
