@@ -11,7 +11,7 @@ Example:
 
 ```sh
 python3 tools/vita-harness/check_system12_gameplay_vita3k.py \
-  --emulator build/vita-validation-neon-fix/emulator/Vita3K-fixed.app \
+  --emulator build/vita-validation-neon-capture/emulator/Vita3K-fixed.app \
   --vpk build/vita-system12/src/pcsx-rearmed-vita-neon.vpk \
   --firmware-fs build/vita-validation-repro/emulator/portable/fs \
   --output-dir /tmp/system12-vita-soulcalibur-run
@@ -36,6 +36,19 @@ process terminates that group at the per-run timeout even if the Python runner
 stops making progress. Logs are streamed with bounded retained output, and ARM
 instruction fallback/unpredictable-instruction diagnostics invalidate a run.
 
+Add `--gameplay-replay` to run 12,000 frames with the same 177 CSV input events
+as the MAME/Mac comparison. This mode defaults to a 1,200-second per-process
+deadline and schedules native screenshots through 600 seconds. The Vita
+frontend reads `--inputs` only for a finite System 12 game run, checks bounded
+ordered `frame,control,pressed` rows before initialization, and applies them at
+the libretro input poll. It rejects embedded NUL, overlong rows, unknown
+controls and out-of-range events. Hardware still supplies the exit chord.
+Completion requires all 177 events consumed, the final joypad state, and
+JAMMA `ff/bf/ff/ff` in the board report; those input checks alone do not establish
+a playable match. The runner saves the CSV, input JSON, exact VPK/host hashes
+and `smoke-evidence.json`. `--reuse-console-smoke PATH` accepts a prior PASS
+only when both hashes match, otherwise the console probe runs again.
+
 The first step is a console ari64 GPU smoke test, which checks the existing
 triangle, background, and guest-memory signature before the System 12 runs.
 `results.json` records these checks and labels board execution as unverified.
@@ -57,6 +70,6 @@ VADDHN and CPU-framebuffer screenshot patches documented in
 `build/vita-validation-neon-capture`. The console probe and all three runs
 completed with zero host instruction/crash diagnostics and zero H8 illegal,
 unsupported, or unmapped accesses. H8 cycles reached 509,466,008, C352 produced
-2,653,468 sample frames, and DMA5 transferred 1,585,008 bytes. Seven runner
+2,653,468 sample frames, and DMA5 transferred 1,585,008 bytes. Eleven runner
 tests pass. These are execution and capture checks, rather than physical Vita
 or full gameplay validation.

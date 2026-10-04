@@ -1,6 +1,7 @@
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -16,6 +17,18 @@ SPEC.loader.exec_module(GAMEPLAY)
 
 
 class System12VitaGameplayEvidenceTests(unittest.TestCase):
+    def test_csv_reader_rejects_nul_and_checks_eof_row_bounds(self):
+        compiler = shutil.which("cc") or shutil.which("clang")
+        if not compiler:
+            self.skipTest("host C compiler is not available")
+        source = (Path(__file__).resolve().parent / "vita_input_csv_reader_fixture.c")
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "input-reader-test"
+            subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
+                            str(source), "-o", str(binary)], check=True,
+                           capture_output=True, text=True)
+            subprocess.run([str(binary)], check=True, timeout=5)
+
     @unittest.skipUnless(os.name == "posix", "process-group watchdog uses POSIX sessions")
     def test_watchdog_kills_owned_group_even_when_caller_is_stalled(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -54,6 +67,24 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
             path.write_text("screenshot-format: 0\nscreenshot-format: 1\n")
             with self.assertRaisesRegex(RuntimeError, "duplicate screenshot-format"):
                 GAMEPLAY.set_png_screenshot_format(path)
+
+    def test_replay_capture_schedule_reaches_six_hundred_seconds(self):
+        times = [float(value) for value in GAMEPLAY.GAMEPLAY_SCREENSHOT_TIMES.split(",")]
+        self.assertTrue({120, 180, 240, 360, 480, 600}.issubset(times))
+
+    def test_console_smoke_evidence_is_bound_to_exact_vpk_and_host_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "smoke.json"
+            path.write_text('{"console_smoke":"PASS","vpk_sha256":"v",'
+                            '"host_sha256":"h"}')
+            self.assertEqual(GAMEPLAY.validate_smoke_evidence(path, "v", "h")[
+                "console_smoke"], "PASS")
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                GAMEPLAY.validate_smoke_evidence(path, "changed", "h")
+            path.write_text('{"console_smoke":"FAIL","vpk_sha256":"v",'
+                            '"host_sha256":"h"}')
+            with self.assertRaisesRegex(RuntimeError, "does not match"):
+                GAMEPLAY.validate_smoke_evidence(path, "v", "h")
 
     def test_native_screenshot_copy_requires_real_png_output(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -141,6 +172,7 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
 
     def test_report_requires_live_board_and_h8_progress(self):
         report = (
+            "System12: JAMMA=ff/bf/ff/ff\n"
             "System12: profile=soulclbrac machine=coh700 state=namcos12_state RAM=4194304 "
             "main=4194304 banked=33554432 sub=524288 wave=16777216 bank=0 alt=0\n"
             "System12: H8 pc=000100 er7=00000000 ccr=00 cycles=100 instructions=20 "
@@ -157,12 +189,29 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
             parsed = GAMEPLAY.read_report(path)
             self.assertEqual(parsed["records"]["H8"]["cycles"], "100")
             self.assertEqual(parsed["records"]["H8"]["instructions"], "20")
+            GAMEPLAY.read_report(path, require_replay=True)
+            path.write_text(report.replace("JAMMA=ff/bf/ff/ff", "JAMMA=ff/ff/ff/ff"))
+            with self.assertRaisesRegex(RuntimeError, "terminal replay input"):
+                GAMEPLAY.read_report(path, require_replay=True)
             path.write_text(report.replace("unsupported=0", "unsupported=1"))
             with self.assertRaisesRegex(RuntimeError, "H8 did not make"):
                 GAMEPLAY.read_report(path)
             path.write_text(report.replace("machine=coh700", "machine=wrong"))
             with self.assertRaisesRegex(RuntimeError, "wrong live board profile"):
                 GAMEPLAY.read_report(path)
+
+    def test_vita_replay_csv_matches_the_177_frame_ordered_events(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "inputs.csv"
+            events = GAMEPLAY.write_gameplay_replay(path)
+            lines = path.read_text(encoding="ascii").splitlines()
+            self.assertEqual(len(events), 177)
+            self.assertEqual(lines[0], "frame,control,pressed")
+            self.assertEqual(len(lines) - 1, 177)
+            parsed = [tuple([int(row[0]), row[1], int(row[2])])
+                      for row in (line.split(",") for line in lines[1:])]
+            self.assertEqual(parsed, sorted(parsed))
+            self.assertEqual(parsed[-1], (11999, "p1button3", 1))
 
 
 if __name__ == "__main__":

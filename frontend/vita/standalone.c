@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <ctype.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -18,6 +20,7 @@
 #include <SDL3/SDL.h>
 #include <libretro.h>
 #include "validation.h"
+#include "input_csv_reader.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define BIOS_DIR APP_ROOT "/bios"
@@ -34,6 +37,9 @@
 #define AUDIO_QUEUE_TARGET_FRAMES 2048
 #define AUDIO_FRAME_BYTES (sizeof(int16_t) * 2)
 #define AUDIO_QUEUE_TARGET_BYTES (AUDIO_QUEUE_TARGET_FRAMES * AUDIO_FRAME_BYTES)
+#define INPUT_CSV_MAX_BYTES (1024u * 1024u)
+#define INPUT_CSV_MAX_EVENTS 4096u
+#define INPUT_CSV_LINE_BYTES 256u
 
 static SceUID g_fb_uid[2] = { -1, -1 };
 static uint32_t *g_fb[2];
@@ -48,6 +54,22 @@ static uint16_t *g_capture_pixels;
 static size_t g_capture_capacity;
 static unsigned g_capture_width;
 static unsigned g_capture_height;
+static char g_inputs_path[1024];
+
+typedef struct {
+    unsigned frame;
+    unsigned port;
+    unsigned id;
+    unsigned pressed;
+    char control[32];
+} vita_input_event;
+
+static vita_input_event g_input_events[INPUT_CSV_MAX_EVENTS];
+static unsigned g_input_event_count;
+static unsigned g_next_input_event;
+static unsigned g_input_frame;
+static uint16_t g_replay_joypad[2];
+static bool g_replay_active;
 
 static SceCtrlData g_pad;
 static int g_exit_hold;
@@ -303,12 +325,199 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
     return frames;
 }
 
+static int replay_control_binding(const char *name, unsigned *port, unsigned *id)
+{
+    static const struct {
+        const char *name;
+        unsigned port;
+        unsigned id;
+    } bindings[] = {
+        { "p1up", 0, RETRO_DEVICE_ID_JOYPAD_UP },
+        { "p1down", 0, RETRO_DEVICE_ID_JOYPAD_DOWN },
+        { "p1left", 0, RETRO_DEVICE_ID_JOYPAD_LEFT },
+        { "p1right", 0, RETRO_DEVICE_ID_JOYPAD_RIGHT },
+        { "p1button1", 0, RETRO_DEVICE_ID_JOYPAD_B },
+        { "p1button2", 0, RETRO_DEVICE_ID_JOYPAD_A },
+        { "p1button3", 0, RETRO_DEVICE_ID_JOYPAD_Y },
+        { "p1button4", 0, RETRO_DEVICE_ID_JOYPAD_X },
+        { "p1button5", 0, RETRO_DEVICE_ID_JOYPAD_L },
+        { "p1button6", 0, RETRO_DEVICE_ID_JOYPAD_R },
+        { "p1button7", 0, RETRO_DEVICE_ID_JOYPAD_L2 },
+        { "p1button8", 0, RETRO_DEVICE_ID_JOYPAD_R2 },
+        { "p1start", 0, RETRO_DEVICE_ID_JOYPAD_START },
+        { "p2up", 1, RETRO_DEVICE_ID_JOYPAD_UP },
+        { "p2down", 1, RETRO_DEVICE_ID_JOYPAD_DOWN },
+        { "p2left", 1, RETRO_DEVICE_ID_JOYPAD_LEFT },
+        { "p2right", 1, RETRO_DEVICE_ID_JOYPAD_RIGHT },
+        { "p2button1", 1, RETRO_DEVICE_ID_JOYPAD_B },
+        { "p2button2", 1, RETRO_DEVICE_ID_JOYPAD_A },
+        { "p2button3", 1, RETRO_DEVICE_ID_JOYPAD_Y },
+        { "p2button4", 1, RETRO_DEVICE_ID_JOYPAD_X },
+        { "p2button5", 1, RETRO_DEVICE_ID_JOYPAD_L },
+        { "p2button6", 1, RETRO_DEVICE_ID_JOYPAD_R },
+        { "p2button7", 1, RETRO_DEVICE_ID_JOYPAD_L2 },
+        { "p2button8", 1, RETRO_DEVICE_ID_JOYPAD_R2 },
+        { "p2start", 1, RETRO_DEVICE_ID_JOYPAD_START },
+        { "coin1", 0, RETRO_DEVICE_ID_JOYPAD_L3 },
+        { "coin2", 1, RETRO_DEVICE_ID_JOYPAD_L3 },
+        { "service", 0, RETRO_DEVICE_ID_JOYPAD_SELECT },
+        { "test", 1, RETRO_DEVICE_ID_JOYPAD_SELECT },
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(bindings) / sizeof(bindings[0]); i++) {
+        if (!strcmp(name, bindings[i].name)) {
+            *port = bindings[i].port;
+            *id = bindings[i].id;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static char *trim_field(char *text)
+{
+    char *end;
+    while (*text && isspace((unsigned char)*text)) text++;
+    end = text + strlen(text);
+    while (end > text && isspace((unsigned char)end[-1])) *--end = '\0';
+    return text;
+}
+
+static int parse_decimal(const char *text, unsigned maximum, unsigned *value)
+{
+    const unsigned char *p = (const unsigned char *)text;
+    char *end;
+    unsigned long parsed;
+    if (!*p) return -1;
+    for (; *p; p++) if (!isdigit(*p)) return -1;
+    errno = 0;
+    parsed = strtoul(text, &end, 10);
+    if (errno || end == text || *end || parsed > maximum) return -1;
+    *value = (unsigned)parsed;
+    return 0;
+}
+
+static int load_replay_inputs(const char *path, unsigned frames)
+{
+    FILE *file;
+    char line[INPUT_CSV_LINE_BYTES];
+    size_t total_bytes = 0, raw_length, length;
+    unsigned line_number = 0, row_count = 0;
+    unsigned previous_frame = 0, previous_pressed = 0;
+    char previous_control[32] = "";
+    bool have_header = false, have_previous = false;
+    int failed = 0, line_result;
+
+    file = fopen(path, "rb");
+    if (!file) {
+        sceClibPrintf("pcsx-vita: cannot open inputs CSV %s\n", path);
+        return -1;
+    }
+    while ((line_result = vita_read_input_line(file, line, sizeof(line),
+                                               &length, &raw_length)) > 0) {
+        char *fields[3], *comma;
+        unsigned frame, pressed, port, id;
+        char *frame_text, *control, *pressed_text;
+        int order;
+
+        total_bytes += raw_length;
+        line_number++;
+        if (total_bytes > INPUT_CSV_MAX_BYTES) {
+            failed = 1;
+            break;
+        }
+        if (length && line[length - 1] == '\r') line[--length] = '\0';
+        frame_text = trim_field(line);
+        if (!*frame_text || *frame_text == '#') continue;
+        if (!have_header) {
+            if (strcmp(frame_text, "frame,control,pressed")) {
+                failed = 1;
+                break;
+            }
+            have_header = true;
+            continue;
+        }
+        fields[0] = frame_text;
+        comma = strchr(fields[0], ',');
+        if (!comma) { failed = 1; break; }
+        *comma++ = '\0';
+        fields[1] = comma;
+        comma = strchr(fields[1], ',');
+        if (!comma) { failed = 1; break; }
+        *comma++ = '\0';
+        fields[2] = comma;
+        if (strchr(fields[2], ',')) { failed = 1; break; }
+
+        frame_text = trim_field(fields[0]);
+        control = trim_field(fields[1]);
+        pressed_text = trim_field(fields[2]);
+        if (strlen(control) >= sizeof(g_input_events[0].control) ||
+            parse_decimal(frame_text, 216000u, &frame) ||
+            parse_decimal(pressed_text, 1u, &pressed) || frame >= frames ||
+            replay_control_binding(control, &port, &id)) {
+            failed = 1;
+            break;
+        }
+        if (have_previous) {
+            order = strcmp(control, previous_control);
+            if (frame < previous_frame ||
+                (frame == previous_frame &&
+                 (order < 0 || (order == 0 && pressed <= previous_pressed)))) {
+                failed = 1;
+                break;
+            }
+        }
+        if (row_count >= INPUT_CSV_MAX_EVENTS) { failed = 1; break; }
+        g_input_events[row_count].frame = frame;
+        g_input_events[row_count].port = port;
+        g_input_events[row_count].id = id;
+        g_input_events[row_count].pressed = pressed;
+        strcpy(g_input_events[row_count].control, control);
+        row_count++;
+        previous_frame = frame;
+        previous_pressed = pressed;
+        strcpy(previous_control, control);
+        have_previous = true;
+    }
+    if (line_result < 0 || ferror(file)) failed = 1;
+    if (fclose(file)) failed = 1;
+    if (!have_header || !row_count) failed = 1;
+    if (failed) {
+        sceClibPrintf("pcsx-vita: invalid inputs CSV line=%u (expected ordered frame,control,pressed rows)\n",
+                      line_number);
+        return -1;
+    }
+    g_input_event_count = row_count;
+    g_next_input_event = 0;
+    g_input_frame = 0;
+    g_replay_joypad[0] = g_replay_joypad[1] = 0;
+    g_replay_active = true;
+    sceClibPrintf("pcsx-vita: inputs loaded events=%u frames=%u\n", row_count, frames);
+    return 0;
+}
+
+static void apply_replay_inputs(unsigned frame)
+{
+    while (g_next_input_event < g_input_event_count &&
+           g_input_events[g_next_input_event].frame <= frame) {
+        vita_input_event *event = &g_input_events[g_next_input_event++];
+        uint16_t mask = (uint16_t)(1u << event->id);
+        if (event->pressed) g_replay_joypad[event->port] |= mask;
+        else g_replay_joypad[event->port] &= (uint16_t)~mask;
+    }
+}
+
 static void input_poll_cb(void)
 {
     const uint32_t quit_mask = SCE_CTRL_SELECT | SCE_CTRL_START | SCE_CTRL_L1 | SCE_CTRL_R1;
     memset(&g_pad, 0, sizeof(g_pad));
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
         sceCtrlPeekBufferPositive(0, &g_pad, 1);
+
+    if (g_replay_active) {
+        apply_replay_inputs(g_input_frame++);
+    }
 
     if ((g_pad.buttons & quit_mask) == quit_mask) {
         if (++g_exit_hold >= 120)
@@ -327,10 +536,19 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
 {
     uint32_t button = 0;
 
+    device &= RETRO_DEVICE_MASK;
+    if (g_replay_active) {
+        if (device == RETRO_DEVICE_JOYPAD && port < 2) {
+            if (id == RETRO_DEVICE_ID_JOYPAD_MASK)
+                return (int16_t)g_replay_joypad[port];
+            if (id <= RETRO_DEVICE_ID_JOYPAD_R3)
+                return (g_replay_joypad[port] & (uint16_t)(1u << id)) != 0;
+        }
+        return 0;
+    }
     if (port != 0)
         return 0;
 
-    device &= RETRO_DEVICE_MASK;
     if (device == RETRO_DEVICE_ANALOG) {
         if (index == RETRO_DEVICE_INDEX_ANALOG_LEFT)
             return id == RETRO_DEVICE_ID_ANALOG_X ? analog_value(g_pad.lx) : analog_value(g_pad.ly);
@@ -589,6 +807,12 @@ int main(int argc, char **argv)
             if (*end || !count || count > 216000) return 4;
             validation_frames = (unsigned)count; continue;
         }
+        if (!strcmp(argv[ret], "--inputs")) {
+            if (g_inputs_path[0] || ret + 1 >= argc || !argv[ret + 1][0] ||
+                strlen(argv[ret + 1]) >= sizeof(g_inputs_path)) return 4;
+            snprintf(g_inputs_path, sizeof(g_inputs_path), "%s", argv[++ret]);
+            continue;
+        }
         if (!strcmp(argv[ret], "--system12")) {
 #ifdef ARCADE_SYSTEM12
             if (ret + 1 >= argc || !argv[ret + 1][0]) return 4;
@@ -630,8 +854,15 @@ int main(int argc, char **argv)
         return 4;
     }
     if (verify_system12_drc_ram_mb && verify_smoke) return 4;
+    if (g_inputs_path[0] && (!system12_profile || !validation_frames || verify_smoke ||
+                            verify_system12_drc_ram_mb)) {
+        sceClibPrintf("pcsx-vita: --inputs requires a finite System12 game run\n");
+        return 4;
+    }
     if (g_report_path[0] && g_capture_path[0] &&
         !strcmp(g_report_path, g_capture_path)) return 4;
+    if ((g_inputs_path[0] && !strcmp(g_inputs_path, g_report_path)) ||
+        (g_inputs_path[0] && !strcmp(g_inputs_path, g_capture_path))) return 4;
     if (system12_profile) {
         size_t profile_len = strlen(game_path);
         if ((g_report_path[0] && !strncmp(g_report_path, game_path, profile_len) &&
@@ -640,6 +871,8 @@ int main(int argc, char **argv)
              (g_capture_path[profile_len] == '/' || g_capture_path[profile_len] == '\\')))
             return 4;
     }
+    if (g_inputs_path[0] && load_replay_inputs(g_inputs_path, validation_frames))
+        return 4;
 #ifndef ARCADE_SYSTEM12
     if (g_report_path[0] || g_capture_path[0]) return 4;
 #endif
@@ -702,6 +935,14 @@ int main(int argc, char **argv)
         retro_run(); ++runs;
     }
     int validation_result = 0;
+    if (g_replay_active) {
+        bool replay_complete = g_next_input_event == g_input_event_count &&
+                               runs == validation_frames;
+        sceClibPrintf("pcsx-vita: inputs replay %s events=%u/%u frames=%u/%u final=%04x/%04x\n",
+            replay_complete ? "PASS" : "FAIL", g_next_input_event, g_input_event_count,
+            runs, validation_frames, g_replay_joypad[0], g_replay_joypad[1]);
+        if (!replay_complete) validation_result = 8;
+    }
     if (verify_smoke) {
         pcsx_vita_smoke_result result;
         pcsx_vita_read_smoke(&result);

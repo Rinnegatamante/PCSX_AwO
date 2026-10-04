@@ -29,7 +29,9 @@ PROFILE = ROOT / "artifacts/system12-profile"
 DRC_CHECK = ROOT / "tools/vita-harness/check_system12_drc_vita3k.py"
 GAME_FILES = ("board.cfg", "main.bin", "banked.bin", "sub.bin", "wave.bin")
 MILESTONES = (400, 800, 1800)
+GAMEPLAY_REPLAY_FRAMES = 12000
 AUTO_SCREENSHOT_TIMES = "0.5,1,2,5,10,20,30,45,60"
+GAMEPLAY_SCREENSHOT_TIMES = AUTO_SCREENSHOT_TIMES + ",90,120,150,180,210,240,270,300,330,360,390,420,450,480,540,600"
 
 
 class ProcessGroupWatchdog:
@@ -220,6 +222,38 @@ def validate_profile():
     return checker.verify_profile()
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def emulator_executable(path: Path) -> Path:
+    starter = load_module("system12_drc_helper", DRC_CHECK)
+    _bundle, relative = starter.locate_app_bundle(path)
+    return path / relative if path.is_dir() else path
+
+
+def validate_smoke_evidence(path: Path, vpk_hash: str, host_hash: str):
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    if (not isinstance(evidence, dict) or evidence.get("console_smoke") != "PASS" or
+            evidence.get("vpk_sha256") != vpk_hash or
+            evidence.get("host_sha256") != host_hash):
+        raise RuntimeError("console-smoke evidence does not match this VPK and Vita3K executable")
+    return evidence
+
+
+def write_gameplay_replay(path: Path, frames=GAMEPLAY_REPLAY_FRAMES):
+    replay = load_module("system12_gameplay_replay", ROOT / "tests/check_system12_gameplay.py")
+    events = replay.replay_events(frames)
+    if frames == GAMEPLAY_REPLAY_FRAMES and len(events) != 177:
+        raise RuntimeError(f"expected the audited 177 input events, got {len(events)}")
+    replay.write_events(path, events)
+    return events
+
+
 def make_vpk(base_vpk: Path, packer: Path, mksfoex: Path, output: Path,
              package_root: Path, title_id: str, title: str, files: list[tuple[Path, str]]):
     staging = output.parent / (output.stem + "-stage")
@@ -282,7 +316,7 @@ def run_guest(emulator: Path, app_args: str, log: Path, timeout: float,
     return passed, errors
 
 
-def read_report(report_path: Path) -> dict:
+def read_report(report_path: Path, require_replay=False) -> dict:
     lines = report_path.read_text(errors="strict").splitlines()
     records = {}
     for line in lines:
@@ -317,6 +351,8 @@ def read_report(report_path: Path) -> dict:
     if records.get("unmapped", {}).get("reads") != "0" or \
             records.get("unmapped", {}).get("writes") != "0":
         raise RuntimeError(f"guest touched unmapped board addresses: {report_path}")
+    if require_replay and records.get("JAMMA", {}).get("JAMMA") != "ff/bf/ff/ff":
+        raise RuntimeError(f"terminal replay input did not reach JAMMA port 1: {report_path}")
     if records.get("CPU", {}).get("clock") != "50000000":
         raise RuntimeError(f"unexpected System12 source-clock profile: {report_path}")
     return {"lines": lines, "records": records}
@@ -417,15 +453,29 @@ def main():
     parser.add_argument("--smoke-exe", type=Path, default=ROOT / "build/vita-system12/smoke.exe")
     parser.add_argument("--profile", type=Path, default=PROFILE)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--timeout", type=float, default=240)
+    parser.add_argument("--timeout", type=float,
+                        help="per-process timeout (replay defaults to 1200 seconds)")
+    parser.add_argument("--gameplay-replay", action="store_true",
+                        help="replay the 177 deterministic inputs through frame 12,000")
+    parser.add_argument("--reuse-console-smoke", type=Path,
+                        help="reuse smoke evidence JSON when VPK and host hashes match")
     args = parser.parse_args()
+    if args.timeout is None:
+        args.timeout = 1200 if args.gameplay_replay else 240
     if (not (args.emulator.is_file() or args.emulator.is_dir()) or not args.vpk.is_file() or
-            not args.firmware_fs.is_dir() or not args.smoke_exe.is_file() or
+            not args.firmware_fs.is_dir() or
+            (not args.reuse_console_smoke and not args.smoke_exe.is_file()) or
             not args.profile.is_dir() or args.timeout <= 0 or not args.vita_pack_vpk or
             not args.vita_mksfoex):
         parser.error("emulator, VPK, local firmware/profile, pack tools, and timeout are required")
     if args.output_dir.exists():
         parser.error("output directory already exists; choose a fresh path")
+    vpk_hash = sha256_file(args.vpk.resolve())
+    host_hash = sha256_file(emulator_executable(args.emulator.resolve()))
+    reused_smoke = None
+    if args.reuse_console_smoke:
+        reused_smoke = validate_smoke_evidence(
+            args.reuse_console_smoke, vpk_hash, host_hash)
     args.output_dir.mkdir(parents=True)
 
     # Reuse the repository's complete manifest/CRC/SHA1/source-commit audit.
@@ -440,45 +490,65 @@ def main():
         emulator, fs, portable = read_cli(base, args)
         (args.output_dir / "native-screenshot-setup.json").write_text(json.dumps({
             "config_key": "screenshot-format", "config_value": 2,
-            "auto_screenshot_env": AUTO_SCREENSHOT_TIMES,
+            "auto_screenshot_env": (GAMEPLAY_SCREENSHOT_TIMES if args.gameplay_replay
+                                     else AUTO_SCREENSHOT_TIMES),
             "native_capture_root": "portable/screenshots/<Vita3K title>",
         }, indent=2) + "\n", encoding="utf-8")
         shutil.copy2(portable / "config.yml", args.output_dir / "vita3k-config.yml")
-        smoke_vpk = make_vpk(args.vpk.resolve(), Path(args.vita_pack_vpk),
-                             Path(args.vita_mksfoex), base / "console-smoke.vpk",
-                             base, SMOKE_ID, "PCSX Vita console smoke",
-                             [(args.smoke_exe, "smoke.exe")])
+        game_files = [(args.profile / name, f"soulclbrac/{name}") for name in GAME_FILES]
+        input_events = None
+        inputs_path = None
+        if args.gameplay_replay:
+            inputs_path = args.output_dir / "inputs.csv"
+            input_events = write_gameplay_replay(inputs_path)
+            (args.output_dir / "inputs.json").write_text(json.dumps(
+                [{"frame": frame, "control": control, "pressed": bool(value)}
+                 for frame, control, value in input_events], indent=2) + "\n",
+                encoding="utf-8")
+            game_files.append((inputs_path, "soulclbrac/inputs.csv"))
         game_vpk = make_vpk(args.vpk.resolve(), Path(args.vita_pack_vpk),
                             Path(args.vita_mksfoex), base / "soulclbrac.vpk", base,
-                            TITLE_ID, "PCSX Vita System12 Soul Calibur",
-                            [(args.profile / name, f"soulclbrac/{name}") for name in GAME_FILES])
+                            TITLE_ID, "PCSX Vita System12 Soul Calibur", game_files)
 
         log = args.output_dir / "vita3k.log"
         log.touch()
-        if not install_vpk(emulator, smoke_vpk, SMOKE_ID, log, args.timeout):
-            raise RuntimeError(f"console smoke VPK installation failed; log={log}")
-        # The console smoke app is run under its own installed title.
-        process = subprocess.Popen([str(emulator), "--keep-config", "--log-level", "1",
-            "--installed-path", SMOKE_ID, "--app-args",
-            f"pcsx-vita, ux0:app/{SMOKE_ID}/smoke.exe, --frames, 3, --verify-smoke"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
-        smoke_watchdog = ProcessGroupWatchdog(process, args.timeout)
-        console_capture = CapturedGuest(process, log, "console smoke")
-        console_natural_exit = False
-        try:
-            console_ok = console_capture.wait_for_messages((
-                "pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 "
-                "sentinel=534d4f4b runs=3",), args.timeout)
-        finally:
-            console_natural_exit = process.poll() is not None
-            smoke_watchdog.close()
-            console_capture.close()
-        console_ok = (console_ok and not any(console_capture.issue_counts.values()) and
-                      not smoke_watchdog.timed_out and
-                      process.returncode in (0, -signal.SIGTERM, -signal.SIGKILL) and
-                      (not console_natural_exit or process.returncode == 0))
-        if not console_ok:
-            raise RuntimeError(f"console NEON smoke failed; log={log}")
+        if reused_smoke is None:
+            smoke_vpk = make_vpk(args.vpk.resolve(), Path(args.vita_pack_vpk),
+                                 Path(args.vita_mksfoex), base / "console-smoke.vpk",
+                                 base, SMOKE_ID, "PCSX Vita console smoke",
+                                 [(args.smoke_exe, "smoke.exe")])
+            if not install_vpk(emulator, smoke_vpk, SMOKE_ID, log, args.timeout):
+                raise RuntimeError(f"console smoke VPK installation failed; log={log}")
+            # The console smoke app is run under its own installed title.
+            process = subprocess.Popen([str(emulator), "--keep-config", "--log-level", "1",
+                "--installed-path", SMOKE_ID, "--app-args",
+                f"pcsx-vita, ux0:app/{SMOKE_ID}/smoke.exe, --frames, 3, --verify-smoke"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            smoke_watchdog = ProcessGroupWatchdog(process, args.timeout)
+            console_capture = CapturedGuest(process, log, "console smoke")
+            console_natural_exit = False
+            try:
+                console_ok = console_capture.wait_for_messages((
+                    "pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 "
+                    "sentinel=534d4f4b runs=3",), args.timeout)
+            finally:
+                console_natural_exit = process.poll() is not None
+                smoke_watchdog.close()
+                console_capture.close()
+            console_ok = (console_ok and not any(console_capture.issue_counts.values()) and
+                          not smoke_watchdog.timed_out and
+                          process.returncode in (0, -signal.SIGTERM, -signal.SIGKILL) and
+                          (not console_natural_exit or process.returncode == 0))
+            if not console_ok:
+                raise RuntimeError(f"console NEON smoke failed; log={log}")
+            smoke_record = {"console_smoke": "PASS", "vpk_sha256": vpk_hash,
+                            "host_sha256": host_hash, "reused": False}
+        else:
+            smoke_record = {"console_smoke": "PASS", "vpk_sha256": vpk_hash,
+                            "host_sha256": host_hash, "reused": True,
+                            "evidence": str(args.reuse_console_smoke.resolve())}
+        (args.output_dir / "smoke-evidence.json").write_text(
+            json.dumps(smoke_record, indent=2) + "\n", encoding="utf-8")
 
         if not install_vpk(emulator, game_vpk, TITLE_ID, log, args.timeout):
             raise RuntimeError(f"Soul Calibur VPK installation failed; log={log}")
@@ -489,20 +559,27 @@ def main():
         prior_pcm_frames = 0
         guest_data = fs / "ux0/data"
         screenshot_root = portable / "screenshots"
-        for frames in MILESTONES:
+        frames_to_run = (GAMEPLAY_REPLAY_FRAMES,) if args.gameplay_replay else MILESTONES
+        for frames in frames_to_run:
             report_guest = f"ux0:data/system12-{frames}.txt"
             capture_guest = f"ux0:data/system12-{frames}.ppm"
             args_text = (f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/soulclbrac, "
                          f"--frames, {frames}, --report-system12, {report_guest}, "
                          f"--capture-ppm, {capture_guest}")
+            if inputs_path:
+                args_text += f", --inputs, ux0:app/{TITLE_ID}/soulclbrac/inputs.csv"
             expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
                         f"pcsx-vita: system12-capture PASS path={capture_guest}",
                         "pcsx-vita: cpu_driver=ari64")
+            if inputs_path:
+                expected += ("pcsx-vita: inputs replay PASS events=177/177 "
+                             "frames=12000/12000 final=0002/0000",)
             before_screenshots = (set(screenshot_root.rglob("*.png"))
                                   if screenshot_root.exists() else set())
             guest_ok, runtime_issues = run_guest(
                 emulator, args_text, log, args.timeout, expected,
-                extra_env={"VITA3K_AUTO_SCREENSHOT": AUTO_SCREENSHOT_TIMES})
+                extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
+                    if inputs_path else AUTO_SCREENSHOT_TIMES)})
             if not guest_ok:
                 raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
             report_path = guest_data / f"system12-{frames}.txt"
@@ -513,7 +590,7 @@ def main():
             capture_out = args.output_dir / f"system12-{frames}.ppm"
             shutil.copy2(report_path, report_out)
             shutil.copy2(capture_path, capture_out)
-            report_info = read_report(report_out)
+            report_info = read_report(report_out, require_replay=bool(inputs_path))
             capture_info = check_capture(capture_out)
             screenshot_error = None
             try:
@@ -535,21 +612,30 @@ def main():
                             "report_info": report_info,
                             "runtime_issues": runtime_issues})
             (args.output_dir / "results.json").write_text(json.dumps({
-                "vpk": str(args.vpk.resolve()), "title_id": TITLE_ID,
+                "vpk": str(args.vpk.resolve()), "vpk_sha256": vpk_hash,
+                "host_sha256": host_hash, "title_id": TITLE_ID,
                 "console_smoke": "PASS", "board_execution_verified": False,
+                "console_smoke_reused": bool(reused_smoke),
+                "gameplay_replay": bool(inputs_path),
+                "input_event_count": len(input_events) if input_events is not None else 0,
                 "host_execution_issues": any(result["runtime_issues"] for result in results),
                 "milestones": results,
             }, indent=2) + "\n", encoding="utf-8")
             if screenshot_error:
                 raise RuntimeError(screenshot_error)
 
-        if len({r["report_info"]["records"]["H8"]["cycles"] for r in results}) < 3:
+        if (not inputs_path and
+                len({r["report_info"]["records"]["H8"]["cycles"] for r in results}) < 3):
             raise RuntimeError("H8 cycles did not change across all requested milestones")
 
         has_runtime_issues = any(result["runtime_issues"] for result in results)
         (args.output_dir / "results.json").write_text(json.dumps({
-            "vpk": str(args.vpk.resolve()), "title_id": TITLE_ID,
+            "vpk": str(args.vpk.resolve()), "vpk_sha256": vpk_hash,
+            "host_sha256": host_hash, "title_id": TITLE_ID,
             "console_smoke": "PASS", "board_execution_verified": False,
+            "console_smoke_reused": bool(reused_smoke),
+            "gameplay_replay": bool(inputs_path),
+            "input_event_count": len(input_events) if input_events is not None else 0,
             "host_execution_issues": has_runtime_issues,
             "milestones": results,
         }, indent=2) + "\n", encoding="utf-8")

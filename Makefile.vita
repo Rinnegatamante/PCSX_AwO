@@ -55,7 +55,7 @@ core: vita-gl
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(STANDALONE_OBJ): frontend/vita/standalone.c frontend/vita/validation.h Makefile.vita | $(BUILD_DIR)
+$(STANDALONE_OBJ): frontend/vita/standalone.c frontend/vita/validation.h frontend/vita/input_csv_reader.h Makefile.vita | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(TARGET).elf: core $(STANDALONE_OBJ)
