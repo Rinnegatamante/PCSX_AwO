@@ -678,6 +678,8 @@ extern int getVMBlock();
 int _newlib_vm_size_user = sizeof(*ndrc);
 #endif
 
+static unsigned long host_page_mask = 4095;
+
 static void mprotect_w_x(void *start, void *end, int is_x)
 {
 #ifdef NO_WRITE_EXEC
@@ -702,7 +704,7 @@ static void mprotect_w_x(void *start, void *end, int is_x)
   #elif defined(TC_WRITE_OFFSET)
   // separated rx and rw areas are always available
   #else
-  u_long mstart = (u_long)start & ~4095ul;
+  u_long mstart = (u_long)start & ~host_page_mask;
   u_long mend = (u_long)end;
   if (mprotect((void *)mstart, mend - mstart,
                PROT_READ | (is_x ? PROT_EXEC : PROT_WRITE)) != 0)
@@ -6722,6 +6724,7 @@ static int pgsize(void)
 void new_dynarec_init(void)
 {
   int align = pgsize() - 1;
+  host_page_mask = (unsigned long)align;
   SysPrintf("Init new dynarec, ndrc size %x, pgsize %d\n",
     (int)sizeof(*ndrc), align + 1);
 
