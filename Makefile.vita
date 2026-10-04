@@ -1,7 +1,21 @@
-TARGET := pcsx-rearmed-vita
-TITLE_ID := PCSXR0001
-TITLE := PCSX-ReARMed Vita
-CORE := pcsx_rearmed_libretro_vita.a
+VITA_GPU ?= vitagl
+VITAGL_DIR ?= build/vita-deps/vitaGL
+ifeq ($(VITA_GPU),neon)
+BUILTIN_VITA_GPU := neon
+DEFAULT_TITLE_ID := PCSXN0012
+else ifeq ($(VITA_GPU),vitagl)
+BUILTIN_VITA_GPU := vita_ctr
+DEFAULT_TITLE_ID := PCSXG0012
+else
+$(error VITA_GPU must be neon or vitagl)
+endif
+TARGET ?= pcsx-rearmed-vita-$(VITA_GPU)
+TITLE_ID ?= $(DEFAULT_TITLE_ID)
+TITLE ?= PCSX-ReARMed Vita $(VITA_GPU)
+CORE_NAME := pcsx_rearmed_$(VITA_GPU)
+CORE := $(CORE_NAME)_libretro_vita.a
+SMOKE_EXE ?=
+PACK_EXTRA := $(if $(SMOKE_EXE),-a $(SMOKE_EXE)=smoke.exe,)
 GIT_VERSION := $(shell git rev-parse --short HEAD)
 
 PREFIX := arm-vita-eabi-
@@ -9,9 +23,9 @@ CC := $(PREFIX)gcc
 CXX := $(PREFIX)g++
 CFLAGS := -O3 -g -Wall -Wextra -DVITA -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neon -marm \
 	-fsingle-precision-constant -mword-relocations -ffast-math -fno-unwind-tables \
-	-fno-asynchronous-unwind-tables -I$(VITASDK)/include -Ideps/libretro-common/include
+	-fno-asynchronous-unwind-tables -I$(VITASDK)/include -Ideps/libretro-common/include -I$(VITAGL_DIR)/source
 LDFLAGS := -Wl,-q
-LIBS := -lSDL3 ../vitagl/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_stub -lSceShaccCg_stub \
+LIBS := -lSDL3 $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_stub -lSceShaccCg_stub \
 	-lSceKernelDmacMgr_stub -lpthread -lc -lSceCommonDialog_stub -lSceAudio_stub \
 	-lSceLibKernel_stub -lmathneon -lkubridge_stub -lSceNet_stub -lSceNetCtl_stub \
 	-lpng -lSceDisplay_stub -lSceGxm_stub -lSceAudioIn_stub \
@@ -19,21 +33,25 @@ LIBS := -lSDL3 ../vitagl/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_stub -
 	-lSceCamera_stub -lSceCtrl_stub -lSceTouch_stub -lSceMotion_stub -lm \
 	-lSceAppMgr_stub -lSceHid_stub -lSceAppUtil_stub -lScePgf_stub -ljpeg \
 	-lSceRtc_stub -lScePower_stub -lSceIofilemgr_stub -lcurl -lssl -lcrypto -lz
-BUILD_DIR := build-vita
+BUILD_DIR := build-vita/$(VITA_GPU)
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
-CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
-	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0
+CORE_ARGS := platform=vita TARGET_NAME=$(CORE_NAME) BUILTIN_GPU=$(BUILTIN_VITA_GPU) GPU_NEON_USE_C=1 VITAGL_DIR=$(VITAGL_DIR) GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
+	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0 \
+	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke'
 
-.PHONY: all core clean
+.PHONY: all core clean vita-gl
 all: $(TARGET).vpk
 
-core:
-	$(MAKE) -f Makefile.libretro $(CORE_ARGS) -j4
+vita-gl:
+	python3 tools/vita-harness/build_vitagl.py --output $(VITAGL_DIR)
+
+core: vita-gl
+	$(MAKE) -B -f Makefile.libretro $(CORE_ARGS) -j4
 
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(STANDALONE_OBJ): frontend/vita/standalone.c | $(BUILD_DIR)
+$(STANDALONE_OBJ): frontend/vita/standalone.c frontend/vita/validation.h Makefile.vita | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(TARGET).elf: core $(STANDALONE_OBJ)
@@ -43,9 +61,9 @@ $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
 $(TARGET).vpk: $(TARGET).velf
-	vita-make-fself -c -s -na $< eboot.bin
-	vita-mksfoex -s TITLE_ID=$(TITLE_ID) -d ATTRIBUTE2=12 "$(TITLE)" param.sfo
-	vita-pack-vpk -s param.sfo -b eboot.bin $@
+	vita-make-fself -c -s -na $< $(BUILD_DIR)/eboot.bin
+	vita-mksfoex -s TITLE_ID=$(TITLE_ID) -d ATTRIBUTE2=12 "$(TITLE)" $(BUILD_DIR)/param.sfo
+	vita-pack-vpk -s $(BUILD_DIR)/param.sfo -b $(BUILD_DIR)/eboot.bin $(PACK_EXTRA) $@
 
 clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true

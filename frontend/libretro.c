@@ -4096,4 +4096,28 @@ void SysDLog(const char *fmt, ...)
       log_cb(RETRO_LOG_DEBUG, "%s", msg);
 }
 
+#ifdef VITA
+#include "vita/validation.h"
+int pcsx_vita_uses_dynarec(void)
+{
+   return psxCpu == &psxRec;
+}
+
+void pcsx_vita_read_smoke(pcsx_vita_smoke_result *result)
+{
+   const unsigned points[2][2] = {{160, 100}, {10, 10}};
+   uint16_t pixels[2];
+   if (!result) return;
+   for (unsigned i = 0; i < 2; ++i) {
+      psxMemWrite32(&psxRegs, 0xbf801810, 0xc0000000);
+      psxMemWrite32(&psxRegs, 0xbf801810, points[i][0] | (points[i][1] << 16));
+      psxMemWrite32(&psxRegs, 0xbf801810, 0x00010001);
+      pixels[i] = (uint16_t)psxMemRead32(&psxRegs, 0xbf801810);
+   }
+   result->triangle = pixels[0];
+   result->background = pixels[1];
+   result->sentinel = psxMemRead32(&psxRegs, 0x8000f000);
+}
+#endif
+
 // vim:sw=3:ts=3:expandtab

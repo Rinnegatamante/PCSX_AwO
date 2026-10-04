@@ -17,6 +17,7 @@
 
 #include <SDL3/SDL.h>
 #include <libretro.h>
+#include "validation.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define BIOS_DIR APP_ROOT "/bios"
@@ -480,6 +481,8 @@ int main(int argc, char **argv)
     struct retro_game_info game;
     char game_path[1024];
     int ret;
+    unsigned validation_frames = 0;
+    bool verify_smoke = false;
 
     sceClibPrintf("pcsx-vita: main entered\n");
     make_dirs();
@@ -510,9 +513,14 @@ int main(int argc, char **argv)
 
     game_path[0] = '\0';
     for (ret = 1; ret < argc; ret++) {
+        if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
+        if (!strcmp(argv[ret], "--frames") && ret + 1 < argc) {
+            char *end; unsigned long count = strtoul(argv[++ret], &end, 10);
+            if (*end || !count || count > 216000) return 4;
+            validation_frames = (unsigned)count; continue;
+        }
         if (is_game_path(argv[ret])) {
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
-            break;
         }
     }
     if (game_path[0] == '\0' && !find_game(game_path, sizeof(game_path))) {
@@ -539,8 +547,21 @@ int main(int argc, char **argv)
         return 3;
     }
 
-    while (!g_exit_requested)
-        retro_run();
+    unsigned runs = 0;
+    sceClibPrintf("pcsx-vita: cpu_driver=%s\n", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter");
+    while (!g_exit_requested && (!validation_frames || runs < validation_frames)) {
+        retro_run(); ++runs;
+    }
+    int validation_result = 0;
+    if (verify_smoke) {
+        pcsx_vita_smoke_result result;
+        pcsx_vita_read_smoke(&result);
+        validation_result = !pcsx_vita_uses_dynarec() || result.triangle != 0x03ff ||
+                            result.background != 0x2082 || result.sentinel != 0x534d4f4b;
+        sceClibPrintf("pcsx-vita: smoke %s cpu=%s triangle=%04x background=%04x sentinel=%08x runs=%u\n",
+            validation_result ? "FAIL" : "PASS", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter",
+            result.triangle, result.background, result.sentinel, runs);
+    }
 
     retro_unload_game();
     retro_deinit();
@@ -548,5 +569,5 @@ int main(int argc, char **argv)
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);
-    return 0;
+    return validation_result ? 5 : 0;
 }

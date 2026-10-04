@@ -15,6 +15,7 @@ cheatpops.db
 /include/revision.h
 /tools/*
 !/tools/mac-harness/
+!/tools/vita-harness/
 /build/mac-harness/
 /build/mac-harness-agent/
 /build/mac-harness-console/

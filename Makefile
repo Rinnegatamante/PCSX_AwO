@@ -8,6 +8,7 @@ DEBUG ?= 0
 DEBUG_SYMS ?= 0
 ASSERTS ?= 0
 HAVE_CHD ?= 1
+GPU_NEON_USE_C ?= 0
 ifneq ($(DEBUG)$(DEBUG_SYMS), 00)
 CFLAGS += -ggdb
 endif
@@ -275,7 +276,7 @@ CFLAGS += -DGPU_NEON
 OBJS += plugins/gpu_neon/psx_gpu_if.o
 plugins/gpu_neon/psx_gpu_if.o: CFLAGS += -DNEON_BUILD -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP
 frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
- ifeq "$(HAVE_NEON_ASM)" "1"
+ ifeq "$(HAVE_NEON_ASM)$(GPU_NEON_USE_C)" "10"
  OBJS += plugins/gpu_neon/psx_gpu/psx_gpu_arm_neon.o
  else
  OBJS += plugins/gpu_neon/psx_gpu/psx_gpu_simd.o
