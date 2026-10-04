@@ -1,0 +1,33 @@
+CC ?= clang
+CXX ?= clang++
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/namcos10-board-tests
+TARGET := $(BUILD)/test-namcos10-board
+FLASH_OBJ := $(BUILD)/nor_flash.o
+IO_OBJ := $(BUILD)/namcos10_io.o
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(FLASH_OBJ): libpcsxcore/arcade/nor_flash.c libpcsxcore/arcade/nor_flash.h | $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade -c $< -o $@
+$(IO_OBJ): libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/namcos10_io.h | $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade -c $< -o $@
+
+$(TARGET): libpcsxcore/arcade/namcos10_board.cpp libpcsxcore/arcade/namcos10_board.h \
+		libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_crypto.h \
+		libpcsxcore/arcade/namcos10_crypto_profiles.inc libpcsxcore/arcade/nor_flash.h \
+		tests/test_namcos10_board.cpp tests/test_namcos10_crypto_vectors.inc $(FLASH_OBJ) $(IO_OBJ)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade -Itests \
+		libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_board.cpp \
+		tests/test_namcos10_board.cpp $(FLASH_OBJ) $(IO_OBJ) -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

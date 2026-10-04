@@ -1,0 +1,13 @@
+CXX ?= clang++
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/namcos10-crypto-tests
+TARGET := $(BUILD)/test-namcos10-crypto
+.PHONY: all test clean
+all: $(TARGET)
+$(TARGET): libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_crypto.h libpcsxcore/arcade/namcos10_crypto_profiles.inc tests/test_namcos10_crypto.cpp tests/test_namcos10_crypto_vectors.inc
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/namcos10_crypto.cpp tests/test_namcos10_crypto.cpp -o $@
+test: $(TARGET)
+	$(TARGET)
+clean:
+	rm -rf $(BUILD)

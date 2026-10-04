@@ -1,0 +1,19 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/namcos10-io-tests
+TARGET := $(BUILD)/test-namcos10-io
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(BUILD):
+	@mkdir -p $(BUILD)
+
+$(TARGET): libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/namcos10_io.h tests/test_namcos10_io.c | $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/namcos10_io.c tests/test_namcos10_io.c -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+clean:
+	rm -rf $(BUILD)

@@ -1,0 +1,4302 @@
+{
+  "schema_version": 1,
+  "mame_source_commit": "deb2f54fe7300e7a192690318beb860159bfd52a",
+  "source": "namco/namcos10.cpp",
+  "inventory_source": "scripts/mame_psx_systems.json",
+  "set_count": 45,
+  "board_types": {
+    "MEM(M)": 3,
+    "MEM(N)": 37,
+    "MEM(P3)": 3,
+    "MEM/IO": 2
+  },
+  "profiles": [
+    {
+      "year": "2005",
+      "set": "ballpom",
+      "parent": null,
+      "machine": "ns10_ballpom",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Ball Pom Line",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "ballpom",
+      "crypto_profile_source": "machine:ns10_ballpom",
+      "rom_set": "ballpom",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "f31cec39",
+              "sha1": "509209f7bec6384fa1e7f2d32110d1ceaed83826",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "66041249",
+              "sha1": "16e21f5874aa53306921664073e79b814c954cd8",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "chocovdr",
+      "parent": null,
+      "machine": "ns10_chocovdr",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Uchuu Daisakusen: Chocovader Contactee (Japan, CVC1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "chocovdr",
+      "crypto_profile_source": "machine:ns10_chocovdr",
+      "rom_set": "chocovdr",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "330d86d3",
+              "sha1": "0d7ea7593510531ef7350dd7ee957208681708da",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "4aecd6fc",
+              "sha1": "31fe8f36e38020a92f15c44fd1a4b486636b40ce",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "2.7e",
+              "size": 17301504,
+              "crc32": "ac212e5a",
+              "sha1": "f2d2e65a3249992730b8b90561b9bcf5eaaafb88",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "3.7d",
+              "size": 17301504,
+              "crc32": "907d3d15",
+              "sha1": "20519d1f8bd9c6bc45b65e2d7444d588e922611d",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "4.6e",
+              "size": 17301504,
+              "crc32": "1ed957dd",
+              "sha1": "bc8ce9f249fe496c130c6fe67b2260c4d0734ab9",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 5,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2001",
+      "set": "g13jnr",
+      "parent": null,
+      "machine": "ns10_g13jnr",
+      "input": "g13jnr",
+      "state": "namcos10_memp3_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Eighting / Raizing / Namco",
+      "description": "Golgo 13: Juusei no Requiem (Japan, GLT1 VER.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(P3)",
+      "extensions": [
+        "MEM(P3) MP3/analog ROM board"
+      ],
+      "crypto_profile": "g13jnr",
+      "crypto_profile_source": null,
+      "rom_set": "g13jnr",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_0.2j",
+              "size": 17301504,
+              "crc32": "24f5bb06",
+              "sha1": "cb61b754e7c1afaeb3cff5c588d28f68a1eca092",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_1.1j",
+              "size": 17301504,
+              "crc32": "5ec552da",
+              "sha1": "d23f73ae4694c581d3827afac7f62bc6ce83eb30",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_2.2h",
+              "size": 17301504,
+              "crc32": "0835d6ed",
+              "sha1": "5dc4e734aad91e9ab722d11c57eff11e0a100657",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_3.1h",
+              "size": 17301504,
+              "crc32": "f7486979",
+              "sha1": "a44c33ae7004e79fe66c6d2cba3d11671ce2582c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_4.2f",
+              "size": 17301504,
+              "crc32": "e60b526a",
+              "sha1": "3599af2ebb894833d1233cd76d35644fc95a647b",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand5",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "glt1vera_5.1f",
+              "size": 17301504,
+              "crc32": "0cb2df20",
+              "sha1": "b0e10b6d00f3cc20103177faca0c14d98b10994d",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 6,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MEM(P3) MP3/analog ROM board"
+      ]
+    },
+    {
+      "year": "2000",
+      "set": "gahaha",
+      "parent": null,
+      "machine": "ns10_gahaha",
+      "input": "gahaha",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Metro",
+      "description": "GAHAHA Ippatsudou (World, GID2 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "gahaha",
+      "crypto_profile_source": "machine:ns10_gahaha",
+      "rom_set": "gahaha",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gid2vera_0.8e",
+              "size": 17301504,
+              "crc32": "d7888ca3",
+              "sha1": "723f7d30a0d109c0e664bccfddb00fdf2e551835",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gid2vera_1.8d",
+              "size": 17301504,
+              "crc32": "102932a7",
+              "sha1": "01133986c64d7290019706e4373006a5af04c105",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gid2vera_2.7e",
+              "size": 17301504,
+              "crc32": "df8ec017",
+              "sha1": "59f9cdad77d452af25c35913e1daca6b561074c2",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "gahaha2",
+      "parent": null,
+      "machine": "ns10_gahaha2",
+      "input": "gahaha",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Metro",
+      "description": "GAHAHA Ippatsudou 2 (Japan, GIS1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "gahaha2",
+      "crypto_profile_source": "machine:ns10_gahaha2",
+      "rom_set": "gahaha2",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gis1vera_0.8e",
+              "size": 17301504,
+              "crc32": "d1e4a8b8",
+              "sha1": "59ee1b98d94dcabc48ba368fd56db13a248dcf24",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gis1vera_1.8d",
+              "size": 17301504,
+              "crc32": "eeb680ac",
+              "sha1": "9737cd9db600ec10bea53a6473cfff57cb1c1aec",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gis1vera_2.7e",
+              "size": 17301504,
+              "crc32": "d22c9ee1",
+              "sha1": "e0a7da2843e0a43eacb2bd8c8f088c6b7433fc1a",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "gamshara",
+      "parent": null,
+      "machine": "ns10_gamshara",
+      "input": "gamshara",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Mitchell",
+      "description": "Gamshara (20020912A / 10021 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "gamshara",
+      "crypto_profile_source": "machine:ns10_gamshara",
+      "rom_set": "gamshara",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10021a_e.8e",
+              "size": 17301504,
+              "crc32": "1413b7d2",
+              "sha1": "595c77dfcba8074fff84b859870818aace530ed8",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10021a.8d",
+              "size": 17301504,
+              "crc32": "73669ff7",
+              "sha1": "eb8bbf931f1f8a049208d081d040512a3ffa9c00",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2002",
+      "set": "gamsharao",
+      "parent": "gamshara",
+      "machine": "ns10_gamshara",
+      "input": "gamshara",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Mitchell",
+      "description": "Gamshara (20020716A / 10021 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "gamshara",
+      "crypto_profile_source": "machine:ns10_gamshara",
+      "rom_set": "gamsharao",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10021a.8e",
+              "size": 17301504,
+              "crc32": "6c0361fc",
+              "sha1": "7debf1f2e6bed31d59fb224a78a17a94fc573785",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10021a.8d",
+              "size": 17301504,
+              "crc32": "73669ff7",
+              "sha1": "eb8bbf931f1f8a049208d081d040512a3ffa9c00",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2007",
+      "set": "gegemdb",
+      "parent": null,
+      "machine": "ns10_gegemdb",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Gegege no Kitaro Yokai Yokocho Matsuri de Battle Ja (GYM1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "gegemdb",
+      "crypto_profile_source": "machine:ns10_gegemdb",
+      "rom_set": "gegemdb",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gym1.8e",
+              "size": 34603008,
+              "crc32": "f1d77330",
+              "sha1": "143e14fbfe525ac675eacf2de12758b0d20d81d5",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gym1.8d",
+              "size": 34603008,
+              "crc32": "f74a5dbf",
+              "sha1": "80ce701abd5ee02a3b8759eae6b50da4338809f5",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nvram",
+          "size": 32768,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "nvram.bin",
+              "size": 32768,
+              "crc32": "c0c87c71",
+              "sha1": "263f7f3df772644bcf973413d3fac9ae305fda6c",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "nvram"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING",
+        "MACHINE_UNEMULATED_PROTECTION",
+        "extra ROM regions: nvram"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "gjspace",
+      "parent": null,
+      "machine": "ns10_gjspace",
+      "input": "gjspace",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Metro",
+      "description": "GekiToride-Jong Space (10011 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "gjspace",
+      "crypto_profile_source": "machine:ns10_gjspace",
+      "rom_set": "gjspace",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10011.8e",
+              "size": 17301504,
+              "crc32": "c581bca7",
+              "sha1": "3042fa8383b9f18509768feb08b400ac194831b0",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10011.8d",
+              "size": 17301504,
+              "crc32": "7fb4a3fe",
+              "sha1": "677ba88af00d448c72a89af145acc9a9d85c3d76",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10011.7e",
+              "size": 17301504,
+              "crc32": "31bfc843",
+              "sha1": "398017d1a4e26d63feef395fdfac56d6c9f0ed99",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "10011.7d",
+              "size": 17301504,
+              "crc32": "15d83649",
+              "sha1": "8ecbf6e294182459fbe2cc098e2406767851c911",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 4,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2000",
+      "set": "gunbalina",
+      "parent": "ptblank3",
+      "machine": "ns10_ptblank3",
+      "input": "ptblank3",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Gunbalina (Japan, GNN1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "ptblank3",
+      "crypto_profile_source": "machine:ns10_ptblank3",
+      "rom_set": "gunbalina",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gnn1a.8e",
+              "size": 17301504,
+              "crc32": "2371aaba",
+              "sha1": "fc43a2172a6325da9c0a9f4d9cf65ab8d3883f22",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gnn1a.8d",
+              "size": 17301504,
+              "crc32": "6cd343e0",
+              "sha1": "dcec44abae1504025895f42fe574549e5010f7d5",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "decrypter:nonlinear_table",
+          "size": 191488,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ptblank3_nonlinear",
+              "size": 191488,
+              "crc32": "5997d7dd",
+              "sha1": "ab3f32fd92ee20ca3c7642686d9d8039d0b6cbc5",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "decrypter:nonlinear_table"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "MACHINE_UNEMULATED_PROTECTION",
+        "extra ROM regions: decrypter:nonlinear_table"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "ippo",
+      "parent": null,
+      "machine": "ns10_ippo",
+      "input": "ippo2",
+      "state": "namcos10_memio_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Hard Puncher Hajime no Ippo - The Fighting! (VER.2.02J)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM/IO",
+      "extensions": [
+        "MEM/IO Taito ROM board"
+      ],
+      "crypto_profile": "ippo",
+      "crypto_profile_source": null,
+      "rom_set": "ippo",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic4",
+              "size": 17301504,
+              "crc32": "f93878db",
+              "sha1": "921d316b74368d5ebeddb3c40fec7911f2ad33eb",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic8",
+              "size": 17301504,
+              "crc32": "142744bc",
+              "sha1": "fadc3265f87cd9fc3774e4c32a8e46167b397acf",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic5",
+              "size": 17301504,
+              "crc32": "3880d85b",
+              "sha1": "b7459b2e7bac02383ac67229927b38f8b796e2b0",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic9",
+              "size": 17301504,
+              "crc32": "da2fcdbb",
+              "sha1": "7f509c0c21442dc17beda6cfd086aebfc33a658c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic6",
+              "size": 17301504,
+              "crc32": "d791a383",
+              "sha1": "90917d818c4697ed7977901bbbd54b6bcc74b718",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand5",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0a.ic10",
+              "size": 17301504,
+              "crc32": "f997c4d1",
+              "sha1": "88e79dd9985b5f6199ab608c8923299a6fdf7ced",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "plds",
+          "size": 343,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "f06-02.ic15",
+              "size": 343,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump"
+            }
+          ]
+        }
+      ],
+      "rom_files": 7,
+      "disk_media": [],
+      "no_dump_files": [
+        "f06-02.ic15"
+      ],
+      "extra_rom_regions": [
+        "plds"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MEM/IO Taito ROM board",
+        "NO_DUMP media",
+        "MACHINE_NOT_WORKING",
+        "extra ROM regions: plds"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "ippo2",
+      "parent": null,
+      "machine": "ns10_ippo2",
+      "input": "ippo2",
+      "state": "namcos10_memio_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Taito",
+      "description": "Hard Puncher Hajime no Ippo 2 - The Fighting! - Ouja e no chousen (VER.2.00J)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM/IO",
+      "extensions": [
+        "MEM/IO Taito ROM board"
+      ],
+      "crypto_profile": "ippo2",
+      "crypto_profile_source": null,
+      "rom_set": "ippo2",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic4",
+              "size": 34603008,
+              "crc32": "1fdb4a2d",
+              "sha1": "0712f8256330098a6ad0b5c3d5d99f771c19669c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic8",
+              "size": 34603008,
+              "crc32": "f6d97189",
+              "sha1": "9cb145ea35ea7e5d36e124f3d5ed6dfea4ecc252",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic5",
+              "size": 34603008,
+              "crc32": "47e970cc",
+              "sha1": "e884d259448ad258a19fad466bf664c4052555e7",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic9",
+              "size": 34603008,
+              "crc32": "8158e228",
+              "sha1": "ea82f4ee6aa98c734c035465a5543ecb34fd5d38",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic6",
+              "size": 34603008,
+              "crc32": "ab84f5fd",
+              "sha1": "b5f41b4cff7741d6af4490b1ce32b2d9eeb09625",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand5",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tc58256aft.ic10",
+              "size": 34603008,
+              "crc32": "2a084db7",
+              "sha1": "67b0922aa92255b8ce60feda87f2937d94336c09",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "plds",
+          "size": 343,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "f06-02.ic15",
+              "size": 343,
+              "crc32": null,
+              "sha1": null,
+              "status": "no_dump"
+            }
+          ]
+        }
+      ],
+      "rom_files": 7,
+      "disk_media": [],
+      "no_dump_files": [
+        "f06-02.ic15"
+      ],
+      "extra_rom_regions": [
+        "plds"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MEM/IO Taito ROM board",
+        "NO_DUMP media",
+        "MACHINE_NOT_WORKING",
+        "extra ROM regions: plds"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "kd2001",
+      "parent": null,
+      "machine": "ns10_kd2001",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Knock Down 2001 (Japan, KD11 Ver. B)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "kd2001",
+      "crypto_profile_source": "machine:ns10_kd2001",
+      "rom_set": "kd2001",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "83b50470",
+              "sha1": "56aa687fb0dc360832e705d66ec67265d61fa322",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "fed610a8",
+              "sha1": "8f4e238164fd80342e4fab6b40da693f241048f7",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "pdrivecpu",
+          "size": 131072,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kd11-dr0-ic10.bin",
+              "size": 131072,
+              "crc32": "59649293",
+              "sha1": "71c3a0e73d077398e7f3d95acedc47814e99fbc6",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "pdrivecpu"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MACHINE_NOT_WORKING",
+        "MACHINE_UNEMULATED_PROTECTION",
+        "extra ROM regions: pdrivecpu"
+      ]
+    },
+    {
+      "year": "2006",
+      "set": "keroro",
+      "parent": null,
+      "machine": "ns10_keroro",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Banpresto",
+      "description": "Keroro Gunsou: Pekopon Shinryaku Shirei...De Arimasu! (KRG1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "keroro",
+      "crypto_profile_source": "machine:ns10_keroro",
+      "rom_set": "keroro",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "krg1.8e",
+              "size": 34603008,
+              "crc32": "12e78c66",
+              "sha1": "83573f68f27ace345a3be16f29f874f14e593233",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "krg1.8d",
+              "size": 34603008,
+              "crc32": "879a87b7",
+              "sha1": "fcef8eb9423b4825bf27fbfe8cae6d4018cb534f",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "knpuzzle",
+      "parent": null,
+      "machine": "ns10_knpuzzle",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Kotoba no Puzzle Mojipittan (Japan, KPM1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "knpuzzle",
+      "crypto_profile_source": "machine:ns10_knpuzzle",
+      "rom_set": "knpuzzle",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kpm1vera_0.8e",
+              "size": 17301504,
+              "crc32": "4b4255da",
+              "sha1": "c8ec575e53596a167a07db97076fd69e6646d0f5",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kpm1vera_1.8d",
+              "size": 17301504,
+              "crc32": "644595a6",
+              "sha1": "4b60008ca5cac894a815fe6aaa980296a83f673f",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kpm1vera_2.7e",
+              "size": 17301504,
+              "crc32": "6bf164e5",
+              "sha1": "b4a2e6eb18c09220b0c8ec80159d13d0e439a559",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2003",
+      "set": "konotako",
+      "parent": null,
+      "machine": "ns10_konotako",
+      "input": "konotako",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Mitchell",
+      "description": "Kono e Tako (10021 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "konotako",
+      "crypto_profile_source": "machine:ns10_konotako",
+      "rom_set": "konotako",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 16,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "63d23a0c",
+              "sha1": "31b54119f20827ff13ecf0cd87803a5e27eaafe7",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 16,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "bdbed53c",
+              "sha1": "5773069c43642e6f334cee185a6fb6908eedcf4a",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2005",
+      "set": "medalnt",
+      "parent": null,
+      "machine": "ns10_medalnt",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Medal no Tatsujin Doki! Ooatari-Darake no Sugoroku Matsuri (MTL1 SPR0B)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXFINALIO"
+      ],
+      "crypto_profile": "medalnt",
+      "crypto_profile_source": "machine:ns10_medalnt",
+      "rom_set": "medalnt",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "b8ce45c6",
+              "sha1": "cfc85e796e32f5f3cc16e12ce902f0ae088eea31",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "49a2a732",
+              "sha1": "1a473177827a6d0e58c289d9af064665b941519b",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXFINALIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2007",
+      "set": "medalnt2",
+      "parent": null,
+      "machine": "ns10_medalnt2",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Medal no Tatsujin 2 Atsumare! Go! Go! Sugoroku Sentai Don Ranger Five (MTA1 STMPR0A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXFINALIO"
+      ],
+      "crypto_profile": "medalnt2",
+      "crypto_profile_source": "machine:ns10_medalnt2",
+      "rom_set": "medalnt2",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "mta1001_stmpr0a_0.8e",
+              "size": 34603008,
+              "crc32": "074b305a",
+              "sha1": "772799ebba96104a191db236dd45257cdef6c5f2",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 34603008,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "mta1001_stmpr0a_1.8d",
+              "size": 34603008,
+              "crc32": "7ca5fdc0",
+              "sha1": "5920fa753b190dc87f775567fa9fb9bccb6f7a95",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXFINALIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2005",
+      "set": "medalnta",
+      "parent": "medalnt",
+      "machine": "ns10_medalnt",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Medal no Tatsujin Doki! Ooatari-Darake no Sugoroku Matsuri (MTL1 SPR0A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXFINALIO"
+      ],
+      "crypto_profile": "medalnt",
+      "crypto_profile_source": "machine:ns10_medalnt",
+      "rom_set": "medalnta",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "e3f2ee5c",
+              "sha1": "3857077bfb211df72e44d5f7c92476b6c82ba98c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "e857c20f",
+              "sha1": "e72842446073d79c013e88f78eee918d6377801a",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXFINALIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2000",
+      "set": "mrdrilr2",
+      "parent": null,
+      "machine": "ns10_mrdrilr2",
+      "input": "mrdrilr2",
+      "state": "namcos10_memm_state",
+      "init": "init_mrdrilr2",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Mr. Driller 2 (World, DR22 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(M)",
+      "extensions": [],
+      "crypto_profile": "mrdrilr2",
+      "crypto_profile_source": "init:init_mrdrilr2",
+      "rom_set": "mrdrilr2",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand",
+          "size": 8388608,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr22vera.1a",
+              "size": 8388608,
+              "crc32": "140eafb6",
+              "sha1": "b68f901ff18d052bc21bb548159dcbc7dd731e5c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "data",
+          "size": 33554432,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr21ma1.1d",
+              "size": 16777216,
+              "crc32": "26dc6f55",
+              "sha1": "a9cedf547fa7a4d5850b9b3b867d46e577a035e0",
+              "status": "good"
+            },
+            {
+              "filename": "dr21ma2.2d",
+              "size": 16777216,
+              "crc32": "702556ff",
+              "sha1": "c95defd5fd6a9b406fc8d8f28ecfab732ef1ff42",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2000",
+      "set": "mrdrilr2j",
+      "parent": "mrdrilr2",
+      "machine": "ns10_mrdrilr2",
+      "input": "mrdrilr2",
+      "state": "namcos10_memm_state",
+      "init": "init_mrdrilr2",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Mr. Driller 2 (Japan, DR21 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(M)",
+      "extensions": [],
+      "crypto_profile": "mrdrilr2",
+      "crypto_profile_source": "init:init_mrdrilr2",
+      "rom_set": "mrdrilr2j",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand",
+          "size": 8388608,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr21vera.1a",
+              "size": 8388608,
+              "crc32": "03e0241e",
+              "sha1": "de26054657cc129dd581e2672d5c81d26daeb5e6",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "data",
+          "size": 33554432,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr21ma1.1d",
+              "size": 16777216,
+              "crc32": "26dc6f55",
+              "sha1": "a9cedf547fa7a4d5850b9b3b867d46e577a035e0",
+              "status": "good"
+            },
+            {
+              "filename": "dr21ma2.2d",
+              "size": 16777216,
+              "crc32": "702556ff",
+              "sha1": "c95defd5fd6a9b406fc8d8f28ecfab732ef1ff42",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2000",
+      "set": "mrdrilr2u",
+      "parent": "mrdrilr2",
+      "machine": "ns10_mrdrilr2",
+      "input": "mrdrilr2",
+      "state": "namcos10_memm_state",
+      "init": "init_mrdrilr2",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Mr. Driller 2 (US, DR23 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(M)",
+      "extensions": [],
+      "crypto_profile": "mrdrilr2",
+      "crypto_profile_source": "init:init_mrdrilr2",
+      "rom_set": "mrdrilr2u",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand",
+          "size": 8388608,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr23vera.1a",
+              "size": 8388608,
+              "crc32": "5f32b6fb",
+              "sha1": "ecb94d8317946f278a2cb0bc55abea2b89fa2e71",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "data",
+          "size": 33554432,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "dr21ma1.1d",
+              "size": 16777216,
+              "crc32": "26dc6f55",
+              "sha1": "a9cedf547fa7a4d5850b9b3b867d46e577a035e0",
+              "status": "good"
+            },
+            {
+              "filename": "dr21ma2.2d",
+              "size": 16777216,
+              "crc32": "702556ff",
+              "sha1": "c95defd5fd6a9b406fc8d8f28ecfab732ef1ff42",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2001",
+      "set": "mrdrilrg",
+      "parent": null,
+      "machine": "ns10_mrdrilrg",
+      "input": "mrdrilr2",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Mr. Driller G (Japan, DRG1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "mrdrilrg",
+      "crypto_profile_source": "machine:ns10_mrdrilrg",
+      "rom_set": "mrdrilrg",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "4b61ac62",
+              "sha1": "b91076ce3d99fbe1f9247c66a577af3c3d468b20",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "c87b5e86",
+              "sha1": "b034210da30e1f2f7d04f77e00bf7724437e2024",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "2.7e",
+              "size": 17301504,
+              "crc32": "e0a9339f",
+              "sha1": "4284e7233876cfaf8021440d78ccc8c70d00cc00",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2003",
+      "set": "nflclsfb",
+      "parent": null,
+      "machine": "ns10_nflclsfb",
+      "input": "nflclsfb",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Metro",
+      "description": "NFL Classic Football (US, NCF3 Ver.A.)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "nflclsfb",
+      "crypto_profile_source": "machine:ns10_nflclsfb",
+      "rom_set": "nflclsfb",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "97ac7216",
+              "sha1": "0f3383e5df534daf899fd6d40d1932d7ace78217",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "d3f519d8",
+              "sha1": "60d5f2fafd700e39245bed17e3cc6d608cc2c088",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "2.7e",
+              "size": 17301504,
+              "crc32": "0c65fdc2",
+              "sha1": "fa5d41a7b10ae8f8d312b61cc6d34408123bda97",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "3.7d",
+              "size": 17301504,
+              "crc32": "0a4e601d",
+              "sha1": "9c302a0b5aaf7046390982e62092b867c3a534a5",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 4,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "nicetsuk",
+      "parent": null,
+      "machine": "ns10_nicetsuk",
+      "input": "nicetsuk",
+      "state": "namcos10_memp3_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco / Metro",
+      "description": "Tsukkomi Yousei Gips Nice Tsukkomi (NTK1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(P3)",
+      "extensions": [
+        "MEM(P3) MP3/analog ROM board"
+      ],
+      "crypto_profile": "nicetsuk",
+      "crypto_profile_source": null,
+      "rom_set": "nicetsuk",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_0.2j",
+              "size": 17301504,
+              "crc32": "92b60f09",
+              "sha1": "2219c306e3241736d7141d59987becf2aa2a2baa",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_1.1j",
+              "size": 17301504,
+              "crc32": "5d5a4ca2",
+              "sha1": "b14ab6ca26236f819bd7d8bd5bbd828e36a528da",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_2.2h",
+              "size": 17301504,
+              "crc32": "df2ba95f",
+              "sha1": "8c98812bbaf4246055bdc5a171fc9f5f5c47a38b",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_3.1h",
+              "size": 17301504,
+              "crc32": "ee0c6a94",
+              "sha1": "7ee3f5e96635885a7f6abbd8e869205aa16f5f94",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_4.2f",
+              "size": 17301504,
+              "crc32": "cf9ad49e",
+              "sha1": "4aa5593bc8154bb31c5e8113e97e6384b37eec7b",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand5",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_5.1f",
+              "size": 17301504,
+              "crc32": "cf73d26b",
+              "sha1": "fe760793f21d2f9a833371dc9e76e4841d52a22f",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand6",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_6.2e",
+              "size": 17301504,
+              "crc32": "ee63d5ee",
+              "sha1": "e76d00891bb868c34a2327ccb5f968586c467b04",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand7",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ntk1vera_7.1e",
+              "size": 17301504,
+              "crc32": "5c8981e4",
+              "sha1": "5315b8a5426199c3bb08d427491d644b435bddc1",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 8,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MEM(P3) MP3/analog ROM board"
+      ]
+    },
+    {
+      "year": "2003",
+      "set": "pacmball",
+      "parent": null,
+      "machine": "ns10_pacmball",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Pacman BALL (PMB2 Ver.A.)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "pacmball",
+      "crypto_profile_source": "machine:ns10_pacmball",
+      "rom_set": "pacmball",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "7b6f814d",
+              "sha1": "728167866d9350150b5fd9ebcf8fe7280efedb91",
+              "status": "bad_dump"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "f79d7199",
+              "sha1": "4ef9b758ee778e12f7fef717e063597299fb8219",
+              "status": "bad_dump"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "panikuru",
+      "parent": null,
+      "machine": "ns10_panikuru",
+      "input": "namcos10",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Panikuru Panekuru (Japan, PPA1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "panikuru",
+      "crypto_profile_source": "machine:ns10_panikuru",
+      "rom_set": "panikuru",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "a68b0965",
+              "sha1": "037e41e80a62675ffe1c820060c8bb414fb84c30",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "18e5135d",
+              "sha1": "a7b1533a1df71be5498718e301d1c9c548551fb4",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "2.7e",
+              "size": 17301504,
+              "crc32": "cd3b25e0",
+              "sha1": "39dfebc59e71b8f1c28e718ee71032620f11440c",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2000",
+      "set": "ptblank3",
+      "parent": null,
+      "machine": "ns10_ptblank3",
+      "input": "ptblank3",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Point Blank 3 (World, GNN2 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "ptblank3",
+      "crypto_profile_source": "machine:ns10_ptblank3",
+      "rom_set": "ptblank3",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gnn2vera_0.8e",
+              "size": 17301504,
+              "crc32": "5ae03e23",
+              "sha1": "2ad9e04080a99427e3c59e0b1567b8d98109938f",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "gnn2vera_1.8d",
+              "size": 17301504,
+              "crc32": "82d2cfb5",
+              "sha1": "4b5e713a55e74a7b32b1b9b5811892df2df86256",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "decrypter:nonlinear_table",
+          "size": 191488,
+          "width": 8,
+          "endian": "native",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "ptblank3_nonlinear",
+              "size": 191488,
+              "crc32": "5997d7dd",
+              "sha1": "ab3f32fd92ee20ca3c7642686d9d8039d0b6cbc5",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "decrypter:nonlinear_table"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "MACHINE_UNEMULATED_PROTECTION",
+        "extra ROM regions: decrypter:nonlinear_table"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "puzzball",
+      "parent": null,
+      "machine": "ns10_puzzball",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Puzz Ball (Japan, PZB1 Ver.C)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "puzzball",
+      "crypto_profile_source": "machine:ns10_puzzball",
+      "rom_set": "puzzball",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "b136ad99",
+              "sha1": "033fb9d0369dc07d0747091f7721f14f8d0a3e1f",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "dc9dd8fe",
+              "sha1": "de25ef1e0a5b60a80e28bfc84f64aabe3301bbe7",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "puzzballa",
+      "parent": "puzzball",
+      "machine": "ns10_puzzball",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Puzz Ball (Japan, PZB1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "puzzball",
+      "crypto_profile_source": "machine:ns10_puzzball",
+      "rom_set": "puzzballa",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8e",
+              "size": 17301504,
+              "crc32": "0d9bac12",
+              "sha1": "f386fca5e5dd65995bb0bb04688222e0962fffd0",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0c.8d",
+              "size": 17301504,
+              "crc32": "0002794e",
+              "sha1": "44b6bcea835d3dbb6b2e85ba3ea4404e1400c4f5",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2004",
+      "set": "sekaikh",
+      "parent": null,
+      "machine": "ns10_sekaikh",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Sekai Kaseki Hakken (Japan, SKH1 Ver.B)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "sekaikh",
+      "crypto_profile_source": "machine:ns10_sekaikh",
+      "rom_set": "sekaikh",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "b0cc4a4f",
+              "sha1": "41974931901090811e07f18c04e2af853c308f88",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "65c4a8b4",
+              "sha1": "c7fefc32604bb47519a05cdb6c8b0f50034e0efd",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "exio:nvram",
+          "size": 32768,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m48z35y.ic11",
+              "size": 32768,
+              "crc32": "e0e52ffc",
+              "sha1": "557490e2f286773a945851f44ed0214de731cd75",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "exio:nvram"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING",
+        "extra ROM regions: exio:nvram"
+      ]
+    },
+    {
+      "year": "2004",
+      "set": "sekaikha",
+      "parent": "sekaikh",
+      "machine": "ns10_sekaikh",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Sekai Kaseki Hakken (Japan, SKH1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "sekaikh",
+      "crypto_profile_source": "machine:ns10_sekaikh",
+      "rom_set": "sekaikha",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "0.8e",
+              "size": 17301504,
+              "crc32": "e32c36ac",
+              "sha1": "d762723b6ecf65c8cb7c85c25d9a1fbbcdcfd27a",
+              "status": "bad_dump"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "1.8d",
+              "size": 17301504,
+              "crc32": "7cb38ece",
+              "sha1": "e21fbc9ff09ca51e1857e32318b95107ae4b3f0b",
+              "status": "bad_dump"
+            }
+          ]
+        },
+        {
+          "tag": "exio:nvram",
+          "size": 32768,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "m48z35y.ic11",
+              "size": 32768,
+              "crc32": "e0e52ffc",
+              "sha1": "557490e2f286773a945851f44ed0214de731cd75",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [
+        "exio:nvram"
+      ],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING",
+        "extra ROM regions: exio:nvram"
+      ]
+    },
+    {
+      "year": "2003",
+      "set": "slotouji",
+      "parent": null,
+      "machine": "ns10_slotouji",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Slot no Oujisama / Slot Prince (Japan, SLO1 Ver. B)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "slotouji",
+      "crypto_profile_source": "machine:ns10_slotouji",
+      "rom_set": "slotouji",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8e",
+              "size": 17301504,
+              "crc32": "26bbbd8c",
+              "sha1": "3976e6fe98d6f6e7b5af99825db7c3c46233ce2c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8d",
+              "size": 17301504,
+              "crc32": "7f3744fe",
+              "sha1": "5ad4d700a274a4d5b87dff3706a9b958c1aa4763",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING",
+        "MACHINE_UNEMULATED_PROTECTION"
+      ]
+    },
+    {
+      "year": "2003",
+      "set": "slotoujia",
+      "parent": "slotouji",
+      "machine": "ns10_slotouji",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Slot no Oujisama / Slot Prince (Japan, SLO1 Ver. A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_CONTROLS | MACHINE_IMPERFECT_SOUND | MACHINE_UNEMULATED_PROTECTION",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "slotouji",
+      "crypto_profile_source": "machine:ns10_slotouji",
+      "rom_set": "slotoujia",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8e",
+              "size": 17301504,
+              "crc32": "9c64859f",
+              "sha1": "b0609744f37ca16e4a5c5f2c5e6e1fb16357f634",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8d",
+              "size": 17301504,
+              "crc32": "70ba4025",
+              "sha1": "8957dc0c56a385534d65b793592d40fdeebb1230",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING",
+        "MACHINE_UNEMULATED_PROTECTION"
+      ]
+    },
+    {
+      "year": "2003",
+      "set": "squizchs",
+      "parent": null,
+      "machine": "ns10_squizchs",
+      "input": "squizchs",
+      "state": "namcos10_memp3_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Seishun-Quiz Colorful High School (CHS1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(P3)",
+      "extensions": [
+        "MEM(P3) MP3/analog ROM board"
+      ],
+      "crypto_profile": "squizchs",
+      "crypto_profile_source": null,
+      "rom_set": "squizchs",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_0.2j",
+              "size": 17301504,
+              "crc32": "2e92071c",
+              "sha1": "51e0bf8989b8a8fdf0d915df2d2227f3e425684a",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_1.1j",
+              "size": 17301504,
+              "crc32": "85212a85",
+              "sha1": "3c8c1d1671d65d594d30da546e8f4c2dcdfca840",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_2.2h",
+              "size": 17301504,
+              "crc32": "6a6a1ee7",
+              "sha1": "6f42afbc58d9b40b152bb004fa06b096b1f9c29a",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand3",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_3.1h",
+              "size": 17301504,
+              "crc32": "b7ccfaf6",
+              "sha1": "3b5ab8fc0ccd59b4566c3d26e347f550030d0a2c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand4",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_4.2f",
+              "size": 17301504,
+              "crc32": "6623029d",
+              "sha1": "b84e2291cd15271ce8417be71a9e2e238a7d6820",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand5",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_5.1f",
+              "size": 17301504,
+              "crc32": "5f771c16",
+              "sha1": "7d48476283f6fd4c8fc754d7a312eea542d4b4ca",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand6",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_6.2e",
+              "size": 17301504,
+              "crc32": "840514fd",
+              "sha1": "5afe352c4b871b71f16c8df3f53e73985df1a270",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand7",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_7.1e",
+              "size": 17301504,
+              "crc32": "24c38637",
+              "sha1": "8b3682683fcb63c55835793e1fbfb62c8e12b61c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand8",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_8.2d",
+              "size": 17301504,
+              "crc32": "d59d87ec",
+              "sha1": "d08b6073481248555c03d32d9353c5fef972cc7b",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand9",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_9.1d",
+              "size": 17301504,
+              "crc32": "822532d8",
+              "sha1": "0cb30628761ea575ac7dfc6e68b9e6745a910146",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand10",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_10.2c",
+              "size": 17301504,
+              "crc32": "46752e59",
+              "sha1": "60b5f4a1dd83011aeed097ba8dcb05b67d55407e",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand11",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_11.1c",
+              "size": 17301504,
+              "crc32": "fc9ed471",
+              "sha1": "7e2827e5babdbcbd5cc6f3bd4165d68f3e62bc86",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand12",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_12.2b",
+              "size": 17301504,
+              "crc32": "ab786753",
+              "sha1": "99348e0a7d389e2e177f8907683a1bb12635e855",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand13",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "chs1vera_13.1b",
+              "size": 17301504,
+              "crc32": "739e3b1e",
+              "sha1": "d7a25984d939d69de11b0fea000e51fdb4759163",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 14,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MEM(P3) MP3/analog ROM board"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "startrgn",
+      "parent": null,
+      "machine": "ns10_startrgn",
+      "input": "startrgn",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Star Trigon (Japan, STT1 Ver.A)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [],
+      "crypto_profile": "startrgn",
+      "crypto_profile_source": "machine:ns10_startrgn",
+      "rom_set": "startrgn",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "stt1a_0.bin",
+              "size": 17301504,
+              "crc32": "1e090644",
+              "sha1": "a7a293e2bd9eea2eb64a492a47272d9d9ee2c724",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "stt1a_1.bin",
+              "size": 17301504,
+              "crc32": "aa527694",
+              "sha1": "a25dcbeca58a1443070848b3487a24d51d41a34b",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": true,
+      "unsupported_requirements": []
+    },
+    {
+      "year": "2002",
+      "set": "sugorotc",
+      "parent": null,
+      "machine": "ns10_sugorotic",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Sugorotic JAPAN (STJ1 Ver.C)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "sugorotic",
+      "crypto_profile_source": "machine:ns10_sugorotic",
+      "rom_set": "sugorotc",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "stj1verc_0.8e",
+              "size": 17301504,
+              "crc32": "a994fc8f",
+              "sha1": "58ea3f7576e07ade0be71058705baf7ec348e55b",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "stj1verc_1.8d",
+              "size": 17301504,
+              "crc32": "a7a20960",
+              "sha1": "72bc89637f966fe23a84c34346be3cdc20d712e5",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "sugorotca",
+      "parent": "sugorotc",
+      "machine": "ns10_sugorotic",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Sugorotic JAPAN (STJ1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "sugorotic",
+      "crypto_profile_source": "machine:ns10_sugorotic",
+      "rom_set": "sugorotca",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8e",
+              "size": 17301504,
+              "crc32": "7171f8b9",
+              "sha1": "e6cb0641b71a6a6a0ab72f7260d7b5a63c7c4805",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8d",
+              "size": 17301504,
+              "crc32": "072bd579",
+              "sha1": "cd763bc553da6ce30f5207b1895eb5403f085406",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "sugorotcb",
+      "parent": "sugorotc",
+      "machine": "ns10_sugorotic",
+      "input": "mgexio_medal",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Sugorotic JAPAN (STJ1 Ver.B)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "MGEXIO"
+      ],
+      "crypto_profile": "sugorotic",
+      "crypto_profile_source": "machine:ns10_sugorotic",
+      "rom_set": "sugorotcb",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8e",
+              "size": 17301504,
+              "crc32": "4f2a62c2",
+              "sha1": "db38a2976e464c5499791150ad31d281071b7337",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "k9f2808u0b.8d",
+              "size": 17301504,
+              "crc32": "796fb7c9",
+              "sha1": "3cd8fbe115bcb3a304b49e26c0e8155391c26a98",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 2,
+      "disk_media": [],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "MGEXIO",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2001",
+      "set": "taiko2",
+      "parent": null,
+      "machine": "ns10_taiko2",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin 2 (Japan, TK21 Ver.C)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taiko2",
+      "crypto_profile_source": "machine:ns10_taiko2",
+      "rom_set": "taiko2",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk21verc_0.8e",
+              "size": 17301504,
+              "crc32": "f3842791",
+              "sha1": "3108e23cb98455e5016e7fa845ab686e89ed61e8",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk21verc_1.8d",
+              "size": 17301504,
+              "crc32": "e294f460",
+              "sha1": "a22d553215d7e109c03af8bd0edb962fdcede5dc",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk21verc_2.7e",
+              "size": 17301504,
+              "crc32": "f1dbe387",
+              "sha1": "8ae5f3b659acec150d89af2a14fc2dec8c3b1643",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "nm-002"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "taiko3",
+      "parent": null,
+      "machine": "ns10_taiko3",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin 3 (Japan, TK31 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taiko3",
+      "crypto_profile_source": "machine:ns10_taiko3",
+      "rom_set": "taiko3",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk31vera_0.8e",
+              "size": 17301504,
+              "crc32": "54add039",
+              "sha1": "7697455936b93da02c742be4afc2f67901facade",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk31vera_1.8d",
+              "size": 17301504,
+              "crc32": "384c9692",
+              "sha1": "f40602522de18b8b2dd14254221279905df6b38a",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk31vera_2.7e",
+              "size": 17301504,
+              "crc32": "904c09ee",
+              "sha1": "a81b70661e3f07a4e8f7cb5c2be6c2c526ce27c3",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "nm-003"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2002",
+      "set": "taiko4",
+      "parent": null,
+      "machine": "ns10_taiko4",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin 4 (Japan, TK41 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taiko4",
+      "crypto_profile_source": "machine:ns10_taiko4",
+      "rom_set": "taiko4",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk41vera_0.8e",
+              "size": 17301504,
+              "crc32": "6dc209b1",
+              "sha1": "406a4c9e4bee9d4353d8847d7916ad459da9e089",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk41vera_1.8d",
+              "size": 17301504,
+              "crc32": "0d1731d8",
+              "sha1": "b1e30fd2a4f1034325b9745f8c371d918413d03c",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk41vera_2.7e",
+              "size": 17301504,
+              "crc32": "6fc63af0",
+              "sha1": "78bac0a11497d5cdfba17fb0ff4d6916349df527",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "tk-41"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2003",
+      "set": "taiko5",
+      "parent": null,
+      "machine": "ns10_taiko5",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin 5 (Japan, TK51 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taiko5",
+      "crypto_profile_source": "machine:ns10_taiko5",
+      "rom_set": "taiko5",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk51vera_0.8e",
+              "size": 17301504,
+              "crc32": "e2c9e74a",
+              "sha1": "0eb27c0ddd7f389711fece1bb705a03171ba2e87",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk51vera_1.8d",
+              "size": 17301504,
+              "crc32": "63ffbcaa",
+              "sha1": "8cdef91605d76e1f9b8a72e0bce793f3e7da31e7",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk51vera_2.7e",
+              "size": 17301504,
+              "crc32": "1f419247",
+              "sha1": "93e624107b614bd30b18f6bac0422e64ad467742",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "tk-5"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2004",
+      "set": "taiko6",
+      "parent": null,
+      "machine": "ns10_taiko6",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin 6 (Japan, TK61 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taiko6",
+      "crypto_profile_source": "machine:ns10_taiko6",
+      "rom_set": "taiko6",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk61vera_0.8e",
+              "size": 17301504,
+              "crc32": "a07936c6",
+              "sha1": "a9e02f4f3d901def294a7b4758f2e7d2397aaf68",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk61vera_1.8d",
+              "size": 17301504,
+              "crc32": "288fb1aa",
+              "sha1": "0ff6b608f2540cd993a443b0d2c74567e9af5b10",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tk61vera_2.7e",
+              "size": 17301504,
+              "crc32": "550bb6a1",
+              "sha1": "466ff7d5a8a06cdddbb1976ca05ccfd34c0851fd",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "tk-6"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    },
+    {
+      "year": "2004",
+      "set": "taikort",
+      "parent": null,
+      "machine": "ns10_taikort",
+      "input": "taiko",
+      "state": "namcos10_memn_state",
+      "init": "memn_driver_init",
+      "rotation": "ROT0",
+      "manufacturer": "Namco",
+      "description": "Taiko no Tatsujin RT: Nippon no Kokoro (Japan, TKN1 Ver.A)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_type": "MEM(N)",
+      "extensions": [
+        "EXIO"
+      ],
+      "crypto_profile": "taikort",
+      "crypto_profile_source": "machine:ns10_taikort",
+      "rom_set": "taikort",
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 4194304,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": []
+        },
+        {
+          "tag": "nand0",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tkn1vera_0.8e",
+              "size": 17301504,
+              "crc32": "8d4a0234",
+              "sha1": "25128ba304a4f89e83720912b756854d370e8af3",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand1",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tkn1vera_1.8d",
+              "size": 17301504,
+              "crc32": "66ac3551",
+              "sha1": "91b5af4c9ce0e1e9da0435d31d055eea41cde04d",
+              "status": "good"
+            }
+          ]
+        },
+        {
+          "tag": "nand2",
+          "size": 17301504,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tkn1vera_2.7e",
+              "size": 17301504,
+              "crc32": "ac0b5f03",
+              "sha1": "f617a5bf4589edef8e1cef527dd0308be1ca9a46",
+              "status": "good"
+            }
+          ]
+        }
+      ],
+      "rom_files": 3,
+      "disk_media": [
+        "tk-n"
+      ],
+      "no_dump_files": [],
+      "extra_rom_regions": [],
+      "runtime_candidate": false,
+      "unsupported_requirements": [
+        "EXIO",
+        "CHD/disc media",
+        "MACHINE_NOT_WORKING"
+      ]
+    }
+  ]
+}
