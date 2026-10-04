@@ -50,6 +50,12 @@ extern "C" {
 #define HW_DMA4_BCR  (psxHu32ref(0x10c4))
 #define HW_DMA4_CHCR (psxHu32ref(0x10c8))
 
+#ifdef PCSX_SYSTEM12
+#define HW_DMA5_MADR (psxHu32ref(0x10d0)) // Namco ROM DMA
+#define HW_DMA5_BCR  (psxHu32ref(0x10d4))
+#define HW_DMA5_CHCR (psxHu32ref(0x10d8))
+#endif
+
 #define HW_DMA6_MADR (psxHu32ref(0x10e0)) // GPU DMA (OT)
 #define HW_DMA6_BCR  (psxHu32ref(0x10e4))
 #define HW_DMA6_CHCR (psxHu32ref(0x10e8))
@@ -89,6 +95,9 @@ void psxHwWriteChcr1(u32 value);
 void psxHwWriteChcr2(u32 value);
 void psxHwWriteChcr3(u32 value);
 void psxHwWriteChcr4(u32 value);
+#ifdef PCSX_SYSTEM12
+void psxHwWriteChcr5(u32 value);
+#endif
 void psxHwWriteChcr6(u32 value);
 void psxHwWriteDmaPcr32(u32 value);
 void psxHwWriteDmaIcr32(u32 value);

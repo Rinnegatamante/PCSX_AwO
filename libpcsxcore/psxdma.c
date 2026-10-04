@@ -23,6 +23,21 @@
 
 #include "psxdma.h"
 #include "gpu.h"
+#ifdef PCSX_SYSTEM12
+#include "system10.h"
+#include "system12.h"
+
+void psxDma5(u32 madr, u32 bcr, u32 chcr)
+{
+	if (system10_active()) {
+		if (!system10_dma5(madr, bcr, chcr)) {
+			psxHu32ref(0x10d8) &= SWAPu32(~0x11000000u);
+			DMA_INTERRUPT(5);
+		}
+	}
+	else if (system12_active()) system12_dma5(madr, bcr, chcr);
+}
+#endif
 
 #ifndef min
 #define min(a, b) ((b) < (a) ? (b) : (a))
@@ -200,7 +215,7 @@ void psxDma2(u32 madr, u32 bcr, u32 chcr) { // GPU
 				do_walking = Config.hacks.gpu_slow_list_walking;
 			madr_next_p = do_walking ? &madr_next : NULL;
 
-			cycles_sum = GPU_dmaChain((u32 *)psxRegs.ptrs.psxM, madr & 0x1fffff,
+			cycles_sum = GPU_dmaChain((u32 *)psxRegs.ptrs.psxM, madr & PSX_RAM_MASK,
 					madr_next_p, &cycles_last_cmd);
 
 			HW_DMA2_MADR = SWAPu32(madr_next);
@@ -235,7 +250,7 @@ void gpuInterrupt() {
 		do {
 			cycles_sum += cycles_last_cmd;
 			cycles_sum += GPU_dmaChain((u32 *)psxRegs.ptrs.psxM,
-					madr_next & 0x1fffff, &madr_next, &cycles_last_cmd);
+					madr_next & PSX_RAM_MASK, &madr_next, &cycles_last_cmd);
 		}
 		while (cycles_sum <= 0 && !(madr_next & 0x800000));
 		HW_DMA2_MADR = SWAPu32(madr_next);

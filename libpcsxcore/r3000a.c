@@ -25,6 +25,13 @@
 #include "cdrom.h"
 #include "mdec.h"
 #include "gte.h"
+#ifdef PCSX_SYSTEM12
+#include "system12.h"
+#include "system11.h"
+#include "system10.h"
+#include "systemzn.h"
+#include "systemtaito.h"
+#endif
 #include "psxinterpreter.h"
 #include "psxbios.h"
 #include "psxevents.h"
@@ -87,6 +94,29 @@ void psxReset() {
 
 	padReset();
 	psxHwReset();
+
+#ifdef PCSX_SYSTEM12
+	if (systemtaito_active()) {
+		systemtaito_reset();
+		return;
+	}
+	if (systemzn_active()) {
+		systemzn_reset();
+		return;
+	}
+	if (system10_active()) {
+		system10_reset();
+		return;
+	}
+	if (system11_active()) {
+		system11_reset();
+		return;
+	}
+	if (system12_active()) {
+		system12_reset();
+		return;
+	}
+#endif
 	psxBiosInit();
 
 	if (!Config.HLE) {

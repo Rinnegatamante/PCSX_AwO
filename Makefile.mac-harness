@@ -1,0 +1,147 @@
+# Native Apple Silicon headless core + GPU_NEON; does not use config.mak.
+CC := xcrun clang
+.DEFAULT_GOAL := all
+CXX := xcrun clang++
+BUILD ?= build/mac-harness
+TARGET := $(BUILD)/pcsx-harness
+BOARD ?= 1
+HAVE_CHD ?= 1
+CFLAGS := -arch arm64 -O2 -g -std=gnu99 -Wall -Wno-unknown-pragmas \
+  -I$(BUILD) -Iinclude -Ifrontend -include stdio.h -DDRC_DISABLE -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD \
+  -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP -DP_HAVE_MMAP=1 \
+  -DP_HAVE_POSIX_MEMALIGN=1 -DDISABLE_MEM_LUTS=0 \
+  -ffunction-sections -fdata-sections
+CORE := cdriso cdrom cdrom-async cheat database decode_xa mdec misc plugins ppf \
+  psxbios psxcommon psxcounters psxdma psxhw psxinterpreter psxmem psxevents \
+  r3000a sio spu gpu pad gte gte_nf gte_divider
+SOURCES := $(addprefix libpcsxcore/,$(addsuffix .c,$(CORE))) \
+  libpcsxcore/new_dynarec/emu_if.c \
+  plugins/dfsound/dma.c plugins/dfsound/freeze.c plugins/dfsound/registers.c \
+  plugins/dfsound/spu.c plugins/dfsound/out.c plugins/dfsound/nullsnd.c \
+  plugins/gpulib/gpu.c plugins/gpulib/vout_pl.c plugins/gpulib/prim.c \
+  plugins/gpu_neon/psx_gpu_if.c plugins/gpu_neon/psx_gpu/psx_gpu_simd.c \
+  frontend/plugin.c frontend/mac_harness.c frontend/mac_harness_gpu.c
+ifeq ($(HAVE_CHD),1)
+include tools/mac-harness/libchdr.mk
+CFLAGS += -DHAVE_CHD $(LIBCHDR_CFLAGS)
+SOURCES += $(LIBCHDR_SOURCES)
+endif
+ifeq ($(BOARD),1)
+SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c libpcsxcore/systemzn.c libpcsxcore/systemtaito.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/serial_nvram.c \
+  libpcsxcore/arcade/namcos11_board.c libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/pcm_wav.c \
+  libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/nor_flash.c \
+  libpcsxcore/arcade/zn_board.c libpcsxcore/arcade/zn_mcu.c libpcsxcore/arcade/cat702.c \
+  libpcsxcore/arcade/psx_sio.c libpcsxcore/arcade/capcom_zn.c \
+  libpcsxcore/arcade/taito_fx1.c libpcsxcore/arcade/taito_sound_comm.c libpcsxcore/arcade/mb3773.c
+CXXSOURCES := libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
+  libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_board.cpp \
+  libpcsxcore/arcade/z80.cpp libpcsxcore/arcade/qsound_hle.cpp \
+  libpcsxcore/arcade/ym2610.cpp libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
+  libpcsxcore/arcade/ymfm/ymfm_ssg.cpp libpcsxcore/arcade/ymfm/ymfm_adpcm.cpp
+ifeq ($(HAVE_CHD),1)
+CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp
+endif
+CFLAGS += -DPCSX_SYSTEM12
+endif
+OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o)) $(LIBCHDR_EXTRA_OBJECTS)
+
+.PHONY: all clean smoke board-test system11-test system10-test capcom-zn-test taito-fx1-test gpu-type1-test devices-test FORCE
+all: $(TARGET)
+$(TARGET): $(OBJECTS)
+	$(CXX) -arch arm64 -Wl,-dead_strip -o $@ $^ -lz -lm
+$(BUILD)/revision.h:
+	@mkdir -p $(BUILD)
+	@echo '#define REV "mac-harness"' > $@
+$(BUILD)/compile-flags.txt: FORCE
+	@mkdir -p $(BUILD)
+	@printf '%s\n' '$(CC) $(CFLAGS)' > $@.tmp
+	@cmp -s $@.tmp $@ || cp $@.tmp $@
+	@rm -f $@.tmp
+$(BUILD)/%.o: %.c $(BUILD)/revision.h $(BUILD)/compile-flags.txt
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BUILD)/%.o: %.cpp $(BUILD)/revision.h $(BUILD)/compile-flags.txt
+	@mkdir -p $(dir $@)
+	$(CXX) $(filter-out -std=gnu99,$(CFLAGS)) -std=c++17 -MMD -MP -c $< -o $@
+smoke: $(TARGET)
+	python3 tools/mac-harness/make_smoke.py $(BUILD)/smoke.exe
+	$(TARGET) --exe $(BUILD)/smoke.exe --frames 3 --output $(BUILD)/smoke.ppm --verify-smoke
+gpu-type1-test: $(TARGET)
+	$(TARGET) --gpu-type1-test
+	$(TARGET) --gpu-type1-test-1m
+board-test: $(TARGET)
+	python3 tests/check_system12_harness.py --harness $(TARGET)
+system11-test: $(TARGET)
+	python3 tests/check_system11_harness.py --harness $(TARGET)
+system10-test: $(TARGET)
+	python3 tests/check_system10_harness.py --harness $(TARGET)
+capcom-zn-test: $(TARGET)
+	python3 tests/check_capcom_zn_harness.py --harness $(TARGET)
+taito-fx1-test: $(TARGET)
+	python3 tests/check_taito_fx1_harness.py --harness $(TARGET)
+libpcsxcore/arcade/capcom_zn_profiles.inc: scripts/capcom_zn_boards.json scripts/generate_capcom_zn_profiles.py
+	python3 scripts/generate_capcom_zn_profiles.py
+libpcsxcore/arcade/taito_fx1_profiles.inc: scripts/taito_fx1_boards.json scripts/generate_taito_fx1_profiles.py
+	python3 scripts/generate_taito_fx1_profiles.py
+libpcsxcore/arcade/system11_profiles.inc: scripts/system11_boards.json scripts/generate_system11_profiles.py
+	python3 scripts/generate_system11_profiles.py
+libpcsxcore/arcade/system10_profiles.inc: scripts/system10_boards.json scripts/generate_system10_profiles.py
+	python3 scripts/generate_system10_profiles.py
+libpcsxcore/arcade/system11_inputs.inc: scripts/generate_system11_inputs.py
+	python3 scripts/generate_system11_inputs.py
+$(BUILD)/test-c352: tests/test_c352.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/c352.h
+	@mkdir -p $(BUILD)
+	$(CC) -arch arm64 -O2 -std=c99 -Wall -Wextra -Werror tests/test_c352.c libpcsxcore/arcade/c352.c -o $@
+$(BUILD)/test-serial: tests/test_serial_nvram.c libpcsxcore/arcade/serial_nvram.c libpcsxcore/arcade/serial_nvram.h
+	@mkdir -p $(BUILD)
+	$(CC) -arch arm64 -O2 -std=c99 -Wall -Wextra -Werror tests/test_serial_nvram.c libpcsxcore/arcade/serial_nvram.c -o $@
+$(BUILD)/test-cat702: tests/test_cat702.c libpcsxcore/arcade/cat702.c libpcsxcore/arcade/cat702.h
+	@mkdir -p $(BUILD)
+	$(CC) -arch arm64 -O2 -std=c99 -Wall -Wextra -Werror tests/test_cat702.c libpcsxcore/arcade/cat702.c -o $@
+$(BUILD)/test-nor-flash: tests/test_nor_flash.c libpcsxcore/arcade/nor_flash.c libpcsxcore/arcade/nor_flash.h
+	@mkdir -p $(BUILD)
+	$(CC) -arch arm64 -O2 -std=c99 -Wall -Wextra -Werror tests/test_nor_flash.c libpcsxcore/arcade/nor_flash.c -o $@
+devices-test: $(BUILD)/test-nor-flash $(BUILD)/test-c352 $(BUILD)/test-serial $(BUILD)/test-cat702
+	$(BUILD)/test-c352
+	$(BUILD)/test-serial
+	$(BUILD)/test-cat702
+	$(BUILD)/test-nor-flash
+	$(MAKE) -f tests/Makefile.h8 BUILD=$(BUILD)/h8-tests test
+	$(MAKE) -f tests/Makefile.namcos10-crypto BUILD=$(BUILD)/namcos10-tests test
+	$(MAKE) -f tests/Makefile.namcos10-board BUILD=$(BUILD)/namcos10-board-tests test
+	$(MAKE) -f tests/Makefile.namcos10-io BUILD=$(BUILD)/namcos10-io-tests test
+	$(MAKE) -f tests/Makefile.konami-security BUILD=$(BUILD)/konami-security-tests test
+	$(MAKE) -f tests/Makefile.m37710 BUILD=$(BUILD)/m37710-tests test
+	$(MAKE) -f tests/Makefile.namcos11-board BUILD=$(BUILD)/namcos11-tests test
+	$(MAKE) -f tests/Makefile.zn-board BUILD=$(BUILD)/zn-tests test
+	$(MAKE) -f tests/Makefile.zn-mcu BUILD=$(BUILD)/zn-mcu-tests test
+	$(MAKE) -f tests/Makefile.psx-sio BUILD=$(BUILD)/psx-sio-tests test
+	$(MAKE) -f tests/Makefile.at28c16 BUILD=$(BUILD)/at28c16-tests test
+	$(MAKE) -f tests/Makefile.z80 BUILD=$(BUILD)/z80-tests test
+	$(MAKE) -f tests/Makefile.capcom-zn BUILD=$(BUILD)/capcom-zn-tests test
+	$(MAKE) -f tests/Makefile.dsp16 BUILD=$(BUILD)/dsp16-tests test
+	$(MAKE) -f tests/Makefile.qsound BUILD=$(BUILD)/qsound-tests test
+	$(MAKE) -f tests/Makefile.qsound_hle BUILD=$(BUILD)/qsound-hle-tests test
+	$(MAKE) -f tests/Makefile.taito-sound-comm BUILD=$(BUILD)/taito-sound-comm-tests test
+	$(MAKE) -f tests/Makefile.ym2610 BUILD=$(BUILD)/ym2610-tests test
+	$(MAKE) -f tests/Makefile.mb3773 BUILD=$(BUILD)/mb3773-tests test
+	$(MAKE) -f tests/Makefile.taito-fx1 BUILD=$(BUILD)/taito-fx1-tests test
+	$(MAKE) -f tests/Makefile.ncr53cf96 BUILD=$(BUILD)/ncr53cf96-tests test
+	$(MAKE) -f tests/Makefile.zsg2 BUILD=$(BUILD)/zsg2-tests test
+	$(MAKE) -f tests/Makefile.k056800 BUILD=$(BUILD)/k056800-tests test
+	$(MAKE) -f tests/Makefile.eeprom93c46 BUILD=$(BUILD)/eeprom93c46-tests test
+	$(MAKE) -f tests/Makefile.nscsi BUILD=$(BUILD)/nscsi-tests test
+	$(MAKE) -f tests/Makefile.k054539 BUILD=$(BUILD)/k054539-tests test
+	$(MAKE) -f tests/Makefile.i8251 BUILD=$(BUILD)/i8251-tests test
+	$(MAKE) -f tests/Makefile.mb89371 BUILD=$(BUILD)/mb89371-tests test
+	$(MAKE) -f tests/Makefile.nscsi-hd BUILD=$(BUILD)/nscsi-hd-tests test
+	$(MAKE) -f tests/Makefile.nscsi-cd BUILD=$(BUILD)/nscsi-cd-tests test
+	$(MAKE) -f tests/Makefile.m68000 BUILD=$(BUILD)/m68000-tests CXX='$(CXX)' test
+ifeq ($(HAVE_CHD),1)
+	$(MAKE) -f tests/Makefile.chd-hd BUILD=$(BUILD)/chd-hd-tests test
+	$(MAKE) -f tests/Makefile.chd-scsi-hd BUILD=$(BUILD)/chd-scsi-hd-tests test
+endif
+	python3 -m unittest discover -s tests
+clean:
+	rm -rf $(BUILD)
+-include $(OBJECTS:.o=.d)

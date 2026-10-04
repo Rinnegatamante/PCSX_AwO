@@ -1,0 +1,173 @@
+# Native macOS ARM64 harness
+
+This dependency-light frontend runs PCSX ReARMed's R3000A interpreter and the
+existing GPU_NEON rasterizer on Apple Silicon. The rasterizer's C SIMD backend
+uses ARM NEON intrinsics and produces ARM64 Advanced SIMD instructions; it does
+not use the 32-bit ARM assembly backend. Sound emulation uses dfsound with its
+null output driver. Install Xcode command-line tools and Python 3. CHD support
+uses the repository's pinned `libchdr` submodule; initialize it before building.
+No SDL, libretro frontend or BIOS download is required.
+
+From the repository root:
+
+```sh
+git submodule update --init deps/libchdr
+make -f Makefile.mac-harness -j8
+make -f Makefile.mac-harness smoke
+make -f Makefile.mac-harness gpu-type1-test board-test system11-test devices-test
+build/mac-harness/pcsx-harness --exe build/mac-harness/smoke.exe \
+  --frames 60 --output build/mac-harness/frame.ppm --verify-smoke
+```
+
+`HAVE_CHD=0` builds without the CHD reader and without that submodule. Changing
+the option automatically rebuilds objects. The default CHD build uses system
+zlib and libchdr's pinned LZMA, FLAC, Huffman and Zstandard decoders, with raw
+CD sectors, subcode and block CRC verification enabled on ARM64.
+`devices-test` includes [real generated CHD HDD tests](../../docs/chd-hd-backing.md)
+when CHD is enabled; that test requires MAME's `chdman` utility. The native
+arcade disk backing is available as a component; mounted SCSI board execution
+remains pending.
+
+`gpu-type1-test` checks both 1024-row and 512-row type-1 VRAM geometries.
+Run `build/mac-harness/pcsx-harness --gpu-type1-test-1m` for the 1 MiB case
+alone. Both cases check command fields and fixed MAME-derived interleaved
+texture vectors; the diagnostic restores its VRAM pixels and resets GPU
+registers before a board guest runs.
+
+`BOARD=0` builds only the ordinary PS-X EXE path. The default `BOARD=1` includes
+the experimental System 11 and System 12 adapters and type-1 GPU diagnostics. Changing this option
+automatically rebuilds objects. The separate build directory and flags do not
+change `config.mak` or existing frontend builds.
+
+The synthetic smoke executable is generated locally from 63 MIPS instructions.
+It writes normal GPU MMIO commands to enable a 320×240 display, clear a blue
+background, draw a yellow triangle, and write a RAM sentinel. `--verify-smoke`
+checks two exact BGR555 pixels and that sentinel. These checks verify CPU
+execution, memory-mapped GPU access, command dispatch, and rasterization.
+
+To boot an assembled System 12 ROM region directory:
+
+```sh
+build/mac-harness/pcsx-harness --system12 artifacts/system12 \
+  --board-test --frames 1200 --output artifacts/system12/frame.ppm \
+  --trace artifacts/system12/trace.csv --trace-blocks 1000
+```
+
+The region directory is prepared by the System 12 ROM tooling and contains
+`main.bin`, `banked.bin`, `sub.bin`, and `wave.bin`. The board test runs after
+core reset, before CPU execution. Board initialization precedes `psxInit()`;
+the board module owns reset behavior and the memory map. Its final report is
+printed after CPU execution. Missing H8 execution or board peripherals are
+reported by that module; a completed harness run does not imply a working game.
+
+System 11 directories prepared with `scripts/prepare_system11_board.py` use
+`--system11` and include `c76.bin` plus the separate verified `c76bios.bin`.
+The loader selects the registered COH-100/110 profile, 4 MiB RAM and GPU1/2,
+and maps all eight executable bank windows. `system11-test` runs generated
+MIPS and C76 ROMs, checks guest execution from each bank, input/ADC forwarding
+and instruction-programmed nonzero C352 audio. Real System 11 game boot is
+not yet verified.
+
+JAMMA inputs can be scheduled by emulated frame with `--inputs FILE.csv`.
+Frames are zero-based from the start of the requested run; controls stay held
+until another row changes them. The ordered CSV has `frame,control,pressed`
+columns, where `pressed` is `1` or `0`. Accepted controls are `coin1`, `coin2`,
+`service`, `test`, and `p1`/`p2` plus `start`, `up`, `down`, `left`, `right`, or
+`button1` through `button8`. System 11 also accepts `coin3`/`coin4`, player
+3/4 controls and `dip1_test`/`dip2_freeze` where its specific MAME input layout
+defines them. Its extra Tekken/Soul Edge buttons use the real ADC/PLAYER4
+wiring. Undefined controls for a board fail explicitly. Raw paddle, pedal
+and gun coordinates retain the MAME defaults; the CSV exposes boolean controls.
+For example:
+
+```csv
+frame,control,pressed
+2000,coin1,1
+2020,coin1,0
+2100,p1start,1
+2120,p1start,0
+```
+
+Omitting `--inputs` leaves all controls released. On boards using the JAMMA
+interface, the harness maps JVS-style controls to the four active-low bytes at
+H8 sub-bus address `0x300000` using MAME's `in_r` wiring.
+
+`--audio FILE.wav` records the board C352's generated front-left/front-right
+mix as stereo PCM16 at 88.2 kHz. The WAV header is finalized after emulation;
+this is captured C352 output and does not use the console SPU. For example:
+
+```sh
+build/mac-harness/pcsx-harness --system12 artifacts/system12 --frames 3600 \
+  --inputs artifacts/system12/controls.csv --audio artifacts/system12/run.wav \
+  --output artifacts/system12/run.ppm
+```
+
+For board-test validation only, add `--audio-test-fixture` to play a synthetic
+C352 sample into the WAV; it requires both `--board-test` and `--audio` and is
+never enabled for normal game runs.
+
+`--nvram FILE` imports an exact 2080-byte AT28C16 image (2048 data bytes plus
+32 ID bytes) before execution on System 11/12, Capcom ZN and Taito FX1S. A missing file starts with the
+device's erased state. A successful run writes the image via an atomic rename;
+faults, malformed images and interrupted runs leave an existing file intact.
+The image stores persistent cells, not pending write timers or a save state.
+Device resets preserve EEPROM data and an in-flight 200 microsecond write.
+
+Execution is limited by the requested emulated vsync count, with cycle and block
+caps for boots that stop producing vsync. CPU quanta end at a taken branch or
+4096 calls to the core's public interpreter step; this keeps branchless code
+bounded while preserving branch and load-delay semantics. SIGINT and SIGTERM
+stop between steps. The optional `--max-blocks N` defaults to one billion.
+The harness prints frame, cycle, block, PC, flip and wall-time counters.
+`--icache` enables the existing PCSX interpreter instruction-cache model;
+it is off by default. System 10 tests also execute banked code with this enabled.
+
+System 10 base MEM(M)/MEM(N) packages use `--system10 REGION-DIR` with the
+[source-derived media preparer](../../docs/system10-boards.md). The native
+adapter runs with 4 MiB RAM, 2 MiB VRAM, dynamic bank fetches and NAND DMA5.
+`make -f Makefile.mac-harness system10-test` executes generated MIPS guests
+for both board types, checks input/GPU/IRQ/DMA behavior, and rejects malformed
+or unsupported profiles before execution. These fixtures do not establish
+authentic game boot. See [adapter limitations](../../docs/system10-native.md).
+Capcom ZN packages use `--capcom-zn REGION-DIR` with the
+[media preparer](../../docs/capcom-zn-boards.md). The
+[native adapter](../../docs/capcom-zn-native.md) supports source-selected
+COH1000C, COH1002C and COH3002C geometries. Its `--audio` capture is QSound
+stereo at 24,038 Hz. `make -f Makefile.mac-harness capcom-zn-test` executes
+generated MIPS/Z80 guests for banks, SIO/MCU/IRQ, inputs, EEPROM, GPU and sound,
+including instruction-cache and persistent EEPROM checks. Authentic Capcom
+game boot and mixing the mainboard SPU remain unverified.
+
+Taito FX1S packages use `--taito-fx1 REGION-DIR` with the
+[media preparer](../../docs/taito-fx1-boards.md). The
+[native adapter](../../docs/taito-fx1-native.md) runs COH1000T with 4 MiB RAM,
+1 MiB VRAM, Z80, YM2610B and the TC0140SYT sound link. Its `--audio` capture
+is stereo PCM16 at 55,555 Hz. `make -f Makefile.mac-harness taito-fx1-test`
+executes generated MIPS/Z80 guests for bank fetches with and without instruction
+cache, RAM, GPU, serial MCU/IRQ, sound packets, inputs and EEPROM persistence.
+These fixtures do not establish authentic Taito game boot or mainboard SPU mixing.
+
+The PPM saves a snapshot of the last rendered video flip, using its display
+dimensions and framebuffer origin and converting BGR555 or packed RGB24 pixels
+to RGB888 inside the callback. This preserves a completed frame even when the
+CPU stops midway through clearing or drawing the next frame. Blank callbacks
+retain the previous rendered snapshot. If no rendered frame was captured, the
+harness falls back to current VRAM. The capture log records the source, size,
+origin, format and current display-enable state. It does not scale or deinterlace
+the output. The smoke stays at 320×240 and origin (0, 0).
+
+`--trace FILE --trace-blocks N` writes a CSV containing each initial CPU block's
+cycle, PC, opcode and 32 general registers. It defaults to 1000 trace rows
+and supports up to one million; execution continues after tracing finishes.
+
+Check the executable architecture and the rasterizer instructions with:
+
+```sh
+file build/mac-harness/pcsx-harness
+xcrun llvm-objdump --disassemble \
+  build/mac-harness/plugins/gpu_neon/psx_gpu/psx_gpu_simd.o
+```
+
+Vector instructions such as `smull.4s`, `smlsl.4s`, `add.4s`, and `abs.4s`
+demonstrate that the compiled rasterizer uses NEON. The frontend also refuses to
+compile unless Apple ARM64 and ARM NEON are enabled.

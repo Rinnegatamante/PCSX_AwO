@@ -33,6 +33,9 @@ extern "C" {
 void psxDma2(u32 madr, u32 bcr, u32 chcr);
 void psxDma3(u32 madr, u32 bcr, u32 chcr);
 void psxDma4(u32 madr, u32 bcr, u32 chcr);
+#ifdef PCSX_SYSTEM12
+void psxDma5(u32 madr, u32 bcr, u32 chcr);
+#endif
 void psxDma6(u32 madr, u32 bcr, u32 chcr);
 void psxAbortDma2();
 void gpuInterrupt();
@@ -43,8 +46,8 @@ static inline void *getDmaRam(u32 madr, u32 *max_words)
 {
 	// this should wrap instead of limit
 	if (!(madr & 0x800000)) {
-		madr &= 0x1ffffc;
-		*max_words = (0x200000 - madr) / 4;
+		madr &= PSX_RAM_MASK & ~3u;
+		*max_words = (PSX_RAM_SIZE - madr) / 4;
 		return psxRegs.ptrs.psxM + madr;
 	}
 	return INVALID_PTR;

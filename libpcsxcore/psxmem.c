@@ -29,6 +29,14 @@
 #include "psxmem_map.h"
 #include "r3000a.h"
 #include "psxhw.h"
+#ifdef PCSX_SYSTEM12
+#include "system12.h"
+#include "system11.h"
+#include "system10.h"
+#include "systemzn.h"
+#include "systemtaito.h"
+u32 psxRamSize = 0x200000, psxRomSize = 0x80000;
+#endif
 //#include "debug.h"
 #define DebugCheckBP(...)
 
@@ -155,15 +163,15 @@ static int psxMemInitMap(void)
 {
 	u8 *ptr;
 
-	ptr = psxMap(0x80000000, 0x00210000, 1, MAP_TAG_RAM);
+	ptr = psxMap(0x80000000, (PSX_RAM_SIZE + 0x10000), 1, MAP_TAG_RAM);
 	if (ptr == MAP_FAILED)
-		ptr = psxMap(0x77000000, 0x00210000, 0, MAP_TAG_RAM);
+		ptr = psxMap(0x77000000, (PSX_RAM_SIZE + 0x10000), 0, MAP_TAG_RAM);
 	if (ptr == MAP_FAILED) {
 		SysMessage("mapping main RAM failed");
 		return -1;
 	}
 	psxRegs.ptrs.psxM = ptr;
-	psxRegs.ptrs.psxP = ptr + 0x200000;
+	psxRegs.ptrs.psxP = ptr + PSX_RAM_SIZE;
 
 	ptr = psxMap(0x1f800000, 0x10000, 0, MAP_TAG_OTHER);
 	if (ptr == MAP_FAILED) {
@@ -172,7 +180,7 @@ static int psxMemInitMap(void)
 	}
 	psxRegs.ptrs.psxH = ptr;
 
-	ptr = psxMap(0x1fc00000, 0x80000, 0, MAP_TAG_OTHER);
+	ptr = psxMap(0x1fc00000, PSX_ROM_SIZE, 0, MAP_TAG_OTHER);
 	if (ptr == MAP_FAILED) {
 		SysMessage("Error allocating psxR");
 		return -1;
@@ -184,9 +192,9 @@ static int psxMemInitMap(void)
 
 static void psxMemFreeMap(void)
 {
-	if (psxRegs.ptrs.psxM) psxUnmap(psxRegs.ptrs.psxM, 0x00210000, MAP_TAG_RAM);
+	if (psxRegs.ptrs.psxM) psxUnmap(psxRegs.ptrs.psxM, (PSX_RAM_SIZE + 0x10000), MAP_TAG_RAM);
 	if (psxRegs.ptrs.psxH) psxUnmap(psxRegs.ptrs.psxH, 0x10000, MAP_TAG_OTHER);
-	if (psxRegs.ptrs.psxR) psxUnmap(psxRegs.ptrs.psxR, 0x80000, MAP_TAG_OTHER);
+	if (psxRegs.ptrs.psxR) psxUnmap(psxRegs.ptrs.psxR, PSX_ROM_SIZE, MAP_TAG_OTHER);
 	psxRegs.ptrs.psxM = psxRegs.ptrs.psxH = psxRegs.ptrs.psxR = NULL;
 	psxRegs.ptrs.psxP = NULL;
 }
@@ -211,14 +219,14 @@ static void mapRam(int isMapped)
 	if (isMapped) {
 		u8 *ram = psxRegs.ptrs.psxM;
 		u32 i;
-		for (i = 0; i < 0x800000; i += 0x200000) {
-			lutMap(wLUT, ram, 0x200000, 0x00000000u + i, 0x00200000u + i);
-			lutMap(wLUT, ram, 0x200000, 0x80000000u + i, 0x80200000u + i);
-			lutMap(wLUT, ram, 0x200000, 0xa0000000u + i, 0xa0200000u + i);
+		for (i = 0; i < 0x800000; i += PSX_RAM_SIZE) {
+			lutMap(wLUT, ram, PSX_RAM_SIZE, 0x00000000u + i, PSX_RAM_SIZE + i);
+			lutMap(wLUT, ram, PSX_RAM_SIZE, 0x80000000u + i, 0x80000000u + PSX_RAM_SIZE + i);
+			lutMap(wLUT, ram, PSX_RAM_SIZE, 0xa0000000u + i, 0xa0000000u + PSX_RAM_SIZE + i);
 		}
 	}
 	else {
-		size_t len = (0x200000 >> PSXM_SHIFT) * sizeof(wLUT[0]);
+		size_t len = (PSX_RAM_SIZE >> PSXM_SHIFT) * sizeof(wLUT[0]);
 		//memset(rLUT + (0x00000000 >> PSXM_SHIFT), INVALID_PTR_VAL, len);
 		//memset(rLUT + (0x80000000 >> PSXM_SHIFT), INVALID_PTR_VAL, len);
 		//memset(rLUT + (0xa0000000 >> PSXM_SHIFT), INVALID_PTR_VAL, len);
@@ -264,19 +272,19 @@ int psxMemInit(void)
 	psxRegs.ptrs.memWLUT = memWLUT;
 
 	// ram
-	for (i = 0; i < 0x800000; i += 0x200000) {
+	for (i = 0; i < 0x800000; i += PSX_RAM_SIZE) {
 		u8 *ram = psxRegs.ptrs.psxM;
-		lutMap(memRLUT, ram, 0x200000, 0x00000000u + i, 0x00200000u + i);
-		lutMap(memRLUT, ram, 0x200000, 0x80000000u + i, 0x80200000u + i);
-		lutMap(memRLUT, ram, 0x200000, 0xa0000000u + i, 0xa0200000u + i);
+		lutMap(memRLUT, ram, PSX_RAM_SIZE, 0x00000000u + i, PSX_RAM_SIZE + i);
+		lutMap(memRLUT, ram, PSX_RAM_SIZE, 0x80000000u + i, 0x80000000u + PSX_RAM_SIZE + i);
+		lutMap(memRLUT, ram, PSX_RAM_SIZE, 0xa0000000u + i, 0xa0000000u + PSX_RAM_SIZE + i);
 	}
 	mapRam(1);
 
 	// bios
-	for (i = 0; i < 0x400000; i += 0x80000) {
-		lutMap(memRLUT, psxRegs.ptrs.psxR, 0x80000, 0x1fc00000u + i, 0x1fc80000u + i);
-		lutMap(memRLUT, psxRegs.ptrs.psxR, 0x80000, 0x9fc00000u + i, 0x9fc80000u + i);
-		lutMap(memRLUT, psxRegs.ptrs.psxR, 0x80000, 0xbfc00000u + i, 0xbfc80000u + i);
+	for (i = 0; i < 0x400000; i += PSX_ROM_SIZE) {
+		lutMap(memRLUT, psxRegs.ptrs.psxR, PSX_ROM_SIZE, 0x1fc00000u + i, 0x1fc00000u + PSX_ROM_SIZE + i);
+		lutMap(memRLUT, psxRegs.ptrs.psxR, PSX_ROM_SIZE, 0x9fc00000u + i, 0x9fc00000u + PSX_ROM_SIZE + i);
+		lutMap(memRLUT, psxRegs.ptrs.psxR, PSX_ROM_SIZE, 0xbfc00000u + i, 0xbfc00000u + PSX_ROM_SIZE + i);
 	}
 
 	// Don't allow writes to PIO Expansion region (psxP) to take effect.
@@ -289,6 +297,39 @@ int psxMemInit(void)
 }
 
 void psxMemReset() {
+#ifdef PCSX_SYSTEM12
+	if (systemtaito_active()) {
+		systemtaito_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+	if (systemzn_active()) {
+		systemzn_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+	if (system10_active()) {
+		system10_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+	if (system11_active()) {
+		system11_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+	if (system12_active()) {
+		system12_mem_reset();
+		if (!DISABLE_MEM_LUTS)
+			mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+#endif
 	size_t count = sizeof(Config.Bios) / sizeof(Config.Bios[0]);
 	size_t i, r = Config.PsxRegion, rret;
 	FILE *f = NULL;
@@ -354,6 +395,11 @@ void psxMemOnIsolate(int enable)
 }
 
 u8 psxMemRead8(psxRegisters *regs, u32 mem) {
+#ifdef PCSX_SYSTEM12
+	u32 board_value;
+	if (systemtaito_read(mem, 1, &board_value) || systemzn_read(mem, 1, &board_value) || system10_read(mem, 1, &board_value) || system11_read(mem, 1, &board_value) || system12_read(mem, 1, &board_value))
+		return board_value;
+#endif
 	u8 *p;
 	u32 t;
 
@@ -371,6 +417,11 @@ u8 psxMemRead8(psxRegisters *regs, u32 mem) {
 }
 
 u16 psxMemRead16(psxRegisters *regs, u32 mem) {
+#ifdef PCSX_SYSTEM12
+	u32 board_value;
+	if (systemtaito_read(mem, 2, &board_value) || systemzn_read(mem, 2, &board_value) || system10_read(mem, 2, &board_value) || system11_read(mem, 2, &board_value) || system12_read(mem, 2, &board_value))
+		return board_value;
+#endif
 	u8 *p;
 	u32 t;
 
@@ -388,6 +439,11 @@ u16 psxMemRead16(psxRegisters *regs, u32 mem) {
 }
 
 u32 psxMemRead32(psxRegisters *regs, u32 mem) {
+#ifdef PCSX_SYSTEM12
+	u32 board_value;
+	if (systemtaito_read(mem, 4, &board_value) || systemzn_read(mem, 4, &board_value) || system10_read(mem, 4, &board_value) || system11_read(mem, 4, &board_value) || system12_read(mem, 4, &board_value))
+		return board_value;
+#endif
 	u8 *p;
 	u32 t;
 
@@ -407,6 +463,10 @@ u32 psxMemRead32(psxRegisters *regs, u32 mem) {
 }
 
 void psxMemWrite8(psxRegisters *regs, u32 mem, u32 value) {
+#ifdef PCSX_SYSTEM12
+	if (systemtaito_write(mem, 1, value) || systemzn_write(mem, 1, value) || system10_write(mem, 1, value, 0xff) || system11_write(mem, 1, value) || system12_write(mem, 1, value))
+		return;
+#endif
 	u8 *p;
 	u32 t;
 
@@ -430,6 +490,10 @@ void psxMemWrite8(psxRegisters *regs, u32 mem, u32 value) {
 }
 
 void psxMemWrite16(psxRegisters *regs, u32 mem, u32 value) {
+#ifdef PCSX_SYSTEM12
+	if (systemtaito_write(mem, 2, value) || systemzn_write(mem, 2, value) || system10_write(mem, 2, value, 0xffff) || system11_write(mem, 2, value) || system12_write(mem, 2, value))
+		return;
+#endif
 	u8 *p;
 	u32 t;
 
@@ -453,6 +517,10 @@ void psxMemWrite16(psxRegisters *regs, u32 mem, u32 value) {
 }
 
 void psxMemWrite32(psxRegisters *regs, u32 mem, u32 value) {
+#ifdef PCSX_SYSTEM12
+	if (systemtaito_write(mem, 4, value) || systemzn_write(mem, 4, value) || system10_write(mem, 4, value, 0xffffffffu) || system11_write(mem, 4, value) || system12_write(mem, 4, value))
+		return;
+#endif
 	u8 *p;
 	u32 t;
 

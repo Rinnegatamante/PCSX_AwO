@@ -94,6 +94,9 @@ make_dma_func(1,)
 make_dma_func(2, psxAbortDma2())
 make_dma_func(3,)
 make_dma_func(4,)
+#ifdef PCSX_SYSTEM12
+make_dma_func(5,)
+#endif
 make_dma_func(6,)
 
 void psxHwWriteDmaPcr32(u32 value)
@@ -117,6 +120,9 @@ void psxHwWriteDmaPcr32(u32 value)
 		log_unhandled("dma2 pcr write ignored\n");
 	DO(3);
 	DO(4);
+#ifdef PCSX_SYSTEM12
+	DO(5);
+#endif
 	DO(6);
 	#undef DO
 }
@@ -375,6 +381,10 @@ void psxHwWrite16(psxRegisters *regs, u32 add, u32 value) {
 	case 0x10bc: psxHwWriteChcr3(value); return;
 	case 0x10c8: // DMA4 chcr (SPU DMA)
 	case 0x10cc: psxHwWriteChcr4(value); return;
+#ifdef PCSX_SYSTEM12
+	case 0x10d8: // DMA5 (System 12 ROM)
+	case 0x10dc: psxHwWriteChcr5(value); return;
+#endif
 	case 0x10e8: // DMA6 chcr (OT clear)
 	case 0x10ec: psxHwWriteChcr6(value); return;
 	case 0x10f0: psxHwWriteDmaPcr32(value); return;
@@ -440,6 +450,10 @@ void psxHwWrite32(psxRegisters *regs, u32 add, u32 value) {
 	case 0x10bc: psxHwWriteChcr3(value); return;
 	case 0x10c8: // DMA4 chcr (SPU DMA)
 	case 0x10cc: psxHwWriteChcr4(value); return;
+#ifdef PCSX_SYSTEM12
+	case 0x10d8: // DMA5 (System 12 ROM)
+	case 0x10dc: psxHwWriteChcr5(value); return;
+#endif
 	case 0x10e8: // DMA6 chcr (OT clear)
 	case 0x10ec: psxHwWriteChcr6(value); return;
 	case 0x10f0: psxHwWriteDmaPcr32(value); return;

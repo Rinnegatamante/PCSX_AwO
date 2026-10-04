@@ -26,6 +26,9 @@
 #include "r3000a.h"
 #include "gte.h"
 #include "psxhle.h"
+#ifdef PCSX_SYSTEM12
+#include "system10.h"
+#endif
 #include "psxinterpreter.h"
 #include <stddef.h>
 #include <assert.h>
@@ -181,6 +184,10 @@ static u32 INT_ATTR fetchNoCache(psxRegisters *regs, const uintptr_t *memRLUT, u
 {
 	const u32 *code;
 	if (!psxm_lut((u8 **)&code, regs, pc & ~0x3, 0, memRLUT)) {
+#ifdef PCSX_SYSTEM12
+		u32 word;
+		if (system10_fetch(pc & ~3u, &word)) return word;
+#endif
 		SysPrintf("game crash @%08x, ra=%08x\n", pc, regs->GPR.n.ra);
 		intException(regs, pc, R3000E_IBE << 2);
 		return 0; // execute as nop
@@ -209,6 +216,20 @@ static u32 INT_ATTR fetchICache(psxRegisters *regs, const uintptr_t *memRLUT, u3
 		{
 			const u32 *code;
 			if (!psxm_lut((u8 **)&code, regs, pc & ~0x0f, 0, memRLUT)) {
+#ifdef PCSX_SYSTEM12
+				u32 first;
+				if (system10_fetch(pc & ~3u, &first)) {
+					unsigned word;
+					entry->tag = pc;
+					entry->data[(pc & 0x0c) >> 2] = first;
+					for (word = ((pc & 0x0c) >> 2) + 1; word < 4; word++)
+						if (!system10_fetch((pc & ~0x0fu) + word * 4, &entry->data[word])) {
+							intException(regs, pc, R3000E_IBE << 2);
+							return 0;
+						}
+					return first;
+				}
+#endif
 				SysPrintf("game crash @%08x, ra=%08x\n", pc, regs->GPR.n.ra);
 				intException(regs, pc, R3000E_IBE << 2);
 				return 0; // execute as nop

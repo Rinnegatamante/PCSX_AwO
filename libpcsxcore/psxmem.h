@@ -59,13 +59,25 @@ extern "C" {
 
 #define PSXM_SHIFT 19
 
-#define psxMu8(mem)		(*(u8 *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff])
-#define psxMu16(mem)	(SWAP16(*(u16 *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff]))
-#define psxMu32(mem)	(SWAP32(*(u32 *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff]))
+/* The arcade harness selects its layout before psxInit(). Console builds keep
+ * their constant sizes, including in hot memory access paths. */
+#ifdef PCSX_SYSTEM12
+extern u32 psxRamSize, psxRomSize;
+#define PSX_RAM_SIZE psxRamSize
+#define PSX_ROM_SIZE psxRomSize
+#else
+#define PSX_RAM_SIZE 0x200000u
+#define PSX_ROM_SIZE 0x80000u
+#endif
+#define PSX_RAM_MASK (PSX_RAM_SIZE - 1)
 
-#define psxMu8ref(mem)	(*(u8  *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff])
-#define psxMu16ref(mem)	(*(u16 *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff])
-#define psxMu32ref(mem)	(*(u32 *)&psxRegs.ptrs.psxM[(mem) & 0x1fffff])
+#define psxMu8(mem)		(*(u8 *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK])
+#define psxMu16(mem)	(SWAP16(*(u16 *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK]))
+#define psxMu32(mem)	(SWAP32(*(u32 *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK]))
+
+#define psxMu8ref(mem)	(*(u8  *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK])
+#define psxMu16ref(mem)	(*(u16 *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK])
+#define psxMu32ref(mem)	(*(u32 *)&psxRegs.ptrs.psxM[(mem) & PSX_RAM_MASK])
 
 #define psxHptr_(regs, mem)    &(regs)->ptrs.psxH[(mem) & 0xffff]
 
@@ -113,12 +125,12 @@ static inline int psxm_lut(u8 **ret, const psxRegisters *regs, u32 mem, int writ
 		if (write && (regs->CP0.n.SR & (1u << 16))) // cacheIsolated
 			return 0;
 
-		*ret = regs->ptrs.psxM + (mem & 0x1fffffu);
+		*ret = regs->ptrs.psxM + (mem & PSX_RAM_MASK);
 		return 1;
 	}
 
 	if (!write && mem - 0x1fc00000u < 0x400000u) {
-		*ret = regs->ptrs.psxR + ((mem - 0x1fc00000u) & 0x7ffffu);
+		*ret = regs->ptrs.psxR + ((mem - 0x1fc00000u) & (PSX_ROM_SIZE - 1));
 		return 1;
 	}
 

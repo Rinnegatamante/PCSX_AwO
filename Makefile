@@ -572,6 +572,13 @@ endif
 ifndef NO_AUTODEPS
 $(OBJS:.o=.d): ;
 -include $(OBJS:.o=.d)
+
+# Isolated native Apple Silicon bring-up frontend (no config.mak required).
+.PHONY: mac-harness mac-smoke
+mac-harness:
+	$(MAKE) -f Makefile.mac-harness all
+mac-smoke:
+	$(MAKE) -f Makefile.mac-harness smoke
 endif
 
 .PHONY: all clean target_ plugins_ clean_plugins link_test FORCE

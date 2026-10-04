@@ -24,6 +24,9 @@
 #include "psxcounters.h"
 #include "psxevents.h"
 #include "gpu.h"
+#ifdef PCSX_SYSTEM12
+#include "system12.h"
+#endif
 //#include "debug.h"
 #define DebugVSync()
 
@@ -394,6 +397,9 @@ void psxRcntUpdate()
         {
             HW_GPU_STATUS &= SWAP32(~PSXGPU_LCF);
             GPU_vBlank( 1, 0 );
+#ifdef PCSX_SYSTEM12
+            system12_vblank(1);
+#endif
             setIrq( 0x01 );
 
             EmuUpdate();
@@ -422,6 +428,9 @@ void psxRcntUpdate()
             }
             HW_GPU_STATUS = SWAP32(status);
             GPU_vBlank(0, field);
+#ifdef PCSX_SYSTEM12
+            system12_vblank(0);
+#endif
             if ((s32)(psxRegs.gpuIdleAfter - psxRegs.cycle) < 0)
                 psxRegs.gpuIdleAfter = psxRegs.cycle - 1; // prevent overflow
 
