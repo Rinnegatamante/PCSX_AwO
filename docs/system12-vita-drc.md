@@ -31,6 +31,13 @@ BIOS is used. The standalone
 native `ari64` DRC and checks the MIPS-written RAM signature through the normal
 memory accessor; it does not inspect host CPU registers.
 
+Each install and guest launch owns a separate process group, a streaming
+bounded log capture and an independent watchdog. The watchdog enforces the
+deadline with TERM followed by KILL even if the runner stops responding.
+Completion requires this launch's exact signature and `Stopping -> Idle`;
+earlier log contents cannot satisfy it. Host crashes, late fatal diagnostics
+and a guest FAIL reject the result before the owned processes are closed.
+
 This validates synthetic CPU, memory-map, bank, SMC, DMA, and shared-MMIO paths.
 It does not validate a retail game, gameplay, or the VitaGL GPU backend.
 
@@ -39,4 +46,4 @@ Both profiles passed on the isolated M1 host built from local Vita3K
 `/tmp/pcsx-vita-system12-drc-fixed-host.log` records all expected guest results,
 88.2 kHz input converted to a 48 kHz output device, and `Stopping -> Idle` for
 each profile. The runner closed its owned processes without a host exception.
-The six runner/fixture unit checks and the M1 signature fixture also pass.
+The seven runner/fixture unit checks and the M1 signature fixture also pass.

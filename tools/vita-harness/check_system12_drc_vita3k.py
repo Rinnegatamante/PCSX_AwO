@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import tempfile
@@ -46,16 +47,6 @@ def load_fixture_module():
     return module
 
 
-def close_owned_process(process):
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-
-
 def vita3k_fatal(log):
     global _CHECKER
     if _CHECKER is None:
@@ -73,19 +64,22 @@ def load_checker_module():
     return module
 
 
-def read_log(path):
-    return path.read_text(errors="replace") if path.exists() else ""
-
-
 def run_until(process, log_path, predicate, timeout, label):
+    checker = load_checker_module()
+    class CapturedDrc(checker.CapturedSmoke):
+        ISSUE_MARKERS = checker.CapturedSmoke.ISSUE_MARKERS + (b"pcsx-vita: system12-drc FAIL",)
+
+    watchdog = checker.ProcessGroupWatchdog(process, timeout)
+    captured = CapturedDrc(process, log_path, label)
     deadline = time.monotonic() + timeout
     passed_at = None
     passed = False
+    natural_exit = False
     try:
         while time.monotonic() < deadline:
-            log = read_log(log_path)
-            if vita3k_fatal(log):
+            if any(captured.issue_counts.values()):
                 break
+            log = "\n".join(captured.messages) + "\n" + "\n".join(captured.markers)
             if predicate(log):
                 if passed_at is None:
                     passed_at = time.monotonic()
@@ -93,18 +87,21 @@ def run_until(process, log_path, predicate, timeout, label):
                     passed = process.poll() in (None, 0)
                     break
             if process.poll() is not None:
+                captured.thread.join(timeout=1)
+                log = "\n".join(captured.messages) + "\n" + "\n".join(captured.markers)
                 passed = process.returncode == 0 and predicate(log)
                 break
             time.sleep(0.05)
         else:
             print(f"Vita3K {label}: timed out; log={log_path}")
     finally:
-        returncode = process.poll()
-        if returncode is not None and returncode != 0:
-            passed = False
-        close_owned_process(process)
-    final_log = read_log(log_path)
-    return passed and not vita3k_fatal(final_log) and predicate(final_log)
+        natural_exit = process.poll() is not None
+        watchdog.close()
+        captured.close()
+    final_log = "\n".join(captured.messages) + "\n" + "\n".join(captured.markers)
+    return (passed and not watchdog.timed_out and not any(captured.issue_counts.values()) and
+            predicate(final_log) and process.returncode in (0, -signal.SIGTERM, -signal.SIGKILL) and
+            (not natural_exit or process.returncode == 0))
 
 
 def build_fixture_vpk(base_vpk, packer, mksfoex, temp_root):
@@ -182,17 +179,13 @@ def locate_app_bundle(emulator):
 
 def run_profile(emulator, log_path, timeout, ram_mb):
     base = [str(emulator), "--keep-config", "--log-level", "1"]
-    guest_start = log_path.stat().st_size
     app_args = (f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/system12-{ram_mb}, "
                 f"--verify-system12-drc, {ram_mb}, --frames, 1")
-    with log_path.open("a", encoding="utf-8") as log:
-        guest = subprocess.Popen(base + ["--installed-path", TITLE_ID,
-                                         "--app-args", app_args], stdout=log,
-                                stderr=subprocess.STDOUT)
-        def expected(text):
-            tail = log_path.read_bytes()[guest_start:].decode(errors="replace")
-            return completed_guest_matches(tail, ram_mb)
-        return run_until(guest, log_path, expected, timeout, f"System12 {ram_mb}M DRC")
+    guest = subprocess.Popen(base + ["--installed-path", TITLE_ID,
+                                     "--app-args", app_args], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, start_new_session=True)
+    return run_until(guest, log_path, lambda text: completed_guest_matches(text, ram_mb),
+                     timeout, f"System12 {ram_mb}M DRC")
 
 
 def main():
@@ -212,7 +205,7 @@ def main():
     config_template = args.config_template or args.firmware_fs.parent / "config.yml"
     emulator_ok = args.emulator.is_file() or (
         args.emulator.is_dir() and args.emulator.suffix == ".app")
-    if (args.timeout <= 0 or not emulator_ok or not args.vpk.is_file()
+    if (not 0 < args.timeout < float("inf") or not emulator_ok or not args.vpk.is_file()
             or not args.firmware_fs.is_dir() or not config_template.is_file()):
         parser.error("emulator, VPK, firmware fs, and a positive timeout are required")
     packer = args.vita_pack_vpk
@@ -241,14 +234,14 @@ def main():
         fs_path = portable / "fs"
         make_isolated_config(config_path, fs_path, args.firmware_fs.resolve(),
                              config_template.resolve())
-        with args.log.open("a", encoding="utf-8") as log:
-            install = subprocess.Popen([str(emulator), "--keep-config",
-                                        "--log-level", "1", "--", str(package)],
-                                       stdout=log, stderr=subprocess.STDOUT)
-            install_ok = run_until(
-                install, args.log,
-                lambda text: f"[{TITLE_ID}] installed successfully!" in text,
-                args.timeout, "System12 fixture install")
+        install = subprocess.Popen([str(emulator), "--keep-config",
+                                    "--log-level", "1", "--", str(package)],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+        install_ok = run_until(
+            install, args.log,
+            lambda text: f"[{TITLE_ID}] installed successfully!" in text,
+            args.timeout, "System12 fixture install")
         if not install_ok:
             print(f"Vita3K System12 fixture installation failed; log={args.log}")
             return 1

@@ -77,7 +77,7 @@ class System12VitaDrcTests(unittest.TestCase):
                     [sys.executable, "-c",
                      "import sys,time; print(sys.argv[1], end='', flush=True); "
                      "time.sleep(.25); print('Unhandled EXC_BAD_ACCESS', flush=True); "
-                     "time.sleep(10)", line], stdout=output, stderr=subprocess.STDOUT)
+                     "time.sleep(10)", line], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             passed = runner.run_until(process, log_path,
                                       lambda text: runner.completed_guest_matches(text, 4),
                                       3, "test crash")
@@ -90,12 +90,24 @@ class System12VitaDrcTests(unittest.TestCase):
             log_path = Path(temporary) / "vita3k.log"
             with log_path.open("w") as output:
                 process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"],
-                                           stdout=output, stderr=subprocess.STDOUT)
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             started = time.monotonic()
             passed = runner.run_until(process, log_path, lambda text: False,
                                       0.15, "test timeout")
             self.assertFalse(passed)
             self.assertLess(time.monotonic() - started, 3)
+            self.assertIsNotNone(process.poll())
+
+    def test_runner_does_not_accept_a_previous_guest_signature(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "vita3k.log"
+            log_path.write_text("old guest success\nStopping -> Idle\n")
+            process = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+            self.assertFalse(runner.run_until(
+                process, log_path, lambda text: "old guest success" in text,
+                0.15, "previous guest"))
             self.assertIsNotNone(process.poll())
 
     def test_runner_uses_unique_temporary_portable_app(self):
