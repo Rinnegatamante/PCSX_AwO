@@ -301,8 +301,18 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
       case 0x38 ... 0x3b: gput_sum(cyc_sum, cyc, gput_quad_base_g());  break;
       case 0x3c ... 0x3f: gput_sum(cyc_sum, cyc, gput_quad_base_gt());
       do_texpage:
+#ifdef PCSX_SYSTEM12
+        if (gpu_get_model() == 1) {
+          uint32_t tpage = LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16;
+          gpu->ex_regs[1] = (gpu->ex_regs[1] & ~0x3fffu) | (tpage & 0x3fffu);
+          gpu->type1_status = (gpu->type1_status & ~0x1fffu) | (tpage & 0x1fffu);
+        }
+        else
+#endif
+        {
         gpu->ex_regs[1] &= ~0x1ff;
         gpu->ex_regs[1] |= (LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16) & 0x1ff;
+        }
         break;
       case 0x40 ... 0x47:
         gput_sum(cyc_sum, cyc, gput_line(0));

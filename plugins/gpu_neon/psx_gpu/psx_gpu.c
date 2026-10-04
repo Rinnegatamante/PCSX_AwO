@@ -204,44 +204,42 @@ s32 triangle_signed_area_x2(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2)
 	return ((x1 - x0) * (y2 - y1)) - ((x2 - x1) * (y1 - y0));
 }
 
-u32 texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2)
+texture_page_mask_t texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2)
 {
-  s32 coverage_x, coverage_y;
-
-  u32 mask_up_left;
-  u32 mask_down_right;
-
-  coverage_x = x2 >> 6;
-  coverage_y = y2 >> 8;
-
-  if(coverage_x < 0)
-    coverage_x = 0;
-
-  if(coverage_x > 31)
-    coverage_x = 31;
-
-  mask_down_right = ~(0xFFFFFFFF << (coverage_x + 1)) & 0xFFFF;
-
-  if(coverage_y >= 1)
-    mask_down_right |= mask_down_right << 16;
-
-  coverage_x = x1 >> 6;
-
-  mask_up_left = 0xFFFF0000;
-  if(coverage_x > 0)
-    mask_up_left <<= coverage_x;
-
-  coverage_y = y1 >> 8;
-  if(coverage_y <= 0)
-    mask_up_left |= mask_up_left >> 16;
-
-  return mask_up_left & mask_down_right;
+  s32 x_first = x1 >> 6, x_last = x2 >> 6;
+  s32 y_first = y1 >> 8, y_last = y2 >> 8;
+  u64 x_mask, mask = 0;
+  if (x_first < 0) x_first = 0;
+  if (x_first > 15) x_first = 15;
+  if (x_last < 0) x_last = 0;
+  if (x_last > 15) x_last = 15;
+  if (y_first < 0) y_first = 0;
+  if (y_first > 3) y_first = 3;
+  if (y_last < 0) y_last = 0;
+  if (y_last > 3) y_last = 3;
+  if (x_last < x_first) {
+    x_mask = (0xffffULL << x_first) | ((1ULL << (x_last + 1)) - 1);
+  } else {
+    x_mask = ((1ULL << (x_last + 1)) - 1) & (0xffffULL << x_first);
+  }
+  if (y_last < y_first) {
+    s32 row;
+    for (row = y_first; row < 4; ++row)
+      mask |= x_mask << (row * 16);
+    for (row = 0; row <= y_last; ++row)
+      mask |= x_mask << (row * 16);
+  } else {
+    s32 row;
+    for (row = y_first; row <= y_last; ++row)
+      mask |= x_mask << (row * 16);
+  }
+  return mask;
 }
 
-u32 invalidate_texture_cache_region(psx_gpu_struct *psx_gpu, u32 x1, u32 y1,
+texture_page_mask_t invalidate_texture_cache_region(psx_gpu_struct *psx_gpu, u32 x1, u32 y1,
  u32 x2, u32 y2)
 {
-  u32 mask = texture_region_mask(x1, y1, x2, y2);
+  texture_page_mask_t mask = texture_region_mask(x1, y1, x2, y2);
 
   psx_gpu->dirty_textures_4bpp_mask |= mask;
   psx_gpu->dirty_textures_8bpp_mask |= mask;
@@ -250,10 +248,10 @@ u32 invalidate_texture_cache_region(psx_gpu_struct *psx_gpu, u32 x1, u32 y1,
   return mask;
 }
 
-u32 invalidate_texture_cache_region_viewport(psx_gpu_struct *psx_gpu, u32 x1,
+texture_page_mask_t invalidate_texture_cache_region_viewport(psx_gpu_struct *psx_gpu, u32 x1,
  u32 y1, u32 x2, u32 y2)
 {
-  u32 mask = texture_region_mask(x1, y1, x2, y2) &
+  texture_page_mask_t mask = texture_region_mask(x1, y1, x2, y2) &
    psx_gpu->viewport_mask;
 
   psx_gpu->dirty_textures_4bpp_mask |= mask;
@@ -263,10 +261,55 @@ u32 invalidate_texture_cache_region_viewport(psx_gpu_struct *psx_gpu, u32 x1,
   return mask;
 }
 
+/* CXD8538Q (GPU type 1) indexed texture storage is swizzled by U/V bits.
+ * These address equations follow MAME's TEXTUREINTERLEAVED4BIT and
+ * TEXTUREINTERLEAVED8BIT macros in src/devices/video/psx.cpp. */
+void update_type1_interleaved_texture_cache(psx_gpu_struct *psx_gpu, int depth)
+{
+  u32 u, v;
+  u32 page = psx_gpu->current_texture_page;
+  u32 base_x = (page & 0x0f) * 64;
+  u32 base_y = (page >> 4) * 256;
+  u8 *cache = psx_gpu->texture_page_base;
+
+  if (depth != 4 && depth != 8)
+    return;
+  for (v = 0; v < 256; v++) {
+    for (u = 0; u < 256; u++) {
+      u32 xi, yi, offset, word;
+      if (depth == 4) {
+        xi = ((u >> 2) & ~0x3c) + ((v << 2) & 0x3c);
+        yi = (v & ~0x0f) + ((u >> 4) & 0x0f);
+      }
+      else {
+        xi = ((u >> 1) & ~0x78) + ((u << 2) & 0x40)
+           + ((v << 3) & 0x38);
+        yi = (v & ~0x07) + ((u >> 5) & 0x07);
+      }
+      word = psx_gpu->vram_ptr[((base_y + yi) & GPU_VRAM_Y_MASK) * 1024
+                              + ((base_x + xi) & 0x3ff)];
+      offset = (u & 0x0f) + ((v & 0x0f) << 4)
+             + ((u >> 4) << 8) + ((v >> 4) << 12);
+      if (depth == 4)
+        cache[offset] = (word >> ((u & 3) * 4)) & 0x0f;
+      else
+        cache[offset] = (word >> ((u & 1) * 8)) & 0xff;
+    }
+  }
+}
+
 static void update_texture_cache_region_(psx_gpu_struct *psx_gpu,
  u32 x1, u32 y1, u32 x2, u32 y2)
 {
-  u32 mask = texture_region_mask(x1, y1, x2, y2);
+  if (gpu_get_model() == 1 && (psx_gpu->texture_settings & 0x2000)) {
+    /* Interleaved texel coordinates can map a single VRAM write into any
+     * cached texture page. Force full indexed-cache refresh on next use. */
+    psx_gpu->dirty_textures_4bpp_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
+    psx_gpu->dirty_textures_8bpp_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
+    psx_gpu->dirty_textures_8bpp_alternate_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
+    return;
+  }
+  texture_page_mask_t mask = texture_region_mask(x1, y1, x2, y2);
   u32 texture_page;
   u8 *texture_page_ptr;
   u16 *vram_ptr;
@@ -355,6 +398,11 @@ void update_texture_4bpp_cache(psx_gpu_struct *psx_gpu)
   sub_y = 16;
 
   psx_gpu->dirty_textures_4bpp_mask &= ~(psx_gpu->current_texture_mask);
+
+  if (gpu_get_model() == 1 && (psx_gpu->texture_settings & 0x2000)) {
+    update_type1_interleaved_texture_cache(psx_gpu, 4);
+    return;
+  }
 
   while(tile_y)
   {
@@ -460,21 +508,29 @@ void update_texture_8bpp_cache_slice(psx_gpu_struct *psx_gpu,
 void update_texture_8bpp_cache(psx_gpu_struct *psx_gpu)
 {
   u32 current_texture_page = psx_gpu->current_texture_page;
-  u32 update_textures =
+  texture_page_mask_t update_textures =
    psx_gpu->dirty_textures_8bpp_mask & psx_gpu->current_texture_mask;
+
+  if (gpu_get_model() == 1 && (psx_gpu->texture_settings & 0x2000)
+      && update_textures) {
+    update_type1_interleaved_texture_cache(psx_gpu, 8);
+    psx_gpu->dirty_textures_8bpp_mask &= ~psx_gpu->current_texture_mask;
+    psx_gpu->dirty_textures_8bpp_alternate_mask &= ~psx_gpu->current_texture_mask;
+    return;
+  }
 
   psx_gpu->dirty_textures_8bpp_mask &= ~update_textures;
 
-  if(update_textures & (1 << current_texture_page))
+  if(update_textures & (1ULL << current_texture_page))
   {
     update_texture_8bpp_cache_slice(psx_gpu, current_texture_page);
-    update_textures &= ~(1 << current_texture_page);
+    update_textures &= ~(1ULL << current_texture_page);
   }
 
   if(update_textures)
   {
     u32 adjacent_texture_page = ((current_texture_page + 1) & 0xF) |
-     (current_texture_page & 0x10);
+     (current_texture_page & 0x30);
 
     update_texture_8bpp_cache_slice(psx_gpu, adjacent_texture_page);
   }
@@ -4285,8 +4341,9 @@ void render_sprite(psx_gpu_struct *psx_gpu, s32 x, s32 y, u32 u, u32 v,
   sprites++;
 #endif
 
-  if(invalidate_texture_cache_region_viewport(psx_gpu, x, y, x_right,
-   y_bottom) == 0)
+  texture_page_mask_t visible_mask = invalidate_texture_cache_region_viewport(psx_gpu, x, y,
+    x_right, y_bottom);
+  if(visible_mask == 0)
   {
     *width = *height = 0;
     return;
@@ -5041,9 +5098,9 @@ void initialize_psx_gpu(psx_gpu_struct *psx_gpu, u16 *vram)
 
   psx_gpu->test_mask = test_mask;
 
-  psx_gpu->dirty_textures_4bpp_mask = 0xFFFFFFFF;
-  psx_gpu->dirty_textures_8bpp_mask = 0xFFFFFFFF;
-  psx_gpu->dirty_textures_8bpp_alternate_mask = 0xFFFFFFFF;
+  psx_gpu->dirty_textures_4bpp_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
+  psx_gpu->dirty_textures_8bpp_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
+  psx_gpu->dirty_textures_8bpp_alternate_mask = (texture_page_mask_t)~(texture_page_mask_t)0;
   psx_gpu->viewport_mask = 0;
   psx_gpu->current_texture_page = 0;
   psx_gpu->current_texture_mask = 0;
@@ -5074,7 +5131,7 @@ void initialize_psx_gpu(psx_gpu_struct *psx_gpu, u16 *vram)
 
   psx_gpu->render_mode = 0;
 
-  memset(psx_gpu->vram_ptr, 0, sizeof(u16) * 1024 * 512);
+  memset(psx_gpu->vram_ptr, 0, sizeof(u16) * 1024 * GPU_VRAM_HEIGHT);
 
   initialize_reciprocal_table();
   psx_gpu->reciprocal_table_ptr = reciprocal_table;
@@ -5101,9 +5158,11 @@ void initialize_psx_gpu(psx_gpu_struct *psx_gpu, u16 *vram)
   psx_gpu->saved_hres = 256;
   psx_gpu->hacks_active = 0;
 
-  // check some offsets, asm relies on these
+  // 32-bit ARM assembly relies on these offsets. Native SIMD layouts differ.
+#if !defined(PCSX_SYSTEM12) && !defined(SIMD_BUILD)
   psx_gpu->reserved_a[(offsetof(psx_gpu_struct, test_mask) == 0) - 1] = 0;
   psx_gpu->reserved_a[(offsetof(psx_gpu_struct, blocks) == psx_gpu_blocks_offset) - 1] = 0;
+#endif
 }
 
 u64 get_us(void)

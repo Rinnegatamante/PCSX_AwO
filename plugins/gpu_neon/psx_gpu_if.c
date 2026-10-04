@@ -47,8 +47,13 @@ int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
     ret = gpu_parse(&egpu, list, count * 4, ex_regs,
             cycles_sum, cycles_last, (u32 *)last_cmd);
 
+#ifdef PCSX_SYSTEM12
+  ex_regs[1] &= gpu_get_model() == 1 ? ~0x3fff : ~0x1fff;
+  ex_regs[1] |= gpu_tpage_from_renderer(egpu.texture_settings);
+#else
   ex_regs[1] &= ~0x1ff;
   ex_regs[1] |= egpu.texture_settings & 0x1ff;
+#endif
   return ret;
 }
 

@@ -27,6 +27,7 @@
 #ifndef __ASSEMBLER__
 
 #include "vector_types.h"
+#include "../../../include/gpu_vram.h"
 
 #ifndef unlikely
 #define unlikely(x) __builtin_expect((x), 0)
@@ -78,6 +79,20 @@ typedef enum
   RENDER_INTERLACE_ENABLED     = 0x1,
   RENDER_INTERLACE_ODD         = 0x2,
 } render_mode_enum;
+
+#if defined(PCSX_SYSTEM12) && defined(NEON_BUILD) && !defined(SIMD_BUILD)
+#error Arcade NEON GPU requires SIMD_BUILD; ARM32 assembly uses console cache offsets
+#endif
+
+#ifdef PCSX_SYSTEM12
+typedef u64 texture_page_mask_t;
+#define TEXTURE_PAGE_COUNT 64
+#define TEXTURE_PAGE_ROW_COUNT 32
+#else
+typedef u32 texture_page_mask_t;
+#define TEXTURE_PAGE_COUNT 32
+#define TEXTURE_PAGE_ROW_COUNT 16
+#endif
 
 typedef struct
 {
@@ -142,11 +157,11 @@ typedef struct
   u32 triangle_area;
 
   u32 texture_window_settings;
-  u32 current_texture_mask;
-  u32 viewport_mask;
-  u32 dirty_textures_4bpp_mask;
-  u32 dirty_textures_8bpp_mask;
-  u32 dirty_textures_8bpp_alternate_mask;
+  texture_page_mask_t current_texture_mask;
+  texture_page_mask_t viewport_mask;
+  texture_page_mask_t dirty_textures_4bpp_mask;
+  texture_page_mask_t dirty_textures_8bpp_mask;
+  texture_page_mask_t dirty_textures_8bpp_alternate_mask;
 
   u32 triangle_color;
   u32 dither_table[4];
@@ -232,9 +247,9 @@ typedef struct
   edge_data_struct span_edge_data[MAX_SPANS];
   u32 span_b_offset[MAX_SPANS];
 
-  u8 texture_4bpp_cache[32][256 * 256];
-  u8 texture_8bpp_even_cache[16][256 * 256];
-  u8 texture_8bpp_odd_cache[16][256 * 256];
+  u8 texture_4bpp_cache[TEXTURE_PAGE_COUNT][256 * 256];
+  u8 texture_8bpp_even_cache[TEXTURE_PAGE_ROW_COUNT][256 * 256];
+  u8 texture_8bpp_odd_cache[TEXTURE_PAGE_ROW_COUNT][256 * 256];
 } psx_gpu_struct;
 
 typedef struct __attribute__((aligned(16)))
@@ -275,7 +290,8 @@ void render_sprite(psx_gpu_struct *psx_gpu, s32 x, s32 y, u32 u, u32 v,
 void render_line(psx_gpu_struct *gpu, vertex_struct *vertexes, u32 flags,
  u32 color, int double_resolution);
 
-u32 texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2);
+texture_page_mask_t texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2);
+void update_type1_interleaved_texture_cache(psx_gpu_struct *psx_gpu, int depth);
 
 void update_texture_8bpp_cache(psx_gpu_struct *psx_gpu);
 void flush_render_block_buffer(psx_gpu_struct *psx_gpu);

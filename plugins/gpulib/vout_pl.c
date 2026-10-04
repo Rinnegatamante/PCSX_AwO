@@ -36,12 +36,13 @@ static void check_mode_change(struct psx_gpu *gpu, int force)
   w_out = w, h_out = h;
 #ifdef RAW_FB_DISPLAY
   w = w_out = (gpu->status & PSX_GPU_STATUS_RGB24) ? 2048/3 : 1024;
-  h = h_out = 512;
+  h = h_out = gpu_vram_height;
 #endif
   if (gpu->get_enhancement_bufer != NULL && gpu->state.enhancement_enable) {
     gpu->state.enhancement_active =
       w <= 512 && h <= 256 && !(gpu->status & PSX_GPU_STATUS_RGB24) &&
-      gpu->screen.src_y < (512 - 256/2) && gpu->state.src_y_old < (512 - 256/2);
+      gpu->screen.src_y < (gpu_vram_height - 256/2) &&
+      gpu->state.src_y_old < (gpu_vram_height - 256/2);
     gpu->state.src_y_old = gpu->screen.src_y;
     if (gpu->state.enhancement_active) {
       w_out *= 2;
@@ -75,13 +76,13 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
   int y = gpu->screen.y;
   int w = gpu->screen.w;
   int h = gpu->screen.h;
-  int vram_h = 512;
+  int vram_h = gpu_vram_height;
   int src_x2 = 0;
   int offset;
 
 #ifdef RAW_FB_DISPLAY
   w = (gpu->status & PSX_GPU_STATUS_RGB24) ? 2048/3 : 1024;
-  h = 512, x = src_x = y = src_y = 0;
+  h = vram_h, x = src_x = y = src_y = 0;
 #endif
   if (x < 0) { w += x; src_x2 = -x; x = 0; }
   if (y < 0) { h += y; src_y -=  y; y = 0; }

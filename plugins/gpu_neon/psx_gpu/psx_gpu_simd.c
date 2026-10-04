@@ -2379,6 +2379,11 @@ static void update_texture_4bpp_cache(psx_gpu_struct *psx_gpu)
 
   psx_gpu->dirty_textures_4bpp_mask &= ~(psx_gpu->current_texture_mask);
 
+  if (gpu_get_model() == 1 && (psx_gpu->texture_settings & 0x2000)) {
+    update_type1_interleaved_texture_cache(psx_gpu, 4);
+    return;
+  }
+
   for (tile_y = 16; tile_y; tile_y--)
   {
     for (tile_x = 16; tile_x; tile_x--)

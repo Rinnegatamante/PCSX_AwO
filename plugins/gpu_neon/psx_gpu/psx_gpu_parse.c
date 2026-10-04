@@ -94,10 +94,20 @@ static void update_texture_ptr(psx_gpu_struct *psx_gpu)
 
 static void set_texture(psx_gpu_struct *psx_gpu, u32 texture_settings)
 {
+#ifdef PCSX_SYSTEM12
+  if (gpu_get_model() == 1)
+    gpu.type1_status = (gpu.type1_status & ~0x1fffu) | (texture_settings & 0x1fffu);
+  texture_settings = gpu_tpage_to_renderer(texture_settings);
+#else
   texture_settings &= 0x1FF;
+#endif
   if(psx_gpu->texture_settings != texture_settings)
   {
     u32 new_texture_page = texture_settings & 0x1F;
+#ifdef PCSX_SYSTEM12
+    /* Type-2 TPAGE bit 11 selects the upper 512-row VRAM page bank. */
+    new_texture_page |= (texture_settings >> 6) & 0x20;
+#endif
     u32 texture_mode = (texture_settings >> 7) & 0x3;
     u32 render_state_base = psx_gpu->render_state_base;
 
@@ -108,18 +118,18 @@ static void set_texture(psx_gpu_struct *psx_gpu, u32 texture_settings)
 
     psx_gpu->render_state_base = render_state_base;
 
-    psx_gpu->current_texture_mask = 1u << new_texture_page;
+    psx_gpu->current_texture_mask = 1ULL << new_texture_page;
 
     if(texture_mode == TEXTURE_MODE_8BPP)
     {     
       // In 8bpp mode 256x256 takes up two pages. If it's on the right edge it
       // wraps back around to the left edge.
-      u32 adjacent_texture_page = ((texture_settings + 1) & 0xF) | (texture_settings & 0x10);
-      psx_gpu->current_texture_mask |= 1u << adjacent_texture_page;
+      u32 adjacent_texture_page = ((new_texture_page + 1) & 0xF) | (new_texture_page & 0x30);
+      psx_gpu->current_texture_mask |= 1ULL << adjacent_texture_page;
 
       if((psx_gpu->last_8bpp_texture_page ^ new_texture_page) & 0x1)
       {
-        u32 dirty_textures_8bpp_alternate_mask =
+        texture_page_mask_t dirty_textures_8bpp_alternate_mask =
          psx_gpu->dirty_textures_8bpp_alternate_mask;
         psx_gpu->dirty_textures_8bpp_alternate_mask =
          psx_gpu->dirty_textures_8bpp_mask;
@@ -138,7 +148,11 @@ static void set_texture(psx_gpu_struct *psx_gpu, u32 texture_settings)
 
 static void set_clut(psx_gpu_struct *psx_gpu, u32 clut_settings)
 {
+#ifdef PCSX_SYSTEM12
+  clut_settings &= 0xFFFF;
+#else
   clut_settings &= 0x7FFF;
+#endif
   if (psx_gpu->clut_settings != clut_settings)
   {
     flush_render_block_buffer(psx_gpu);
@@ -169,9 +183,9 @@ static void do_fill(psx_gpu_struct *psx_gpu, u32 x, u32 y,
     u32 width_a = 1024 - x;
     u32 width_b = width - width_a;
 
-    if(unlikely((y + height) > 512))
+    if(unlikely((y + height) > GPU_VRAM_HEIGHT))
     {
-      u32 height_a = 512 - y;
+      u32 height_a = GPU_VRAM_HEIGHT - y;
       u32 height_b = height - height_a;
 
       render_block_fill(psx_gpu, color, x, y, width_a, height_a);
@@ -187,9 +201,9 @@ static void do_fill(psx_gpu_struct *psx_gpu, u32 x, u32 y,
   }
   else
   {
-    if(unlikely((y + height) > 512))
+    if(unlikely((y + height) > GPU_VRAM_HEIGHT))
     {
-      u32 height_a = 512 - y;
+      u32 height_a = GPU_VRAM_HEIGHT - y;
       u32 height_b = height - height_a;
 
       render_block_fill(psx_gpu, color, x, y, width, height_a);
@@ -311,7 +325,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0x02:
       {
         u32 x = list_s16[2] & 0x3FF;
-        u32 y = list_s16[3] & 0x1FF;
+        u32 y = list_s16[3] & GPU_VRAM_Y_MASK;
         u32 width = list_s16[4] & 0x3FF;
         u32 height = list_s16[5] & 0x1FF;
         u32 color = list[0] & 0xFFFFFF;
@@ -585,7 +599,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       }
 
       case 0x64 ... 0x67:
-        textured_sprite(psx_gpu, list, list[3] & 0x3FF, (list[3] >> 16) & 0x1FF,
+        textured_sprite(psx_gpu, list, list[3] & 0x3FF, (list[3] >> 16) & GPU_VRAM_Y_MASK,
           &cpu_cycles_sum, &cpu_cycles);
         break;
 
@@ -643,11 +657,11 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0x80 ... 0x9F:          //  vid -> vid
       {
         u32 sx = list_s16[2] & 0x3FF;
-        u32 sy = list_s16[3] & 0x1FF;
+        u32 sy = list_s16[3] & GPU_VRAM_Y_MASK;
         u32 dx = list_s16[4] & 0x3FF;
-        u32 dy = list_s16[5] & 0x1FF;
+        u32 dy = list_s16[5] & GPU_VRAM_Y_MASK;
         u32 w = ((list_s16[6] - 1) & 0x3FF) + 1;
-        u32 h = ((list_s16[7] - 1) & 0x1FF) + 1;
+        u32 h = ((list_s16[7] - 1) & GPU_VRAM_Y_MASK) + 1;
 
         if (sx == dx && sy == dy && psx_gpu->mask_msb == 0)
           break;
@@ -659,9 +673,9 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0xA0 ... 0xBF:          //  sys -> vid
       {
         u32 load_x = list_s16[2] & 0x3FF;
-        u32 load_y = list_s16[3] & 0x1FF;
+        u32 load_y = list_s16[3] & GPU_VRAM_Y_MASK;
         u32 load_width = list_s16[4] & 0x3FF;
-        u32 load_height = list_s16[5] & 0x1FF;
+        u32 load_height = list_s16[5] & GPU_VRAM_Y_MASK;
         u32 load_size = load_width * load_height;
   
         command_length += load_size / 2;
@@ -681,7 +695,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0xE1:
         set_texture(psx_gpu, list[0]);
 
-        if ((psx_gpu->allow_dithering && (list[0] & (1 << 9)))
+        if ((gpu_get_model() == 2 && psx_gpu->allow_dithering && (list[0] & (1 << 9)))
             || psx_gpu->force_dithering)
           psx_gpu->render_state_base |= RENDER_STATE_DITHER;
         else
@@ -728,7 +742,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0xE3:
       {
         s16 viewport_start_x = list[0] & 0x3FF;
-        s16 viewport_start_y = (list[0] >> 10) & 0x1FF;
+        s16 viewport_start_y = (list[0] >> (gpu_get_model() == 1 ? 12 : 10)) & GPU_VRAM_Y_MASK;
 
         if(viewport_start_x == psx_gpu->viewport_start_x &&
          viewport_start_y == psx_gpu->viewport_start_y)
@@ -752,7 +766,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0xE4:
       {
         s16 viewport_end_x = list[0] & 0x3FF;
-        s16 viewport_end_y = (list[0] >> 10) & 0x1FF;
+        s16 viewport_end_y = (list[0] >> (gpu_get_model() == 1 ? 12 : 10)) & GPU_VRAM_Y_MASK;
 
         if(viewport_end_x == psx_gpu->viewport_end_x &&
          viewport_end_y == psx_gpu->viewport_end_y)
@@ -776,7 +790,7 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
       case 0xE5:
       {
         psx_gpu->offset_x = sign_extend_11bit(list[0]);
-        psx_gpu->offset_y = sign_extend_11bit(list[0] >> 11);
+        psx_gpu->offset_y = sign_extend_11bit(list[0] >> (gpu_get_model() == 1 ? 12 : 11));
   
         ex_regs[5] = list[0];
         break;
@@ -799,6 +813,8 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
         }
 
         ex_regs[6] = list[0];
+        if (gpu_get_model() == 1)
+          gpu.type1_status = (gpu.type1_status & ~0x1800u) | ((list[0] & 3u) << 11);
         break;
       }
   
@@ -1239,7 +1255,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       case 0x02:
       {
         u32 x = list_s16[2] & 0x3FF;
-        u32 y = list_s16[3] & 0x1FF;
+        u32 y = list_s16[3] & GPU_VRAM_Y_MASK;
         u32 width = list_s16[4] & 0x3FF;
         u32 height = list_s16[5] & 0x1FF;
         u32 color = list[0] & 0xFFFFFF;
@@ -1549,7 +1565,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       }
 
       case 0x64 ... 0x67:
-        textured_sprite_enh(psx_gpu, list, list[3] & 0x3FF, (list[3] >> 16) & 0x1FF,
+        textured_sprite_enh(psx_gpu, list, list[3] & 0x3FF, (list[3] >> 16) & GPU_VRAM_Y_MASK,
           &cpu_cycles_sum, &cpu_cycles);
         break;
 
@@ -1614,7 +1630,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       case 0xE1:
         set_texture(psx_gpu, list[0]);
 
-        if ((psx_gpu->allow_dithering && (list[0] & (1 << 9)))
+        if ((gpu_get_model() == 2 && psx_gpu->allow_dithering && (list[0] & (1 << 9)))
             || psx_gpu->force_dithering)
           psx_gpu->render_state_base |= RENDER_STATE_DITHER;
         else
@@ -1661,7 +1677,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       case 0xE3:
       {
         s16 viewport_start_x = list[0] & 0x3FF;
-        s16 viewport_start_y = (list[0] >> 10) & 0x1FF;
+        s16 viewport_start_y = (list[0] >> (gpu_get_model() == 1 ? 12 : 10)) & GPU_VRAM_Y_MASK;
 
         if(viewport_start_x == psx_gpu->viewport_start_x &&
          viewport_start_y == psx_gpu->viewport_start_y)
@@ -1688,7 +1704,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       case 0xE4:
       {
         s16 viewport_end_x = list[0] & 0x3FF;
-        s16 viewport_end_y = (list[0] >> 10) & 0x1FF;
+        s16 viewport_end_y = (list[0] >> (gpu_get_model() == 1 ? 12 : 10)) & GPU_VRAM_Y_MASK;
 
         if(viewport_end_x == psx_gpu->viewport_end_x &&
          viewport_end_y == psx_gpu->viewport_end_y)
@@ -1725,7 +1741,7 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
       case 0xE5:
       {
         psx_gpu->offset_x = sign_extend_11bit(list[0]);
-        psx_gpu->offset_y = sign_extend_11bit(list[0] >> 11);
+        psx_gpu->offset_y = sign_extend_11bit(list[0] >> (gpu_get_model() == 1 ? 12 : 11));
   
         ex_regs[5] = list[0];
         break;
@@ -1748,6 +1764,8 @@ u32 gpu_parse_enhanced(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_reg
         }
 
         ex_regs[6] = list[0];
+        if (gpu_get_model() == 1)
+          gpu.type1_status = (gpu.type1_status & ~0x1800u) | ((list[0] & 3u) << 11);
         break;
       }
   

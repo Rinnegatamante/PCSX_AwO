@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "../../include/compiler_features.h"
+#include "../../include/gpu_vram.h"
 
 //#define RAW_FB_DISPLAY
 
@@ -70,6 +71,7 @@ struct psx_gpu {
   uint32_t regs[16];
   uint16_t *vram;
   uint32_t status;
+  uint32_t type1_status; /* CXD8538Q GP0 status fields before type-2 mapping */
   uint32_t gp0;
   uint32_t ex_regs[8];  // in native endian
   struct psx_gpu_screen screen;
