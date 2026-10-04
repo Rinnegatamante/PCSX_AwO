@@ -21,13 +21,25 @@ if "--" in sys.argv:
     print("Stopping -> Idle", flush=True)
 else:
     if mode != "no-guest":
-        print("pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs=3", flush=True)
+        runs = 30 if mode == "wrong-runs" else 3
+        print(f"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs={runs}", flush=True)
     if mode != "no-idle":
         print("Stopping -> Idle", flush=True)
     if mode == "crash":
         sys.exit(17)
     if mode == "fatal":
         print("Unhandled EXC_BAD_ACCESS", flush=True)
+    if mode == "late-fatal":
+        time.sleep(.15)
+        print("|C| guest teardown failed", flush=True)
+    if mode == "smoke-fail":
+        print("pcsx-vita: smoke FAIL triangle=0000", flush=True)
+    if mode == "flood":
+        for _ in range(30000):
+            print("[InterpreterFallback] Unimplemented instruction at 0x81155B94")
+        sys.stdout.flush()
+    if mode == "normal-exit":
+        sys.exit(0)
 time.sleep(30)  # A completed guest leaves its host UI open.
 '''
 
@@ -39,6 +51,11 @@ def main():
                 ("idle-host", False, 0),
                 ("crash", False, 1),
                 ("fatal", False, 1),
+                ("late-fatal", False, 1),
+                ("smoke-fail", False, 1),
+                ("wrong-runs", False, 1),
+                ("normal-exit", False, 0),
+                ("flood", False, 1),
                 ("no-idle", False, 1),
                 ("idle-host", True, 0),
                 ("no-guest", True, 1)):
@@ -54,6 +71,7 @@ def main():
                 command += ["--vpk", str(vpk)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=10)
             assert result.returncode == expected, (mode, install, result.stdout, result.stderr)
+            assert log.stat().st_size < 3 * 1024 * 1024
             pids = [int(line.split("=")[1]) for line in log.read_text().splitlines()
                     if line.startswith("owned host pid=")]
             assert len(pids) == (2 if install else 1)

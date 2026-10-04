@@ -1,26 +1,81 @@
 #!/usr/bin/env python3
-"""Run the DRC/GPU smoke guest in Vita3K and close the owned host process."""
+"""Run the DRC/GPU smoke guest with an independently bounded Vita3K host."""
 import argparse
+import importlib.util
 from pathlib import Path
 import re
+import signal
 import subprocess
 import time
 
+_HELPER_PATH = Path(__file__).with_name("check_system12_gameplay_vita3k.py")
+_HELPER_SPEC = importlib.util.spec_from_file_location("vita3k_process_capture", _HELPER_PATH)
+_HELPER = importlib.util.module_from_spec(_HELPER_SPEC)
+_HELPER_SPEC.loader.exec_module(_HELPER)
+CapturedGuest = _HELPER.CapturedGuest
+ProcessGroupWatchdog = _HELPER.ProcessGroupWatchdog
 
-def close_owned_process(process):
-    if process.poll() is None:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
+
+class CapturedSmoke(CapturedGuest):
+    ISSUE_MARKERS = CapturedGuest.ISSUE_MARKERS + (b"pcsx-vita: smoke FAIL",)
+    # Retain the process ownership record used by the fake-host regression test.
+    KEY_WORDS = CapturedGuest.KEY_WORDS + (b"owned host pid=",)
 
 
 def fatal(log):
-    return ("Unhandled EXC_" in log or "|C|" in log or
-            "pcsx-vita: smoke FAIL" in log or
-            "pcsx-vita: display detach failed" in log)
+    """Compatibility for the synthetic DRC checker importing this module."""
+    return any(marker.decode("ascii") in log for marker in CapturedSmoke.ISSUE_MARKERS)
+
+
+def smoke_complete(captured, expected):
+    return (any(expected.search(message) for message in captured.messages) and
+            "Stopping -> Idle" in captured.markers)
+
+
+def wait_for_completion(captured, expected, timeout):
+    deadline = time.monotonic() + timeout
+    completed_at = None
+    while time.monotonic() < deadline:
+        if any(captured.issue_counts.values()):
+            return False
+        complete = smoke_complete(captured, expected)
+        returncode = captured.process.poll()
+        if returncode is not None:
+            # Drain pending output before evaluating a host that exits normally.
+            captured.thread.join(timeout=1)
+            return returncode == 0 and smoke_complete(captured, expected)
+        if complete:
+            if completed_at is None:
+                completed_at = time.monotonic()
+            if time.monotonic() - completed_at >= 1:
+                return True
+        else:
+            completed_at = None
+        time.sleep(0.05)
+    return False
+
+
+def run_owned(command, log, timeout, label, expected, installation=False):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               start_new_session=True)
+    watchdog = ProcessGroupWatchdog(process, timeout)
+    captured = CapturedSmoke(process, log, label)
+    natural_exit = False
+    try:
+        if installation:
+            passed = captured.wait_for_messages((expected,), timeout,
+                                               stable=0.25, require_idle=False)
+        else:
+            passed = wait_for_completion(captured, expected, timeout)
+    finally:
+        natural_exit = process.poll() is not None
+        watchdog.close()
+        captured.close()
+    if installation and natural_exit and process.returncode == 0:
+        passed = any(expected in message for message in captured.messages)
+    accepted = (0, -signal.SIGTERM, -signal.SIGKILL)
+    return (passed and not watchdog.timed_out and not any(captured.issue_counts.values()) and
+            process.returncode in accepted and (not natural_exit or process.returncode == 0))
 
 
 def main():
@@ -32,7 +87,7 @@ def main():
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--log", type=Path, required=True)
     args = parser.parse_args()
-    if not 1 <= args.frames <= 216000 or args.timeout <= 0:
+    if not 1 <= args.frames <= 216000 or not 0 < args.timeout < float("inf"):
         parser.error("invalid frame count or timeout")
     title = "PCSXN0012" if args.renderer == "neon" else "PCSXG0012"
     base_command = [str(args.emulator.resolve()), "--keep-config", "--log-level", "1"]
@@ -41,64 +96,17 @@ def main():
     expected = re.compile(r"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs="
                           + str(args.frames) + r"\b")
     args.log.parent.mkdir(parents=True, exist_ok=True)
-    with args.log.open("xb") as output:
-        if args.vpk:
-            # Vita3K enables Windows-style /options even on macOS. Terminate
-            # option parsing so an absolute POSIX path stays a content argument.
-            install = subprocess.Popen(base_command + ["--", str(args.vpk.resolve())],
-                                       stdout=output, stderr=subprocess.STDOUT)
-            installed = False
-            try:
-                deadline = time.monotonic() + args.timeout
-                while time.monotonic() < deadline:
-                    log = args.log.read_text(errors="replace")
-                    if fatal(log):
-                        break
-                    installed = bool(re.search(r"\[install_archive_content\]: .*\["
-                                               + title + r"\] installed successfully!", log))
-                    if installed or install.poll() is not None:
-                        break
-                    time.sleep(0.05)
-            finally:
-                close_owned_process(install)
-            if not installed or fatal(args.log.read_text(errors="replace")):
-                print(f"Vita3K {args.renderer}: FAIL during installation; log={args.log}")
-                return 1
-            # Some builds copy cfg to emuenv before the CLI installer updates
-            # the boot title. Launch the installed title explicitly in a fresh
-            # owned process rather than depending on the auto-boot UI state.
-        guest_log_start = args.log.stat().st_size
-        process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT)
-        deadline = time.monotonic() + args.timeout
-        completed_at = None
-        passed = False
-        try:
-            while time.monotonic() < deadline:
-                log = args.log.read_bytes()[guest_log_start:].decode(errors="replace")
-                if fatal(log):
-                    break
-                passed = bool(expected.search(log)) and "Stopping -> Idle" in log
-                if passed:
-                    if completed_at is None:
-                        completed_at = time.monotonic()
-                    # Observe shutdown before closing Vita3K, which normally
-                    # keeps its host UI open after the guest application exits.
-                    if time.monotonic() - completed_at >= 1:
-                        break
-                if process.poll() is not None:
-                    passed = passed and process.returncode == 0
-                    break
-                time.sleep(0.05)
-            else:
-                passed = False
-        finally:
-            returncode = process.poll()
-            if returncode is not None and returncode != 0:
-                passed = False
-            close_owned_process(process)
-        # Also check output flushed between the final observation and exit.
-        log = args.log.read_bytes()[guest_log_start:].decode(errors="replace")
-        passed = passed and not fatal(log)
+    # Refuse to mix evidence with an older run; each host has a fresh capture.
+    args.log.open("xb").close()
+    if args.vpk:
+        # Vita3K recognizes Windows-style /options on macOS as well.
+        installed = run_owned(base_command + ["--", str(args.vpk.resolve())], args.log,
+                              args.timeout, f"install {title}",
+                              f"[{title}] installed successfully!", installation=True)
+        if not installed:
+            print(f"Vita3K {args.renderer}: FAIL during installation; log={args.log}")
+            return 1
+    passed = run_owned(command, args.log, args.timeout, f"{args.renderer} smoke", expected)
     print(f"Vita3K {args.renderer}: {'PASS' if passed else 'FAIL'}; log={args.log}")
     return 0 if passed else 1
 

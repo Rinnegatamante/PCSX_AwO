@@ -60,9 +60,13 @@ or ROM was downloaded.
 
 `tools/vita-harness/check_vita3k.py` automates a bounded smoke run, requires the
 exact PASS and the guest's `Stopping -> Idle` state, then terminates only the
-host process it launched. Vita3K normally keeps its UI open after the guest
+process group it launched. A separate watchdog process enforces the deadline
+even if the runner stalls, with TERM followed by KILL for that owned group.
+Output is streamed into bounded diagnostic capture instead of repeatedly
+reading an ever-growing log. Vita3K normally keeps its UI open after the guest
 exits; host-process exit is not the completion signal. The runner fails on
-guest mismatches, host crashes or timeout, and preserves the log. For an
+guest mismatches, ARM fallbacks, late teardown errors, host crashes or timeout,
+and preserves the filtered log and diagnostic counts. For an
 already installed test package in an isolated emulator copy:
 
 ```sh
