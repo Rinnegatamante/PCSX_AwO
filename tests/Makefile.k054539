@@ -1,0 +1,24 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/k054539-tests
+TARGET := $(BUILD)/test-k054539
+SAN_TARGET := $(BUILD)/test-k054539-sanitize
+SOURCES := libpcsxcore/arcade/k054539.c tests/test_k054539.c
+
+.PHONY: test sanitize clean
+$(TARGET): $(SOURCES) libpcsxcore/arcade/k054539.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -lm -o $@
+
+$(SAN_TARGET): $(SOURCES) libpcsxcore/arcade/k054539.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Ilibpcsxcore/arcade $(SOURCES) -lm -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+sanitize: $(SAN_TARGET)
+	$(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)

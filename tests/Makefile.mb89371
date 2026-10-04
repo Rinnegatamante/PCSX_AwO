@@ -1,0 +1,26 @@
+CC ?= cc
+CFLAGS ?= -O2
+CFLAGS += -std=c99 -Wall -Wextra -Werror
+BUILD ?= build/mb89371-tests
+BIN = $(BUILD)/test_mb89371
+SAN = $(BUILD)/test_mb89371-sanitize
+SRC = tests/test_mb89371/test_mb89371.c libpcsxcore/arcade/i8251.c libpcsxcore/arcade/mb89371.c
+HEADERS = libpcsxcore/arcade/i8251.h libpcsxcore/arcade/mb89371.h
+DEP = $(BIN).d $(SAN).d
+
+.PHONY: all test sanitize clean
+all: $(BIN)
+test: $(BIN)
+	./$(BIN)
+sanitize: $(SAN)
+	./$(SAN)
+$(BUILD):
+	mkdir -p $@
+$(BIN): $(SRC) $(HEADERS) | $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade -MMD -MP -MF $(BIN).d $(SRC) -o $@
+$(SAN): $(SRC) $(HEADERS) | $(BUILD)
+	$(CC) -std=c99 -g -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Ilibpcsxcore/arcade -MMD -MP -MF $(SAN).d $(SRC) -o $@
+-include $(DEP)
+clean:
+	rm -f $(BIN) $(SAN) $(DEP)
+	python3 -c 'import shutil; shutil.rmtree("$(SAN).dSYM", ignore_errors=True)'

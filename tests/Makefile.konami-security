@@ -1,0 +1,13 @@
+CXX ?= clang++
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/konami-security-tests
+TARGET := $(BUILD)/test-konami-security
+.PHONY: all test clean
+all: $(TARGET)
+$(TARGET): libpcsxcore/arcade/konami_security.cpp libpcsxcore/arcade/konami_security.h libpcsxcore/arcade/konami_security_x76.inc tests/test_konami_security.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/konami_security.cpp tests/test_konami_security.cpp -o $@
+test: $(TARGET)
+	$(TARGET)
+clean:
+	rm -rf $(BUILD)

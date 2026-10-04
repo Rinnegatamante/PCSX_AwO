@@ -1,0 +1,15 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/k056800-tests
+SOURCES := tests/test_k056800.c libpcsxcore/arcade/k056800.c
+TARGET := $(BUILD)/test-k056800
+.PHONY: test sanitize clean
+$(TARGET): $(SOURCES) libpcsxcore/arcade/k056800.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $@
+test: $(TARGET)
+	$(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.k056800 BUILD=$(BUILD)/sanitize CFLAGS='-std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)

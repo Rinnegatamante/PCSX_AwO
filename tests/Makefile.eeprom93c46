@@ -1,0 +1,24 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/eeprom93c46-tests
+TARGET := $(BUILD)/test-eeprom93c46
+SAN_TARGET := $(BUILD)/test-eeprom93c46-sanitize
+SOURCES := libpcsxcore/arcade/eeprom93c46.c tests/test_eeprom93c46.c
+
+.PHONY: test sanitize clean
+$(TARGET): $(SOURCES) libpcsxcore/arcade/eeprom93c46.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $@
+
+$(SAN_TARGET): $(SOURCES) libpcsxcore/arcade/eeprom93c46.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Ilibpcsxcore/arcade $(SOURCES) -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+sanitize: $(SAN_TARGET)
+	$(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)
