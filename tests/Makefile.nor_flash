@@ -1,0 +1,15 @@
+CC ?= clang
+CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c99
+TARGET = test_nor_flash
+
+.PHONY: all run clean
+all: $(TARGET)
+
+$(TARGET): test_nor_flash.c ../libpcsxcore/arcade/nor_flash.c ../libpcsxcore/arcade/nor_flash.h
+	$(CC) $(CFLAGS) -o $@ test_nor_flash.c ../libpcsxcore/arcade/nor_flash.c
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(TARGET)

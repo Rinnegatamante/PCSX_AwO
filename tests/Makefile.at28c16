@@ -1,0 +1,11 @@
+CC ?= cc
+BUILD ?= build/at28c16
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+.PHONY: test clean
+test: $(BUILD)/test_at28c16
+	$(BUILD)/test_at28c16
+$(BUILD)/test_at28c16: libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/at28c16.h tests/test_at28c16.c
+	mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/at28c16.c tests/test_at28c16.c -o $@
+clean:
+	rm -rf $(BUILD)
