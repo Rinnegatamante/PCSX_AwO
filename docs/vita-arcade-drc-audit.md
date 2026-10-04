@@ -39,8 +39,18 @@ host page-protection fix allows the early ROM boot to execute, but a 3600-frame
 run reaches reserved-instruction exceptions with the RAM vector at `80`
 overwritten by `ffffffff`. Debugging shows a guest byte-copy loop writing
 through the valid 4 MiB RAM mirror `80400080`; the interpreter does not make
-that write in its successful game run. The first CPU or board-state divergence
-is still under investigation. A frame count and zero H8 unsupported opcodes
-cannot turn this failure into a game-validation PASS.
+that write in its successful game run. The DRC failure log records 42,607
+unmapped board reads, with the last at `1f018000` from reported PC `800d21c0`;
+the shared-RAM MMIO read count is only one. A debugger stop at that board-read
+callback observed cycle `0x1233d84d` and byte value `0xff`. This address is
+confirmed against pinned MAME `src/mame/namco/namcos12.cpp`: the base map marks
+`1f018000..1f018003` write-only/no-op, while the actual H8 shared RAM is mapped
+separately at `1f080000..1f083fff`. The native adapter returns open-bus `0xff`
+for the unmapped read, so this observation does not establish a missing shared
+RAM callback or identify the first divergence. The exact INT/DRC point where
+guest control flow first differs remains unmeasured. The exception-vector
+overwrite and reserved-instruction stop are reproducible DRC failures; a frame
+count and zero H8 unsupported opcodes cannot turn them into a game-validation
+PASS.
 
 If a DRC build is selected for another board family, its loader must reject that board explicitly before CPU initialization until that family's memory, fetch, and invalidation contract is implemented. It must not silently change to the interpreter.
