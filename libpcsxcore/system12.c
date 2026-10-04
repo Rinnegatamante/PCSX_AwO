@@ -837,10 +837,12 @@ void system12_report(FILE *out)
     fprintf(out, "System12: JAMMA=%02x/%02x/%02x/%02x\n",
         system12_jamma_read(0), system12_jamma_read(1),
         system12_jamma_read(2), system12_jamma_read(3));
-    fprintf(out, "System12: profile=%s machine=%s state=%s RAM=%u main=%zu banked=%zu sub=%zu wave=%zu bank=%u alt=%u boot_hack=%u\n",
+    fprintf(out, "System12: profile=%s machine=%s state=%s RAM=%u main=%" PRIu64 " banked=%" PRIu64 " sub=%" PRIu64 " wave=%" PRIu64 " bank=%u alt=%u boot_hack=%u\n",
         board.profile ? board.profile : "inactive", board.machine ? board.machine : "-",
-        board.state ? board.state : "-", PSX_RAM_SIZE, board.main_size, board.banked_size,
-        board.sub_size, board.wave_size, board.bank, board.alt_bank, board.boot_hack);
+        board.state ? board.state : "-", PSX_RAM_SIZE,
+        (uint64_t)board.main_size, (uint64_t)board.banked_size,
+        (uint64_t)board.sub_size, (uint64_t)board.wave_size,
+        board.bank, board.alt_bank, board.boot_hack);
     fprintf(out, "System12: DMA5=%" PRIu64 " bytes=%" PRIu64 " truncations=%" PRIu64 " bank_writes=%" PRIu64 "\n",
         board.dma_transfers, board.dma_bytes, board.dma_truncations, board.bank_writes);
     fprintf(out, "System12: shared reads=%" PRIu64 " writes=%" PRIu64 " last=%08x value=%08x pc=%08x\n",
@@ -863,8 +865,10 @@ void system12_report(FILE *out)
     fprintf(out, "System12: settings frames=%" PRIu64 " last=%02x:%02x RTC wirebits=%u\n",
         board.settings.frames_received, board.settings.last_address, board.settings.last_value,
         board.rtc.bit_count);
-    fprintf(out, "System12: CPU pc=%08x opcode=%08x ra=%08x; clock=%u cycle_multiplier=%d timing=%s\n",
+    fprintf(out, "System12: CPU pc=%08x opcode=%08x ra=%08x sr=%08x cause=%08x epc=%08x epc_opcode=%08x; clock=%u cycle_multiplier=%d timing=%s\n",
         psxRegs.pc, intFakeFetch(psxRegs.pc), psxRegs.GPR.n.ra,
+        psxRegs.CP0.n.SR, psxRegs.CP0.n.Cause, psxRegs.CP0.n.EPC,
+        intFakeFetch(psxRegs.CP0.n.EPC),
         PSXCLK, Config.cycle_multiplier,
 #ifdef PCSX_SYSTEM12_SOURCE_TIMING
         "source-experiment"
