@@ -30,6 +30,7 @@ extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX,
 #ifdef __vita__
 #include <png.h>
 #include "vita_rgb24.h"
+extern int VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset(void);
 #else
 #define STB_IMAGE_STATIC
 #define STBI_ONLY_PNG
@@ -258,6 +259,12 @@ struct NativeRenderTarget
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
 global_variable struct NativeRenderTarget s_offscreenRenderTarget;
+#ifdef __vita__
+global_variable struct NativeRenderTarget s_rgb24RenderTarget;
+#endif
+#define NATIVE_MAIN_CPU_DIRTY_CAP 32
+global_variable RECT16 s_mainCpuDirtyRects[NATIVE_MAIN_CPU_DIRTY_CAP];
+global_variable int s_mainCpuDirtyRectCount;
 
 global_variable TextureID s_whiteTexture = (TextureID)-1;
 global_variable TextureID s_lastBoundTexture = (TextureID)-1;
@@ -352,6 +359,12 @@ global_variable GLuint s_presentVramShader = 0;
 global_variable GLint s_presentVramSourceRectLoc = -1;
 global_variable GLuint s_presentRgbaShader = 0;
 global_variable GLint s_presentRgbaFlipYLoc = -1;
+#ifdef __vita__
+global_variable GLuint s_presentRgb24Shader = 0;
+global_variable GLint s_presentRgb24SourceRectLoc = -1;
+global_variable GLuint s_presentRgb24CompositeShader = 0;
+global_variable GLint s_presentRgb24CompositeRectLoc = -1;
+#endif
 #ifndef __vita__
 global_variable GLint s_presentRgbaTexelSizeLoc = -1;
 global_variable GLint s_presentRgbaFxaaLoc = -1;
@@ -376,7 +389,9 @@ internal void NativeRenderer_DestroyRenderTarget(struct NativeRenderTarget *targ
 internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *target, int width, int height);
 internal void NativeRenderer_BindMainRenderTarget(void);
 internal void NativeRenderer_DrawVRAMRegion(int x, int y, int width, int height);
+internal int NativeRenderer_ClipVRAMRect(RECT16 *out, int x, int y, int w, int h);
 internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget *target, int x, int y, int logicalWidth, int logicalHeight);
+internal void NativeRenderer_ClearMainCpuDirty(void);
 internal void NativeRenderer_DestroyPSXShaders(void);
 
 global_variable GLuint s_glVertexArray[MAX_NUM_VERTEX_BUFFERS];
@@ -511,6 +526,9 @@ void NativeRenderer_Shutdown(void)
 
 	NativeRenderer_DestroyRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
+#ifdef __vita__
+	NativeRenderer_DestroyRenderTarget(&s_rgb24RenderTarget);
+#endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
 	NativeRenderer_DestroyTexture(s_vram.texture);
@@ -544,6 +562,10 @@ void NativeRenderer_Shutdown(void)
 	glDeleteProgram(s_packShader);
 	glDeleteProgram(s_presentVramShader);
 	glDeleteProgram(s_presentRgbaShader);
+#ifdef __vita__
+	glDeleteProgram(s_presentRgb24Shader);
+	glDeleteProgram(s_presentRgb24CompositeShader);
+#endif
 	glDeleteVertexArrays(1, &s_vramQuadVAO);
 	glDeleteBuffers(1, &s_vramQuadVBO);
 }
@@ -582,6 +604,7 @@ void NativeRenderer_BeginScene(void)
 	{
 		NativeRenderer_LoadRenderTargetFromVRAM(&s_mainRenderTarget, NativeGpu_GetRenderDrawEnv()->clip.x, NativeGpu_GetRenderDrawEnv()->clip.y,
 		                                        s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight);
+		NativeRenderer_ClearMainCpuDirty();
 	}
 	else
 	{
@@ -868,6 +891,138 @@ internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget 
 	NativeRenderer_SetScissorState(previousScissorState);
 }
 
+internal void NativeRenderer_ClearMainCpuDirty(void)
+{
+	s_mainCpuDirtyRectCount = 0;
+}
+
+void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h)
+{
+	RECT16 rect;
+	if (!NativeRenderer_ClipVRAMRect(&rect, x, y, w, h))
+		return;
+
+	for (int i = 0; i < s_mainCpuDirtyRectCount; ++i)
+	{
+		RECT16 *current = &s_mainCpuDirtyRects[i];
+		const int currentRight = current->x + current->w;
+		const int currentBottom = current->y + current->h;
+		const int rectRight = rect.x + rect.w;
+		const int rectBottom = rect.y + rect.h;
+
+		if (rect.x <= currentRight && rectRight >= current->x &&
+		    rect.y <= currentBottom && rectBottom >= current->y)
+		{
+			const int x0 = rect.x < current->x ? rect.x : current->x;
+			const int y0 = rect.y < current->y ? rect.y : current->y;
+			const int x1 = rectRight > currentRight ? rectRight : currentRight;
+			const int y1 = rectBottom > currentBottom ? rectBottom : currentBottom;
+			current->x = (s16)x0;
+			current->y = (s16)y0;
+			current->w = (s16)(x1 - x0);
+			current->h = (s16)(y1 - y0);
+			return;
+		}
+	}
+
+	if (s_mainCpuDirtyRectCount < NATIVE_MAIN_CPU_DIRTY_CAP)
+	{
+		s_mainCpuDirtyRects[s_mainCpuDirtyRectCount++] = rect;
+		return;
+	}
+
+	RECT16 *current = &s_mainCpuDirtyRects[NATIVE_MAIN_CPU_DIRTY_CAP - 1];
+	const int x0 = rect.x < current->x ? rect.x : current->x;
+	const int y0 = rect.y < current->y ? rect.y : current->y;
+	const int x1 = rect.x + rect.w > current->x + current->w ? rect.x + rect.w : current->x + current->w;
+	const int y1 = rect.y + rect.h > current->y + current->h ? rect.y + rect.h : current->y + current->h;
+	current->x = (s16)x0;
+	current->y = (s16)y0;
+	current->w = (s16)(x1 - x0);
+	current->h = (s16)(y1 - y0);
+}
+
+void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void)
+{
+	if (s_mainCpuDirtyRectCount <= 0 || s_mainRenderTarget.texture == 0 ||
+	    s_mainRenderTarget.width <= 0 || s_mainRenderTarget.height <= 0)
+		return;
+
+	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
+	const int clipX = draw->clip.x;
+	const int clipY = draw->clip.y;
+	const int clipW = s_mainRenderTarget.logicalWidth;
+	const int clipH = s_mainRenderTarget.logicalHeight;
+	if (clipW <= 0 || clipH <= 0)
+	{
+		NativeRenderer_ClearMainCpuDirty();
+		return;
+	}
+
+	const ShaderID previousShader = s_previousShader;
+	const TextureID previousTexture = s_lastBoundTexture;
+	const BlendMode previousBlendMode = s_previousBlendMode;
+	const int previousMixedSTPBlend = s_previousMixedSTPBlend;
+	const int previousDepthMode = s_previousDepthMode;
+	const int previousDepthWrite = s_previousDepthWrite;
+	const int previousScissorState = s_previousScissorState;
+	const GLboolean previousStencilEnabled = glIsEnabled(GL_STENCIL_TEST);
+
+	NativeRenderer_UpdateVRAM();
+	glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
+	NativeRenderer_SetDepthState(0, 0);
+	NativeRenderer_SetBlendMode(BM_NONE);
+	NativeRenderer_SetScissorState(0);
+	glDisable(GL_STENCIL_TEST);
+
+	for (int i = 0; i < s_mainCpuDirtyRectCount; ++i)
+	{
+		const RECT16 *rect = &s_mainCpuDirtyRects[i];
+		const int x0 = rect->x > clipX ? rect->x : clipX;
+		const int y0 = rect->y > clipY ? rect->y : clipY;
+		const int x1 = rect->x + rect->w < clipX + clipW ? rect->x + rect->w : clipX + clipW;
+		const int y1 = rect->y + rect->h < clipY + clipH ? rect->y + rect->h : clipY + clipH;
+		if (x1 <= x0 || y1 <= y0)
+			continue;
+
+		const int viewportX0 = (x0 - clipX) * s_mainRenderTarget.width / clipW;
+		const int viewportX1 = (x1 - clipX) * s_mainRenderTarget.width / clipW;
+		const int viewportTop = (y0 - clipY) * s_mainRenderTarget.height / clipH;
+		const int viewportBottom = (y1 - clipY) * s_mainRenderTarget.height / clipH;
+		const int viewportW = viewportX1 - viewportX0;
+		const int viewportH = viewportBottom - viewportTop;
+		if (viewportW <= 0 || viewportH <= 0)
+			continue;
+
+		glViewport(viewportX0, s_mainRenderTarget.height - viewportBottom, viewportW, viewportH);
+		NativeRenderer_DrawVRAMRegion(x0, y0, x1 - x0, y1 - y0);
+	}
+
+	NativeRenderer_ClearMainCpuDirty();
+	if (previousStencilEnabled)
+		glEnable(GL_STENCIL_TEST);
+	if (s_boundVertexBuffer >= 0)
+		glBindVertexArray(s_glVertexArray[s_boundVertexBuffer]);
+	else
+		glBindVertexArray(0);
+	glUseProgram(previousShader == (ShaderID)-1 ? 0 : previousShader);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, previousTexture == (TextureID)-1 ? 0 : previousTexture);
+	s_previousShader = previousShader;
+	s_lastBoundTexture = previousTexture;
+	s_previousBlendMode = BM_NONE;
+	s_previousMixedSTPBlend = 0;
+	s_previousScissorState = 0;
+	if (previousMixedSTPBlend)
+		NativeRenderer_SetMixedSTPBlendMode(previousBlendMode);
+	else
+		NativeRenderer_SetBlendMode(previousBlendMode);
+	NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
+	NativeRenderer_SetScissorState(previousScissorState);
+	NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
+}
+
+
 internal void NativeRenderer_ClearHostRect(int x, int y, int width, int height)
 {
 	if ((width <= 0) || (height <= 0))
@@ -904,7 +1059,10 @@ internal void NativeRenderer_ClearPresentationBars(void)
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 
 	NativeRenderer_ClearHostRect(0, 0, s_presentViewport.x, g_windowHeight);
-	NativeRenderer_ClearHostRect(viewportRight, 0, g_windowWidth - viewportRight, g_windowHeight);
+	// Overlap the right edge by one pixel so an RGB24 frame cannot survive the mode switch.
+	NativeRenderer_ClearHostRect(viewportRight > 0 ? viewportRight - 1 : 0, 0,
+	                             g_windowWidth - (viewportRight > 0 ? viewportRight - 1 : 0),
+	                             g_windowHeight);
 	NativeRenderer_ClearHostRect(s_presentViewport.x, 0, s_presentViewport.w, s_presentViewport.y);
 	NativeRenderer_ClearHostRect(s_presentViewport.x, viewportTop, s_presentViewport.w, g_windowHeight - viewportTop);
 
@@ -1518,6 +1676,9 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 		if (NativeRenderer_Shader_CheckShaderStatus(vertexShader) == 0)
 		{
 			NATIVE_RENDERER_ERROR("%s\n", "Failed to compile Vertex Shader!");
+			glDeleteShader(vertexShader);
+			glDeleteProgram(program);
+			return 0;
 		}
 
 		glAttachShader(program, vertexShader);
@@ -1532,6 +1693,9 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 		if (NativeRenderer_Shader_CheckShaderStatus(fragmentShader) == 0)
 		{
 			NATIVE_RENDERER_ERROR("%s\n", "Failed to compile Fragment Shader!");
+			glDeleteShader(fragmentShader);
+			glDeleteProgram(program);
+			return 0;
 		}
 
 		glAttachShader(program, fragmentShader);
@@ -1797,6 +1961,60 @@ global_variable const char *ctr_present_vram_shader = "#ifdef VERTEX\n"
 #endif
 
 #ifdef __vita__
+global_variable const char *ctr_present_rgb24_shader = "#ifdef VERTEX\n"
+                                                        "attribute vec2 a_position;\n"
+                                                        "uniform vec4 sourceRect;\n"
+                                                        "varying vec2 v_pixel;\n"
+                                                        "void main() {\n"
+                                                        "    vec2 screenUV = a_position * 0.5 + 0.5;\n"
+                                                        "    v_pixel = vec2(screenUV.x, 1.0 - screenUV.y) * sourceRect.zw;\n"
+                                                        "    gl_Position = vec4(a_position, 0.0, 1.0);\n"
+                                                        "}\n"
+                                                        "#endif\n"
+                                                        "#ifdef FRAGMENT\n"
+                                                        "varying vec2 v_pixel;\n"
+                                                        "uniform sampler2D s_texture;\n"
+                                                        "uniform vec4 sourceRect;\n"
+                                                        "void main() {\n"
+                                                        "    float px = floor(v_pixel.x);\n"
+                                                        "    float py = floor(v_pixel.y);\n"
+                                                        "    float byteIndex = sourceRect.x + px * 3.0;\n"
+                                                        "    float byteHalf = byteIndex * 0.5;\n"
+                                                        "    float wordIndex = floor(byteHalf);\n"
+                                                        "    float odd = fract(byteHalf) * 2.0;\n"
+                                                        "    float sourceY = sourceRect.y + py;\n"
+                                                        "    vec2 uv0 = vec2((wordIndex + 0.5) / 1024.0, (sourceY + 0.5) / 512.0);\n"
+                                                        "    vec2 uv1 = vec2((wordIndex + 1.5) / 1024.0, (sourceY + 0.5) / 512.0);\n"
+                                                        "    vec2 a = texture2D(s_texture, uv0).rg;\n"
+                                                        "    vec2 b = texture2D(s_texture, uv1).rg;\n"
+                                                        "    vec3 evenColor = vec3(a.r, a.g, b.r);\n"
+                                                        "    vec3 oddColor = vec3(a.g, b.r, b.g);\n"
+                                                        "    gl_FragColor = vec4(mix(evenColor, oddColor, odd), 1.0);\n"
+                                                        "}\n"
+                                                        "#endif\n";
+
+global_variable const char *ctr_present_rgb24_composite_shader = "#ifdef VERTEX\n"
+                                                                  "attribute vec2 a_position;\n"
+                                                                  "varying vec2 v_uv;\n"
+                                                                  "void main() {\n"
+                                                                  "    v_uv = a_position * 0.5 + 0.5;\n"
+                                                                  "    gl_Position = vec4(a_position, 0.0, 1.0);\n"
+                                                                  "}\n"
+                                                                  "#endif\n"
+                                                                  "#ifdef FRAGMENT\n"
+                                                                  "varying vec2 v_uv;\n"
+                                                                  "uniform sampler2D s_src;\n"
+                                                                  "uniform vec4 targetRect;\n"
+                                                                  "void main() {\n"
+                                                                  "    vec2 rel = (v_uv - targetRect.xy) / targetRect.zw;\n"
+                                                                  "    float inside = step(0.0, rel.x) * step(rel.x, 1.0) * step(0.0, rel.y) * step(rel.y, 1.0);\n"
+                                                                  "    vec4 movie = texture2D(s_src, clamp(rel, vec2(0.0), vec2(1.0)));\n"
+                                                                  "    gl_FragColor = mix(vec4(0.0, 0.0, 0.0, 1.0), movie, inside);\n"
+                                                                  "}\n"
+                                                                  "#endif\n";
+#endif
+
+#ifdef __vita__
 global_variable const char *ctr_present_rgba_shader = "#ifdef VERTEX\n"
                                                        "attribute vec2 a_position;\n"
                                                        "varying vec2 v_uv;\n"
@@ -1898,6 +2116,33 @@ internal void NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(0);
 
 #ifdef __vita__
+	s_presentRgb24Shader = NativeRenderer_Shader_Compile(ctr_present_rgb24_shader, false, NULL);
+	if (s_presentRgb24Shader != 0)
+	{
+		glUseProgram(s_presentRgb24Shader);
+		glUniform1i(glGetUniformLocation(s_presentRgb24Shader, "s_texture"), 0);
+		s_presentRgb24SourceRectLoc = glGetUniformLocation(s_presentRgb24Shader, "sourceRect");
+		glUseProgram(0);
+	}
+	else
+	{
+		NATIVE_RENDERER_ERROR("%s\n", "RGB24 presenter shader compilation failed; using CPU fallback");
+	}
+	s_presentRgb24CompositeShader = NativeRenderer_Shader_Compile(ctr_present_rgb24_composite_shader, false, NULL);
+	if (s_presentRgb24CompositeShader != 0)
+	{
+		glUseProgram(s_presentRgb24CompositeShader);
+		glUniform1i(glGetUniformLocation(s_presentRgb24CompositeShader, "s_src"), 0);
+		s_presentRgb24CompositeRectLoc = glGetUniformLocation(s_presentRgb24CompositeShader, "targetRect");
+		glUseProgram(0);
+	}
+	else
+	{
+		NATIVE_RENDERER_ERROR("%s\n", "RGB24 composite shader compilation failed");
+	}
+#endif
+
+#ifdef __vita__
 	s_vramUploadShader = NativeRenderer_Shader_Compile(ctr_vram_upload_shader, false, NULL);
 	glUseProgram(s_vramUploadShader);
 	glUniform1i(glGetUniformLocation(s_vramUploadShader, "s_src"), 0);
@@ -1969,6 +2214,9 @@ int NativeRenderer_InitialisePSX(void)
 	// Main and offscreen draws share one explicit render-target contract. The main target stays at CTR's logical display size; host scaling is deferred to presentation.
 	NativeRenderer_InitRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
+#ifdef __vita__
+	NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
+#endif
 
 	// gen VRAM texture (single, persistent - mirrors PS1's single 1MB VRAM)
 	{
@@ -1978,6 +2226,8 @@ int NativeRenderer_InitialisePSX(void)
 
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
 		// set storage size
 		glTexImage2D(GL_TEXTURE_2D, 0, VRAM_INTERNAL_FORMAT, VRAM_WIDTH, VRAM_HEIGHT, 0, VRAM_FORMAT, GL_UNSIGNED_BYTE, NULL);
@@ -2762,6 +3012,18 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
+	const int tileX0 = rect.x / NATIVE_VRAM_TILE_SIZE;
+	const int tileY0 = rect.y / NATIVE_VRAM_TILE_SIZE;
+	const int tileX1 = (rect.x + rect.w - 1) / NATIVE_VRAM_TILE_SIZE;
+	const int tileY1 = (rect.y + rect.h - 1) / NATIVE_VRAM_TILE_SIZE;
+	for (int tileY = tileY0; tileY <= tileY1; tileY++)
+	{
+		for (int tileX = tileX0; tileX <= tileX1; tileX++)
+		{
+			const int tileIndex = tileY * NATIVE_VRAM_TILE_COLS + tileX;
+			s_vram.gpuNewerTiles[tileIndex >> 5] &= ~(1u << (tileIndex & 31));
+		}
+	}
 	NativeRenderer_AppendCpuDirtyRect(&rect);
 }
 
@@ -3368,9 +3630,15 @@ internal void NativeRenderer_UploadVRAMRects(s32 rectCount)
 	glDepthMask(previousDepthWrite);
 	if (previousBlend) glEnable(GL_BLEND);
 	if (previousDepth) glEnable(GL_DEPTH_TEST);
-	if (previousScissor) glEnable(GL_SCISSOR_TEST);
+	if (previousScissor)
+		glEnable(GL_SCISSOR_TEST);
+	else
+		glDisable(GL_SCISSOR_TEST);
 	if (previousStencil) glEnable(GL_STENCIL_TEST);
+	s_previousScissorState = previousScissor ? 1 : 0;
+	NativeRenderer_InvalidateScissorRectCache();
 }
+
 #endif
 
 void NativeRenderer_UpdateVRAM(void)
@@ -3833,22 +4101,36 @@ void NativeRenderer_PresentStreamingTexture(TextureID texture, int contentHeight
 }
 
 #ifdef __vita__
-static void NativeRenderer_PresentRGB24(const DISPENV *display)
+static void NativeRenderer_PresentRGB24CpuFallback(const DISPENV *display)
 {
 	static TextureID texture;
 	static int textureWidth;
 	static int textureHeight;
-	const int width = display->disp.w;
-	const int height = display->disp.h;
-	if (width <= 0 || width > VRAM_WIDTH || height <= 0 || height > VRAM_HEIGHT)
-		return;
-	const int x = display->disp.x & 1023;
-	const int y = display->disp.y & 511;
-	const int packedWidth = SDL_min((width * 3 + 1) / 2, VRAM_WIDTH - x);
+	const int width = display->screen.w > 0 ? display->screen.w : display->disp.w;
+	const int height = display->screen.h > 0 ? display->screen.h : display->disp.h;
+	const int sourceByteOffset = VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset();
+	const int sourceByteX = sourceByteOffset & 2047;
+	const int x = sourceByteX >> 1;
+	const int y = (sourceByteOffset >> 11) & 511;
+	const int sourceBytes = width * 3;
+	const int firstBytes = SDL_min(sourceBytes, 2048 - sourceByteX);
+	const int secondBytes = sourceBytes - firstBytes;
+	const int firstWords = (firstBytes + (sourceByteX & 1) + 1) / 2;
+	const int secondWords = (secondBytes + 1) / 2;
 	const int firstHeight = SDL_min(height, VRAM_HEIGHT - y);
-	NativeRenderer_SyncGpuVRAMToCPU(x, y, packedWidth, firstHeight);
+
+	if (width <= 0 || height <= 0 || width > VRAM_WIDTH || height > VRAM_HEIGHT)
+		return;
+
+	NativeRenderer_SyncGpuVRAMToCPU(x, y, firstWords, firstHeight);
+	if (secondWords > 0)
+		NativeRenderer_SyncGpuVRAMToCPU(0, y, secondWords, firstHeight);
 	if (firstHeight < height)
-		NativeRenderer_SyncGpuVRAMToCPU(x, 0, packedWidth, height - firstHeight);
+	{
+		NativeRenderer_SyncGpuVRAMToCPU(x, 0, firstWords, height - firstHeight);
+		if (secondWords > 0)
+			NativeRenderer_SyncGpuVRAMToCPU(0, 0, secondWords, height - firstHeight);
+	}
 	if (textureWidth != width || textureHeight != height)
 	{
 		NativeRenderer_DestroyStreamingTexture(texture);
@@ -3857,10 +4139,97 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 		textureHeight = height;
 	}
 	for (int row = 0; row < height; ++row)
-		psx_vita_rgb24_row(s_vram.cpuPixels, x, y, row, width,
+		psx_vita_rgb24_row(s_vram.cpuPixels, sourceByteX, y, row, width,
 		                   s_vitaVramTransferPixels + (size_t)row * width * 4u);
 	NativeRenderer_UpdateStreamingTexture(texture, width, height, s_vitaVramTransferPixels);
-	NativeRenderer_PresentStreamingTexture(texture, height, height);
+	NativeRenderer_PresentStreamingTexture(texture, height, display->disp.h);
+}
+
+static void NativeRenderer_PresentRGB24(const DISPENV *display)
+{
+	const int displayWidth = display->disp.w;
+	const int displayHeight = display->disp.h;
+	const int contentX = display->screen.x;
+	const int contentY = display->screen.y;
+	const int width = display->screen.w > 0 ? display->screen.w : displayWidth;
+	const int height = display->screen.h > 0 ? display->screen.h : displayHeight;
+	const int sourceByteOffset = VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset();
+	const int sourceByteX = sourceByteOffset & 2047;
+	const int sourceY = (sourceByteOffset >> 11) & 511;
+	if (width <= 0 || height <= 0 || displayWidth <= 0 || displayHeight <= 0)
+		return;
+	const int viewportX = s_presentViewport.x + (s_presentViewport.w * contentX + displayWidth / 2) / displayWidth;
+	const int scaledTop = (s_presentViewport.h * contentY + displayHeight / 2) / displayHeight;
+	const int viewportH = (s_presentViewport.h * height + displayHeight / 2) / displayHeight;
+	const int viewportY = s_presentViewport.y + s_presentViewport.h - scaledTop - viewportH;
+	const int viewportW = (s_presentViewport.w * width + displayWidth / 2) / displayWidth;
+	if (s_presentRgb24Shader == 0)
+	{
+		NativeRenderer_PresentRGB24CpuFallback(display);
+		return;
+	}
+	if (s_presentRgb24CompositeShader == 0)
+	{
+		NativeRenderer_PresentRGB24CpuFallback(display);
+		return;
+	}
+
+	NativeRenderer_UpdateVRAM();
+
+	const GLboolean previousStencilEnabled = glIsEnabled(GL_STENCIL_TEST);
+
+	glDisable(GL_BLEND);
+	s_previousBlendMode = BM_NONE;
+	s_previousMixedSTPBlend = 0;
+	glDisable(GL_DEPTH_TEST);
+	glDepthMask(GL_FALSE);
+	s_previousDepthMode = 0;
+	s_previousDepthWrite = 0;
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	s_previousScissorState = 0;
+	NativeRenderer_InvalidateScissorRectCache();
+
+	NativeRenderer_EnsureRenderTarget(&s_rgb24RenderTarget, width, height);
+	s_rgb24RenderTarget.logicalWidth = width;
+	s_rgb24RenderTarget.logicalHeight = height;
+	glBindFramebuffer(GL_FRAMEBUFFER, s_rgb24RenderTarget.framebuffer);
+	NativeRenderer_SetViewPort(0, 0, width, height);
+	glUseProgram(s_presentRgb24Shader);
+	glUniform4f(s_presentRgb24SourceRectLoc,
+	            (float)sourceByteX, (float)sourceY,
+	            (float)width, (float)height);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, s_vram.texture);
+	glBindVertexArray(s_vramQuadVAO);
+	NativeRenderer_DrawTriangles(0, 2);
+	glFlush();
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	NativeRenderer_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
+	glDisable(GL_SCISSOR_TEST);
+	s_previousScissorState = 0;
+	NativeRenderer_InvalidateScissorRectCache();
+	glUseProgram(s_presentRgb24CompositeShader);
+	glUniform4f(s_presentRgb24CompositeRectLoc,
+	            (float)viewportX / (float)g_windowWidth,
+	            (float)viewportY / (float)g_windowHeight,
+	            (float)viewportW / (float)g_windowWidth,
+	            (float)viewportH / (float)g_windowHeight);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, s_rgb24RenderTarget.texture);
+	glBindVertexArray(s_vramQuadVAO);
+	NativeRenderer_DrawTriangles(0, 2);
+
+	if (previousStencilEnabled)
+		glEnable(GL_STENCIL_TEST);
+	NativeRenderer_SetScissorState(0);
+	NativeRenderer_SetBlendMode(BM_NONE);
+	NativeRenderer_SetDepthState(0, 0);
+	NativeRenderer_SetViewPort(s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h);
+	glBindVertexArray(0);
+	s_previousShader = (ShaderID)-1;
+	s_lastBoundTexture = (TextureID)-1;
 }
 #endif
 

@@ -34,12 +34,25 @@ static int s_context_ready;
 static int s_frame_started;
 static uint16_t *s_guest_vram;
 
+typedef struct VitaCtrRgb24UploadRegion {
+    int valid;
+    int consumed;
+    int x0;
+    int y0;
+    int x1;
+    int y1;
+} VitaCtrRgb24UploadRegion;
+
+static VitaCtrRgb24UploadRegion s_rgb24_upload_regions[2];
+
 void Platform_Log(const char *fmt, ...);
 
 extern int ParseTaglessPrimitive(u32 *command);
-extern void VitaCtrNativeGpu_SetDisplayEnv(int x, int y, int w, int h, int depth24);
+extern void VitaCtrNativeGpu_SetDisplayEnv(int x, int y, int w, int h, int screen_x, int screen_y, int screen_w, int screen_h, int depth24, int rgb24_source_byte_offset);
 extern void VitaCtrNativeRenderer_SetPresentationAspect(int width, int height);
 extern void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, int h);
+extern void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h);
+extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
 extern void VitaCtrNativeRenderer_ReadGuestVRAM(u16 *dst, int x, int y, int w, int h);
 extern void NativeGpu_SetFrontendDisplayBlank(int blank);
 extern int NativeGpu_GetRenderDisplayBlank(void);
@@ -119,6 +132,8 @@ void Platform_EndScene(void)
     const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
     const int blank = NativeGpu_GetRenderDisplayBlank();
 
+    if (!display->isrgb24)
+        VitaCtrNativeRenderer_ApplyMainCpuVRAM();
     NativeRenderer_EndScene();
     if (blank) {
         if (!display->isrgb24)
@@ -172,6 +187,8 @@ static void backend_copy_guest(void *arg)
     VitaCtrNativeRenderer_CopyGuestVRAM(s_guest_vram,
         task->x, task->y, task->w, task->h);
     NativeRenderer_UpdateVRAM();
+    if (!NativeGpu_GetRenderDispEnv()->isrgb24)
+        VitaCtrNativeRenderer_MarkMainCpuVRAM(task->x, task->y, task->w, task->h);
 }
 
 static void backend_read_guest(void *arg)
@@ -321,7 +338,7 @@ static int init_context(void)
         return 0;
     }
 
-    VitaCtrNativeGpu_SetDisplayEnv(0, 0, 320, 240, 0);
+    VitaCtrNativeGpu_SetDisplayEnv(0, 0, 320, 240, 0, 0, 320, 240, 0, 0);
     NativeGpu_BeginFrontendFrame();
     s_frame_started = 1;
     s_context_ready = 1;
@@ -488,12 +505,36 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
         return;
 
+    if (gpu.status & PSX_GPU_STATUS_RGB24) {
+        const int page = (y >= 256) ? 1 : 0;
+        VitaCtrRgb24UploadRegion *region = &s_rgb24_upload_regions[page];
+        const int x1 = x + w;
+        const int y1 = y + h;
+
+        if (region->consumed) {
+            memset(region, 0, sizeof(*region));
+        }
+        if (!region->valid) {
+            region->valid = 1;
+            region->x0 = x;
+            region->y0 = y;
+            region->x1 = x1;
+            region->y1 = y1;
+        }
+        else {
+            if (x < region->x0) region->x0 = x;
+            if (y < region->y0) region->y0 = y;
+            if (x1 > region->x1) region->x1 = x1;
+            if (y1 > region->y1) region->y1 = y1;
+        }
+    }
+
     memset(&task, 0, sizeof(task));
     task.x = x;
     task.y = y;
     task.w = w;
     task.h = h;
-    NativeGpu_RunBackendTaskSync(backend_copy_guest, &task);
+    vram_task_sync(backend_copy_guest, &task);
 }
 
 void renderer_flush_queues(void)
@@ -550,26 +591,62 @@ void renderer_notify_screen_change(const struct psx_gpu_screen *screen)
     (void)screen;
 }
 
-int renderer_present_frame(struct psx_gpu *psx_gpu, int src_x, int src_y)
+int renderer_present_frame(struct psx_gpu *psx_gpu, int src_x, int src_y, int src_byte_offset, int x, int y, int w, int h)
 {
-    int width;
-    int height;
+    int display_width;
+    int display_height;
+    const int rgb24 = !!(psx_gpu->status & PSX_GPU_STATUS_RGB24);
 
     if (!s_context_ready)
         return 0;
 
-    width = psx_gpu->screen.hres > 0 ? psx_gpu->screen.hres : psx_gpu->screen.w;
-    height = psx_gpu->screen.vres > 0 ? psx_gpu->screen.vres : psx_gpu->screen.h;
-    if (width <= 0 || height <= 0)
+    display_width = psx_gpu->screen.hres > 0 ? psx_gpu->screen.hres : w;
+    display_height = psx_gpu->screen.vres > 0 ? psx_gpu->screen.vres : h;
+    if (display_width <= 0 || display_height <= 0 || w <= 0 || h <= 0)
         return 0;
 
-    VitaCtrNativeGpu_SetDisplayEnv(src_x, src_y, width, height,
-        !!(psx_gpu->status & PSX_GPU_STATUS_RGB24));
-    NativeGpu_SetFrontendDisplayBlank(0);
+    if (rgb24) {
+        const int source_byte_x = src_byte_offset & 2047;
+        const int source_y = (src_byte_offset >> 11) & 511;
+        const int page = source_y >= 256 ? 1 : 0;
+        VitaCtrRgb24UploadRegion *region = &s_rgb24_upload_regions[page];
+
+        if (region->valid) {
+            const int region_byte_x0 = region->x0 * 2;
+            const int region_byte_x1 = region->x1 * 2;
+            const int byte_x = region_byte_x0 - source_byte_x;
+            const int byte_w = region_byte_x1 - region_byte_x0;
+            const int active_x = byte_x / 3;
+            const int active_w = byte_w / 3;
+            const int active_y = region->y0 - source_y;
+            const int active_h = region->y1 - region->y0;
+
+            if (byte_x >= 0 && byte_w > 0 &&
+                (byte_x % 3) == 0 && (byte_w % 3) == 0 &&
+                active_x >= 0 && active_y >= 0 &&
+                active_x + active_w <= display_width &&
+                active_y + active_h <= display_height) {
+                x += active_x;
+                y += active_y;
+                w = active_w;
+                h = active_h;
+                src_byte_offset = (src_byte_offset +
+                    active_y * 2048 + active_x * 3) & 0xfffff;
+                region->consumed = 1;
+            }
+        }
+    }
+    else {
+        memset(s_rgb24_upload_regions, 0, sizeof(s_rgb24_upload_regions));
+    }
+
     if (!s_frame_started) {
         NativeGpu_BeginFrontendFrame();
         s_frame_started = 1;
     }
+    VitaCtrNativeGpu_SetDisplayEnv(src_x, src_y, display_width, display_height,
+        x, y, w, h, rgb24, src_byte_offset);
+    NativeGpu_SetFrontendDisplayBlank(0);
     NativeGpu_SubmitFrontendFrame();
     NativeGpu_BeginFrontendFrame();
     s_frame_started = 1;

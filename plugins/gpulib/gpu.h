@@ -155,7 +155,7 @@ void renderer_notify_screen_change(const struct psx_gpu_screen *screen);
 #ifdef GPU_VITA_CTR
 void renderer_barrier(void);
 void renderer_sync_vram_to_cpu(int x, int y, int w, int h);
-int  renderer_present_frame(struct psx_gpu *gpu, int src_x, int src_y);
+int  renderer_present_frame(struct psx_gpu *gpu, int src_x, int src_y, int src_byte_offset, int x, int y, int w, int h);
 void renderer_present_blank(void);
 #endif
 

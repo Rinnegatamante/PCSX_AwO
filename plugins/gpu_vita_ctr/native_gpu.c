@@ -143,6 +143,7 @@ typedef struct
 	int vertexCount;
 	int splitCount;
 	int blankDisplay;
+	int rgb24SourceByteOffset;
 } NativeGpuFramePacket;
 
 #define NATIVE_GPU_FRAME_PACKET_COUNT 2
@@ -156,8 +157,10 @@ global_variable NativeGpuBackendTaskFn s_gpuBackendTask;
 global_variable void *s_gpuBackendTaskArg;
 global_variable DRAWENV s_gpuBackendDrawEnv;
 global_variable DISPENV s_gpuBackendDispEnv;
+global_variable int s_gpuBackendRgb24SourceByteOffset;
 global_variable DRAWENV s_gpuBackendTaskDrawEnv;
 global_variable DISPENV s_gpuBackendTaskDispEnv;
+global_variable int s_gpuBackendTaskRgb24SourceByteOffset;
 global_variable SceKernelLwMutexWork s_gpuBackendMutex;
 global_variable SceKernelLwCondWork s_gpuBackendCond;
 global_variable SceUID s_gpuBackendThread = -1;
@@ -177,6 +180,7 @@ global_variable int s_gpuDrawVertexCount;
 global_variable int s_gpuDrawSplitCount;
 global_variable int s_pcsxRenderHadGeometry;
 global_variable NativeGpuState s_gpu;
+global_variable int s_gpuActiveRgb24SourceByteOffset;
 
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount);
 
@@ -214,10 +218,11 @@ internal void NativeGpu_BackendWaitIdleLocked(void)
 	}
 }
 
-internal void NativeGpu_BackendApplyEnv(const DRAWENV *drawEnv, const DISPENV *dispEnv)
+internal void NativeGpu_BackendApplyEnv(const DRAWENV *drawEnv, const DISPENV *dispEnv, int rgb24SourceByteOffset)
 {
 	s_gpuBackendDrawEnv = *drawEnv;
 	s_gpuBackendDispEnv = *dispEnv;
+	s_gpuBackendRgb24SourceByteOffset = rgb24SourceByteOffset;
 }
 
 typedef struct
@@ -312,11 +317,11 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 		void *taskArg = s_gpuBackendTaskArg;
 		if (packet != NULL)
 		{
-			NativeGpu_BackendApplyEnv(&packet->drawEnv, &packet->dispEnv);
+			NativeGpu_BackendApplyEnv(&packet->drawEnv, &packet->dispEnv, packet->rgb24SourceByteOffset);
 		}
 		else
 		{
-			NativeGpu_BackendApplyEnv(&s_gpuBackendTaskDrawEnv, &s_gpuBackendTaskDispEnv);
+			NativeGpu_BackendApplyEnv(&s_gpuBackendTaskDrawEnv, &s_gpuBackendTaskDispEnv, s_gpuBackendTaskRgb24SourceByteOffset);
 		}
 		s_gpuBackendWorkReady = 0;
 		NativeGpu_BackendUnlock();
@@ -447,6 +452,7 @@ void NativeGpu_RunBackendTaskSync(NativeGpuBackendTaskFn task, void *arg)
 	s_gpuBackendTaskArg = arg;
 	s_gpuBackendTaskDrawEnv = activeDrawEnv;
 	s_gpuBackendTaskDispEnv = activeDispEnv;
+	s_gpuBackendTaskRgb24SourceByteOffset = s_gpuActiveRgb24SourceByteOffset;
 	s_gpuBackendBusy = 1;
 	s_gpuBackendWorkReady = 1;
 	sceKernelSignalLwCond(&s_gpuBackendCond);
@@ -499,6 +505,7 @@ void NativeGpu_BeginFrontendFrame(void)
 	packet->drawEnv = activeDrawEnv;
 	packet->dispEnv = activeDispEnv;
 	packet->blankDisplay = 0;
+	packet->rgb24SourceByteOffset = s_gpuActiveRgb24SourceByteOffset;
 	s_gpuFrontendFramePrepared = 1;
 	s_gpuSynchronousFrame = 0;
 #endif
@@ -565,6 +572,15 @@ const DISPENV *NativeGpu_GetRenderDispEnv(void)
 	return s_gpuBackendEnabled ? &s_gpuBackendDispEnv : &activeDispEnv;
 #else
 	return &activeDispEnv;
+#endif
+}
+
+int VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset(void)
+{
+#ifdef __vita__
+	return s_gpuBackendEnabled ? s_gpuBackendRgb24SourceByteOffset : s_gpuActiveRgb24SourceByteOffset;
+#else
+	return s_gpuActiveRgb24SourceByteOffset;
 #endif
 }
 
@@ -1805,11 +1821,12 @@ void DrawSplit(const GPUDrawSplit *split)
 	{
 		const DRAWENV savedDrawEnv = s_gpuBackendDrawEnv;
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
-		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv);
+		const int savedRgb24SourceByteOffset = s_gpuBackendRgb24SourceByteOffset;
+		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv, savedRgb24SourceByteOffset);
 		NativeRenderer_Clear(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_UpdateVRAM();
-		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv);
+		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv, savedRgb24SourceByteOffset);
 		return;
 	}
 #endif
@@ -2531,6 +2548,10 @@ internal void SetPSXMaskState(u32 code)
 // Draws all polygons after AggregatePTAG
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
+	extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
+	if (!NativeGpu_GetRenderDispEnv()->isrgb24)
+		VitaCtrNativeRenderer_ApplyMainCpuVRAM();
+
 	if (splitCount > 0)
 	{
 		GPUDrawSplit *lastSplit = &splits[splitCount];
@@ -3525,21 +3546,26 @@ int VitaCtrNativeGpu_RenderHadGeometry(void)
 	return s_pcsxRenderHadGeometry;
 }
 
-void VitaCtrNativeGpu_SetDisplayEnv(int x, int y, int w, int h, int depth24)
+void VitaCtrNativeGpu_SetDisplayEnv(int x, int y, int w, int h, int screen_x, int screen_y, int screen_w, int screen_h, int depth24, int rgb24_source_byte_offset)
 {
 	activeDispEnv.disp.x = (s16)x;
 	activeDispEnv.disp.y = (s16)y;
 	activeDispEnv.disp.w = (s16)w;
 	activeDispEnv.disp.h = (s16)h;
 	activeDispEnv.isrgb24 = depth24 != 0;
-	activeDispEnv.screen.x = 0;
-	activeDispEnv.screen.y = 0;
-	activeDispEnv.screen.w = (s16)w;
-	activeDispEnv.screen.h = (s16)h;
+	activeDispEnv.screen.x = (s16)screen_x;
+	activeDispEnv.screen.y = (s16)screen_y;
+	activeDispEnv.screen.w = (s16)screen_w;
+	activeDispEnv.screen.h = (s16)screen_h;
+	s_gpuActiveRgb24SourceByteOffset = rgb24_source_byte_offset & 0xfffff;
 	VitaCtrNativeGpu_UpdateDrawTargetMode();
 	activeDrawEnv.isbg = 0;
 	NativeGpu_SetFrontendDrawEnv(&activeDrawEnv);
 	NativeGpu_SetFrontendDispEnv(&activeDispEnv);
+#ifdef __vita__
+	if (s_gpuFrontendFramePrepared)
+		s_gpuFramePackets[s_gpuFrontendPacketIndex].rgb24SourceByteOffset = s_gpuActiveRgb24SourceByteOffset;
+#endif
 }
 
 int ParseTaglessPrimitive(u32 *command)
