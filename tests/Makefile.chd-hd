@@ -1,0 +1,28 @@
+CC := xcrun clang
+.DEFAULT_GOAL := test
+CXX := xcrun clang++
+PYTHON ?= python3
+BUILD ?= build/chd-hd-tests
+OPT ?= -O2 -g
+include tools/mac-harness/libchdr.mk
+CFLAGS := -arch arm64 -std=gnu99 $(OPT) -Wall $(LIBCHDR_CFLAGS)
+CXXFLAGS := -arch arm64 -std=c++17 $(OPT) -Wall -Wextra -Werror $(LIBCHDR_CFLAGS)
+SOURCES := $(LIBCHDR_SOURCES)
+OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o)) $(LIBCHDR_EXTRA_OBJECTS) $(BUILD)/chd_hd.o
+TARGET := $(BUILD)/test-chd-hd
+.PHONY: test sanitize clean
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(BUILD)/chd_hd.o: libpcsxcore/arcade/chd_hd.cpp libpcsxcore/arcade/chd_hd.h
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+$(TARGET): tests/test_chd_hd.cpp $(OBJECTS)
+	$(CXX) $(CXXFLAGS) $^ -lz -o $@
+test: $(TARGET)
+	UBSAN_OPTIONS=halt_on_error=1 $(PYTHON) tests/check_chd_hd.py --test $(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.chd-hd BUILD=$(BUILD)/sanitize OPT='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
+-include $(OBJECTS:.o=.d)
