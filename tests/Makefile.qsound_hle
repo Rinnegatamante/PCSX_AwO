@@ -1,0 +1,14 @@
+CXX ?= c++
+CXXFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -Werror
+BUILD ?= build/qsound-hle-tests
+TARGET := $(BUILD)/test-qsound-hle
+SOURCES := libpcsxcore/arcade/qsound_hle.cpp tests/qsound_hle_standalone.cpp
+DEPS := $(wildcard libpcsxcore/arcade/qsound_hle*.h tests/qsound_hle*.inc)
+.PHONY: test clean
+$(TARGET): $(SOURCES) $(DEPS)
+	mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $(TARGET)
+test: $(TARGET)
+	$(TARGET)
+clean:
+	rm -f $(TARGET)

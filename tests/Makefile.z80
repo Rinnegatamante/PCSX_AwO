@@ -1,0 +1,11 @@
+CXX ?= c++
+BUILD ?= build/z80
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror
+.PHONY: test clean
+test: $(BUILD)/test_z80
+	$(BUILD)/test_z80
+$(BUILD)/test_z80: libpcsxcore/arcade/z80.cpp libpcsxcore/arcade/z80.h $(wildcard libpcsxcore/arcade/z80*.inc) tests/z80_standalone.cpp $(wildcard tests/z80*.inc)
+	mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/z80.cpp tests/z80_standalone.cpp -o $@
+clean:
+	rm -rf $(BUILD)

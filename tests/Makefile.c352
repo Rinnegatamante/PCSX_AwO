@@ -1,0 +1,15 @@
+CC ?= clang
+CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c99
+TARGET = test_c352
+
+.PHONY: all run clean
+all: $(TARGET)
+
+$(TARGET): test_c352.c ../libpcsxcore/arcade/c352.c ../libpcsxcore/arcade/c352.h
+	$(CC) $(CFLAGS) -o $@ test_c352.c ../libpcsxcore/arcade/c352.c
+
+run: $(TARGET)
+	./$(TARGET)
+
+clean:
+	rm -f $(TARGET)

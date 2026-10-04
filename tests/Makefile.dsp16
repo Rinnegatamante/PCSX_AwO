@@ -1,0 +1,14 @@
+CXX ?= c++
+CXXFLAGS ?= -O2 -g -std=c++17 -Wall -Wextra -Werror
+BUILD ?= build/dsp16-tests
+TARGET := $(BUILD)/test-dsp16
+SOURCES := libpcsxcore/arcade/dsp16.cpp tests/dsp16_standalone.cpp
+DEPS := $(wildcard libpcsxcore/arcade/dsp16*.h libpcsxcore/arcade/dsp16*.inc tests/dsp16*.inc)
+.PHONY: test clean
+$(TARGET): $(SOURCES) $(DEPS)
+	mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $(TARGET)
+test: $(TARGET)
+	$(TARGET)
+clean:
+	rm -f $(TARGET)
