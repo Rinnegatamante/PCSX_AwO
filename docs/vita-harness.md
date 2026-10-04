@@ -138,6 +138,11 @@ The libretro build can include the experimental System 12 path with
 its PSX memory geometry before reinitializing the already-started core, keeps
 the configured DRC backend, routes board inputs, and advertises the C352
 88.2 kHz stream. Console builds remain the default when the flag is omitted.
+The standalone frontend opens a 48 kHz Vita output device and sets the SDL
+stream's source format to the core's advertised rate. A System 12 run confirmed
+`src=88200Hz dst=48000Hz device=48000Hz`; opening the device directly at 88.2 kHz
+previously failed with `SCE_AUDIO_OUT_ERROR_INVALID_SAMPLE_FREQ`. This checks
+stream initialization and conversion setup, not audible game sound quality.
 The current Vita `vita_ctr` renderer is fixed at 1024x512, so that renderer's
 build rejects System 12 profiles before changing core memory or opening
 plugins. NEON uses the C GPU path with runtime VRAM height. This opt-in path

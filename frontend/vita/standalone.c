@@ -361,7 +361,9 @@ static int audio_init(int sample_rate)
     }
 
     memset(&want, 0, sizeof(want));
-    want.freq = sample_rate;
+    /* The Vita output port cannot accept System12's 88200 Hz source.
+     * Open a supported device rate and let SDL convert the core's samples. */
+    want.freq = 48000;
     want.format = SDL_AUDIO_S16;
     want.channels = 2;
 
@@ -369,6 +371,15 @@ static int audio_init(int sample_rate)
         SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &want, NULL, NULL);
     if (!g_audio_stream) {
         sceClibPrintf("pcsx-vita: SDL_OpenAudioDeviceStream failed: %s\n", SDL_GetError());
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        return -1;
+    }
+
+    want.freq = sample_rate;
+    if (!SDL_SetAudioStreamFormat(g_audio_stream, &want, NULL)) {
+        sceClibPrintf("pcsx-vita: SDL_SetAudioStreamFormat failed: %s\n", SDL_GetError());
+        SDL_DestroyAudioStream(g_audio_stream);
+        g_audio_stream = NULL;
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return -1;
     }
