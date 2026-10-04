@@ -513,7 +513,12 @@ int main(int argc, char **argv)
 #endif
   fprintf(stderr, "host=macOS-arm64 renderer=GPU_NEON SIMD cpu=%s "
     "frames=%u cycles=%" PRIu64 " blocks=%lu pc=%08x flips=%u elapsed=%.3fs output=%s\n",
-    psxCpu == &psxRec ? "ari64" : "interpreter", frame_counter - start_frame, cycles, blocks, psxRegs.pc,
+#ifndef DRC_DISABLE
+    psxCpu == &psxRec ? "ari64" : "interpreter",
+#else
+    "interpreter",
+#endif
+    frame_counter - start_frame, cycles, blocks, psxRegs.pc,
     flips, end.tv_sec - begin.tv_sec + (end.tv_nsec - begin.tv_nsec) * 1e-9, output);
 #ifdef PCSX_SYSTEM12
   if (board) selected_board->report(stderr);
