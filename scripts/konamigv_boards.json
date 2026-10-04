@@ -1,0 +1,1901 @@
+{
+  "schema_version": 1,
+  "mame_source_commit": "deb2f54fe7300e7a192690318beb860159bfd52a",
+  "mame_driver": "konami/konamigv.cpp",
+  "source_sha256": "95f4bf125a4e04762d3274ddcd04ef6930906e5a879d363704bc5cae1a490fec",
+  "listxml_inventory": "scripts/mame_psx_systems.json",
+  "listxml_source_version": "0.287 (unknown)",
+  "source_complete_rom_start_count": 15,
+  "family_game_count": 15,
+  "source_class_counts": {
+    "konamigv_state": 10,
+    "tokimeki_state": 4,
+    "simpbowl_state": 1
+  },
+  "machine_config_counts": {
+    "konamigv": 8,
+    "btchamp": 1,
+    "kdeadeye": 1,
+    "tmosh": 4,
+    "simpbowl": 1
+  },
+  "bios_root": "konamigv",
+  "profiles": [
+    {
+      "year": 1996,
+      "set": "btchamp",
+      "parent": "konamigv",
+      "machine": "btchamp",
+      "input": "btchamp",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Beat the Champ (GV053 UAA01)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "btchamp",
+      "input_config": "btchamp",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "preliminary",
+          "emulation": "preliminary",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2 active-low port words",
+        "dual UPD4701A trackballs",
+        "Sharp LH28F400 flash",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "dual trackball serial/read interface",
+        "flash command protocol"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "btchmp.25c",
+              "size": 128,
+              "crc32": "6d02ea54",
+              "sha1": "d3babf481fd89db3aec17f589d0d3d999a2aa6e1",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "btchamp",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "c9c858e9034826e1a12c3c003dd068a49a3577e1",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD btchamp is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1996,
+      "set": "hyperath",
+      "parent": "konamigv",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Hyper Athlete (GV021 Japan 1.00)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "hyperath.25c",
+              "size": 128,
+              "crc32": "20a8c435",
+              "sha1": "a0f203a999757fba68b391c525ac4b9684a57ba9",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "gv021-j1",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "579442444025b18da658cd6455c51459fbc3de0e",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1996,
+      "set": "kdeadeye",
+      "parent": "konamigv",
+      "machine": "kdeadeye",
+      "input": "kdeadeye",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Dead Eye (GV054 UAA01)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_GRAPHICS | MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "kdeadeye",
+      "input_config": "kdeadeye",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "preliminary",
+          "emulation": "preliminary",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "status": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "gun X/Y ports for both players",
+        "buttons port",
+        "Sharp LH28F400 flash",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "two lightguns and crosshair inputs",
+        "flash command protocol"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kdeadeye.25c",
+              "size": 128,
+              "crc32": "3935d2df",
+              "sha1": "cbb855c475269077803c380dbc3621e522efe51e",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "flash",
+          "size": 524288,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "kdeadeye.flash",
+              "size": 524288,
+              "crc32": "f87f18cf",
+              "sha1": "67e5f76eb2b938942bd67dbb30508d4603e35f15",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "054uaa01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "a05079e4e5024ca66b7f6b81de74695d86c62dd8",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1995,
+      "set": "konamigv",
+      "parent": null,
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Baby Phoenix/GV System",
+      "flags": "MACHINE_IS_BIOS_ROOT",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": true,
+      "bios_parent": null,
+      "listxml": {
+        "cloneof": null,
+        "romof": null,
+        "isbios": true,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "BIOS-only root has no game program or game-specific EEPROM"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "ROMREGION_ERASE00",
+          "erase": 0,
+          "files": []
+        }
+      ],
+      "disk_media": [],
+      "media_candidate": false,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1996,
+      "set": "lacrazyc",
+      "parent": "konamigv",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Let's Attack Crazy Cross (GV027 Asia 1.10)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "lacrazyc.25c",
+              "size": 128,
+              "crc32": "e20e5730",
+              "sha1": "066b49236c658a4ef2930f7bacc4b2354dd7f240",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "gv027-a1",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "840d0d4876cf1b814c9d8db975aa6c92e1fe4039",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD gv027-a1 is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1998,
+      "set": "nagano98",
+      "parent": "konamigv",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Nagano Winter Olympics '98 (GX720 EAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "nagano98.25c",
+              "size": 128,
+              "crc32": "b64b7451",
+              "sha1": "a77a37e0cc580934d1e7e05d523bae0acd2c1480",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "nagano98",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "1be7bd4531f249ff2233dd40a206c8d60054a8c6",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD nagano98 is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1998,
+      "set": "naganoj",
+      "parent": "nagano98",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Hyper Olympic in Nagano (GX720 JAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": "nagano98",
+        "romof": "nagano98",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "720ja.25c",
+              "size": 128,
+              "crc32": "34c473ba",
+              "sha1": "768225b04a293bdbc114a092d14dee28d52044e9",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "720jaa01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "437160996551ef4dfca43899d1d14beca62eb4c9",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1996,
+      "set": "powyak96",
+      "parent": "konamigv",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Jikkyou Powerful Pro Yakyuu '96 (GV017 Japan 1.03)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "powyak96.25c",
+              "size": 128,
+              "crc32": "405a7fc9",
+              "sha1": "e2d978f49748ba3c4a425188abcd3d272ec23907",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "powyak96",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "ebd0ea18ff9ce300ea1e30d66a739a96acfb0621",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD powyak96 is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 2000,
+      "set": "simpbowl",
+      "parent": "konamigv",
+      "machine": "simpbowl",
+      "input": "simpbowl",
+      "state": "simpbowl_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "The Simpsons Bowling (GQ829 UAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "simpbowl_state",
+      "machine_config": "simpbowl",
+      "input_config": "simpbowl",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "Simpsons Bowling 4x Fujitsu flash map",
+        "UPD4701 trackball",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "trackball interface",
+        "flash command protocol"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "simpbowl.25c",
+              "size": 128,
+              "crc32": "2c61050c",
+              "sha1": "16ae7f81cbe841c429c5c7326cf83e87db1782bf",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "829uaa02",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "2ec4cc608d5582e478ee047b60ccee67b52f060c",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1996,
+      "set": "susume",
+      "parent": "lacrazyc",
+      "machine": "konamigv",
+      "input": "konamigv",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Susume! Taisen Puzzle-Dama (GV027 Japan 1.20)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "konamigv",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": "lacrazyc",
+        "romof": "lacrazyc",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "susume.25c",
+              "size": 128,
+              "crc32": "52f17df7",
+              "sha1": "b8ad7787b0692713439d7d9bebfa0c801c806006",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "gv027j1",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "e7e6749ac65de7771eb8fed7d5eefaec3f902255",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD gv027j1 is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1997,
+      "set": "tmosh",
+      "parent": "konamigv",
+      "machine": "tmosh",
+      "input": "tmosh",
+      "state": "tokimeki_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Tokimeki Memorial Oshiete Your Heart (GQ673 JAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "tokimeki_state",
+      "machine_config": "tmosh",
+      "input_config": "tmosh",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "status": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "tokimeki serial sensor/printer port",
+        "heartbeat sensor",
+        "GSR sensor",
+        "printer timing/video",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "Tokimeki sensor/printer controller and print media path"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tmosh.25c",
+              "size": 128,
+              "crc32": "2f6a27fc",
+              "sha1": "4ead9313f07e9bf7aa0272dba59db6b21510e00b",
+              "status": "bad_dump",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "673jaa01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "eaa76073749f9db48c1bee3dff9bea955683c8a8",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1997,
+      "set": "tmoshs",
+      "parent": "konamigv",
+      "machine": "tmosh",
+      "input": "tmosh",
+      "state": "tokimeki_state",
+      "init": "tmoshs_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Tokimeki Memorial Oshiete Your Heart Seal Version (GE755 JAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "tokimeki_state",
+      "machine_config": "tmosh",
+      "input_config": "tmosh",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "status": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "tokimeki serial sensor/printer port",
+        "heartbeat sensor",
+        "GSR sensor",
+        "printer timing/video",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "Tokimeki sensor/printer controller and print media path"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tmoshs.25c",
+              "size": 128,
+              "crc32": "e57b833f",
+              "sha1": "f18a0974a6be69dc179706643aab837ff61c2738",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "755jaa01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "fc742a0b763ba38350ba7eb5d775948632aafd9d",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1997,
+      "set": "tmoshsp",
+      "parent": "konamigv",
+      "machine": "tmosh",
+      "input": "tmosh",
+      "state": "tokimeki_state",
+      "init": "tmoshsp_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Tokimeki Memorial Oshiete Your Heart Seal Version Plus (GE756 JAB)",
+      "flags": "MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "tokimeki_state",
+      "machine_config": "tmosh",
+      "input_config": "tmosh",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "status": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "tokimeki serial sensor/printer port",
+        "heartbeat sensor",
+        "GSR sensor",
+        "printer timing/video",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "Tokimeki sensor/printer controller and print media path"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tmoshsp.25c",
+              "size": 128,
+              "crc32": "af4cdd87",
+              "sha1": "97041e287e4c80066043967450779b81b62b2b8e",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "756jab01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "b2c59b9801debccbbd986728152f314535c67e53",
+          "readonly": true,
+          "status": "GOOD"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1997,
+      "set": "tmoshspa",
+      "parent": "tmoshsp",
+      "machine": "tmosh",
+      "input": "tmosh",
+      "state": "tokimeki_state",
+      "init": "tmoshsp_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Tokimeki Memorial Oshiete Your Heart Seal Version Plus (GE756 JAA)",
+      "flags": "MACHINE_NOT_WORKING | MACHINE_IMPERFECT_SOUND | MACHINE_IMPERFECT_GRAPHICS",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "tokimeki_state",
+      "machine_config": "tmosh",
+      "input_config": "tmosh",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": "tmoshsp",
+        "romof": "tmoshsp",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "preliminary",
+          "emulation": "preliminary",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "status": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "tokimeki serial sensor/printer port",
+        "heartbeat sensor",
+        "GSR sensor",
+        "printer timing/video",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [
+        "Tokimeki sensor/printer controller and print media path"
+      ],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "tmoshsp.25c",
+              "size": 128,
+              "crc32": "af4cdd87",
+              "sha1": "97041e287e4c80066043967450779b81b62b2b8e",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "756jaa01",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "5e6d349ad1a22c0dbb1ec26aa05febc830254339",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD 756jaa01 is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    },
+    {
+      "year": 1997,
+      "set": "weddingr",
+      "parent": "konamigv",
+      "machine": "konamigv",
+      "input": "weddingr",
+      "state": "konamigv_state",
+      "init": "empty_init",
+      "rotation": "ROT0",
+      "manufacturer": "Konami",
+      "description": "Wedding Rhapsody (GX624 JAA)",
+      "flags": "MACHINE_IMPERFECT_SOUND",
+      "board_family": "Konami System GV / Baby Phoenix",
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 2097152,
+      "gpu_device": "CXD8514Q",
+      "gpu_clock_hz": 53693175,
+      "vram_size": 1048576,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "cdrom_device": "XM-5401",
+      "eeprom_device": "93C46 16-bit",
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "spu_clock_hz": 33868800,
+      "common_map": "konamigv_map",
+      "source_class": "konamigv_state",
+      "machine_config": "konamigv",
+      "input_config": "weddingr",
+      "is_bios_root": false,
+      "bios_parent": "konamigv",
+      "listxml": {
+        "cloneof": null,
+        "romof": "konamigv",
+        "isbios": false,
+        "runnable": true,
+        "mame_driver": {
+          "status": "imperfect",
+          "emulation": "good",
+          "savestate": "unsupported",
+          "requiresartwork": "no",
+          "unofficial": "no",
+          "nosoundhardware": "no",
+          "incomplete": "no"
+        },
+        "mame_features": [
+          {
+            "type": "graphics",
+            "overall": "imperfect"
+          },
+          {
+            "type": "sound",
+            "status": "imperfect"
+          }
+        ],
+        "media_devices": [
+          {
+            "type": "cdrom",
+            "tag": "cdrom:image",
+            "interface": "cdrom"
+          }
+        ]
+      },
+      "source_io_devices": [
+        "P1/P2/P3_P4 active-low port words",
+        "MB89371 dual UART",
+        "93C46 EEPROM"
+      ],
+      "unsupported_game_io": [],
+      "rom_regions": [
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "999a01.7e",
+              "size": 524288,
+              "crc32": "ad498d2d",
+              "sha1": "02a82a2fe1fba0404517c3602324bfa64e23e478",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        },
+        {
+          "tag": "eeprom",
+          "size": 128,
+          "width": 16,
+          "endian": "big",
+          "flags": "0",
+          "erase": 0,
+          "files": [
+            {
+              "filename": "weddingr.25c",
+              "size": 128,
+              "crc32": "b90509a0",
+              "sha1": "41510a0ceded81dcb26a70eba97636d38d3742c3",
+              "status": "good",
+              "bios_id": null
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "weddingr",
+          "region": "cdrom",
+          "index": 0,
+          "sha1": "4e7122b191747ab7220fe4ce1b4483d62ab579af",
+          "readonly": true,
+          "status": "BAD_DUMP"
+        }
+      ],
+      "media_candidate": true,
+      "known_media_issues": [
+        "CHD weddingr is MAME-marked BAD_DUMP"
+      ],
+      "game_execution_verified": false
+    }
+  ]
+}

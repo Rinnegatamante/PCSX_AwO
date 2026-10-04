@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "mame_source_commit": "deb2f54fe7300e7a192690318beb860159bfd52a",
+  "mame_driver": "konami/konamigq.cpp",
+  "source_sha256": "22a3ed25e8f2a30081b3d1eb4c8eaa57ef9ceb3f9f42e6f00ff39b100766b99e",
+  "family_game_count": 1,
+  "source_complete_rom_start_count": 1,
+  "profiles": [
+    {
+      "set": "cryptklr",
+      "parent": null,
+      "year": 1995,
+      "machine": "konamigq",
+      "state": "konamigq_state",
+      "input": "konamigq",
+      "description": "Crypt Killer (GQ420 UAA)",
+      "manufacturer": "Konami",
+      "flags": "0",
+      "rom_regions": [
+        {
+          "tag": "soundcpu",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "files": [
+            {
+              "filename": "420a01.2g",
+              "size": 524288,
+              "crc32": "84fc2613",
+              "sha1": "e06f4284614d33c76529eb43b168d095200a9eac",
+              "status": "good"
+            }
+          ],
+          "loads": [
+            {
+              "filename": "420a01.2g",
+              "offset": 0,
+              "length": 524288,
+              "group": 2,
+              "stride": 2,
+              "swap": true,
+              "macro": "ROM_LOAD16_WORD_SWAP"
+            }
+          ]
+        },
+        {
+          "tag": "k054539",
+          "size": 524288,
+          "width": 8,
+          "endian": "native",
+          "files": [
+            {
+              "filename": "420a02.3m",
+              "size": 524288,
+              "crc32": "2169c3c4",
+              "sha1": "6d525f10385791e19eb1897d18f0bab319640162",
+              "status": "good"
+            }
+          ],
+          "loads": [
+            {
+              "filename": "420a02.3m",
+              "offset": 0,
+              "length": 524288,
+              "group": 1,
+              "stride": 1,
+              "swap": false,
+              "macro": "ROM_LOAD"
+            }
+          ]
+        },
+        {
+          "tag": "maincpu:rom",
+          "size": 524288,
+          "width": 32,
+          "endian": "little",
+          "files": [
+            {
+              "filename": "420b03.27p",
+              "size": 524288,
+              "crc32": "aab391b1",
+              "sha1": "bf9dc7c0c8168c22a4be266fe6a66d3738df916b",
+              "status": "good"
+            }
+          ],
+          "loads": [
+            {
+              "filename": "420b03.27p",
+              "offset": 0,
+              "length": 524288,
+              "group": 1,
+              "stride": 1,
+              "swap": false,
+              "macro": "ROM_LOAD"
+            }
+          ]
+        }
+      ],
+      "disk_media": [
+        {
+          "name": "420uaa04",
+          "region": "harddisk",
+          "index": 0,
+          "sha1": "67cb1418fc0de2a89fc61847dc9efb9f1bebb347",
+          "readonly": false
+        }
+      ],
+      "cpu_device": "CXD8530BQ",
+      "cpu_clock_hz": 67737600,
+      "main_ram_size": 4194304,
+      "gpu_device": "CXD8538Q",
+      "gpu_clock_hz": 53693175,
+      "gpu_model": 1,
+      "vram_size": 2097152,
+      "sound_cpu_device": "M68000",
+      "sound_cpu_clock_hz": 8000000,
+      "effects_device": "TMS57002",
+      "effects_clock_hz": 24000000,
+      "duart_device": "MB89371",
+      "duart_clock_hz": 4000000,
+      "sound_interface": "K056800",
+      "sound_interface_clock_hz": 18432000,
+      "pcm_device": "K054539",
+      "pcm_device_count": 2,
+      "pcm_clock_hz": 18432000,
+      "pcm_ram_base": 524288,
+      "pcm_ram_size": 3670016,
+      "scsi_device": "NCR53CF96",
+      "scsi_clock_hz": 16000000,
+      "scsi_initiator_id": 7,
+      "scsi_target_id": 0,
+      "scsi_target_device": "NSCSI_HARDDISK",
+      "eeprom_device": "93C46 16-bit",
+      "eeprom_size": 128,
+      "eeprom_initialization": "MAME driver default_data; no EEPROM ROM region",
+      "eeprom_default_words": [
+        10539,
+        21078,
+        8340,
+        16725,
+        65,
+        5140,
+        3,
+        257,
+        259,
+        0,
+        1799,
+        1,
+        43520,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690,
+        43690
+      ],
+      "eeprom_storage_byte_order": "little-endian 16-bit words",
+      "eeprom_default_sha256": "9fefc91150cce83d3e5ad3906eefc62f781cb234e5d7cb53a8712613744df81f",
+      "game_execution_verified": false,
+      "unsupported_board_requirements": [
+        "native GQ adapter",
+        "68000 sound CPU",
+        "TMS57002 effects DSP",
+        "mounted writable HDD target",
+        "three lightguns and board I/O"
+      ]
+    }
+  ]
+}
