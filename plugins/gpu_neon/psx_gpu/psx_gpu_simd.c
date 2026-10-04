@@ -192,7 +192,8 @@ typedef union
 
 #define gvld1_u8(d, s)           d.u8  = vld1_u8(s)
 #define gvld1_u32(d, s)          d.u32 = vld1_u32((const u32 *)(s))
-#define gvld1_u64(d, s)          d.u64 = vld1_u64((const u64 *)(s))
+// ARM32 GCC represents uint64x1_t as a scalar; the internal type is a vector.
+#define gvld1_u64(d, s)          d.u64 = (gvhu64)vld1_u64((const u64 *)(s))
 #define gvld1q_u8(d, s)          d.u8  = vld1q_u8(s)
 #define gvld1q_u16(d, s)         d.u16 = vld1q_u16(s)
 #define gvld1q_u32(d, s)         d.u32 = vld1q_u32((const u32 *)(s))
@@ -208,7 +209,7 @@ typedef union
 #define gvst1_u8(v, p) \
   vst1_u8(p, v.u8)
 #define gvst1_u64(v, p) \
-  vst1_u64((u64 *)(p), v.u64)
+  vst1_u64((u64 *)(p), (uint64x1_t)v.u64)
 #define gvst1q_u16(v, p) \
   vst1q_u16(p, v.u16)
 #define gvst1q_inc_u32(v, p, i) { \
