@@ -3008,6 +3008,9 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	             s_vram.cpuPixels + (size_t)readRect.y * VRAM_WIDTH + readRect.x);
 #else
 	// vitaGL always packs rows tightly.  Passing a pointer into cpuPixels here would advance each subsequent row by readRect.w instead of VRAM_WIDTH.
+	// READBACKS_SPEEDHACK removes vitaGL's implicit scene submission/fence.
+	// A guest VRAM read is synchronous, so finish GPU work explicitly here.
+	glFinish();
 	glReadPixels(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
 	             readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
 	for (int row = 0; row < readRect.h; row++)
