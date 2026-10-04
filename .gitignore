@@ -36,3 +36,13 @@ psx_gpu_offsets_update
 /tests/*.exe.*
 /tests/testcd.cue
 /tests/testcd.bin
+/build-vita/
+/pcsx-rearmed-vita.elf
+/pcsx-rearmed-vita.velf
+/pcsx-rearmed-vita.vpk
+/pcsx-rearmed-vita-razor.vpk
+/eboot.bin
+/eboot_razor.bin
+/eboot_razor_debug.bin
+/param.sfo
+/sce_sys/param.sfo
