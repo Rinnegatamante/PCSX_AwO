@@ -106,6 +106,15 @@ psx_gpu_offsets_update
 /tests/testcd.cue
 /tests/testcd.bin
 /build-vita/
+/build/vita-baseline/
+/build/vita-deps/
+/build/vita-validation/
+/pcsx-rearmed-vita-neon.elf
+/pcsx-rearmed-vita-neon.velf
+/pcsx-rearmed-vita-neon.vpk
+/pcsx-rearmed-vita-vitagl.elf
+/pcsx-rearmed-vita-vitagl.velf
+/pcsx-rearmed-vita-vitagl.vpk
 /pcsx-rearmed-vita.elf
 /pcsx-rearmed-vita.velf
 /pcsx-rearmed-vita.vpk
