@@ -195,3 +195,26 @@ The board configuration, ROM declarations, banking and DMA are derived from
 that BSD-3-Clause file by smf; attribution and license are retained in
 `THIRD_PARTY_NOTICES.md`. MAME's PSX DMA implementation is also useful for
 matching the register behavior (`src/devices/cpu/psx/dma.cpp`).
+
+## Vertical timing audit
+
+The pinned `coh700` and `coh716` source configurations both supply a
+100,000,000 Hz clock to the main PSX CPU. The MAME PSX interpreter converts
+four input clocks to one execution cycle and retires one instruction per
+execution cycle in its main loop. Its nominal instruction budget is therefore
+25,000,000 instructions per second under that source model.
+
+The current native harness retains the PCSX console counter clock of
+33,868,800 Hz and the default interpreter cycle multiplier of 175 (1.75
+counter cycles per instruction). This gives about 19,353,600 instructions per
+second before exceptions and other execution effects. These are two different
+emulation timing models; the earlier match demonstration does not establish
+that CPU-to-video timing matches MAME. H8 and C352 clocks are scheduled against
+the PCSX counter timebase, so replacing only the CPU instruction multiplier
+would require a deliberate comparison of the entire board clock model.
+
+Vertical System 12 work now prioritizes a repeatable sustained-gameplay replay,
+control coverage and CPU/GPU/H8/C352 timing comparison with MAME. Other board
+ports remain active independently. The next timing change must preserve the
+console and other arcade board configurations and revalidate the authentic
+Soul Calibur replay, rather than infer fidelity from boot success.
