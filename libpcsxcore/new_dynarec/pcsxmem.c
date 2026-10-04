@@ -36,9 +36,13 @@ static uintptr_t board_iortab[(1+2+4) * 0x1000 / 4];
 static uintptr_t board_iowtab[(1+2+4) * 0x1000 / 4];
 static void map_ram_window(uintptr_t *table, u32 start, void *ram);
 
-static u32 board_read8(void)  { return psxMemRead8(&psxRegs, address); }
-static u32 board_read16(void) { return psxMemRead16(&psxRegs, address); }
-static u32 board_read32(void) { return psxMemRead32(&psxRegs, address); }
+/* Read handlers receive the effective guest address in their first argument.
+ * Unlike the write trampoline, the read trampoline does not update the global
+ * `address`; using that global here makes every dynamic board read consult the
+ * last store's address instead. */
+static u32 board_read8(u32 addr)  { return psxMemRead8(&psxRegs, addr); }
+static u32 board_read16(u32 addr) { return psxMemRead16(&psxRegs, addr); }
+static u32 board_read32(u32 addr) { return psxMemRead32(&psxRegs, addr); }
 static void board_write8(u32 value)  { psxMemWrite8(&psxRegs, address, value); }
 static void board_write16(u32 value) { psxMemWrite16(&psxRegs, address, value); }
 static void board_write32(u32 value) { psxMemWrite32(&psxRegs, address, value); }

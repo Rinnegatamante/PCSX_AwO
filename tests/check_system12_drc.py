@@ -20,6 +20,8 @@ def addiu(rs, rt, imm): return (0x09 << 26) | (rs << 21) | (rt << 16) | (imm & 0
 def addu(rs, rt, rd): return (rs << 21) | (rt << 16) | (rd << 11) | 0x21
 def sw(rt, off, rs): return (0x2b << 26) | (rs << 21) | (rt << 16) | (off & 0xffff)
 def lw(rt, off, rs): return (0x23 << 26) | (rs << 21) | (rt << 16) | (off & 0xffff)
+def lbu(rt, off, rs): return (0x24 << 26) | (rs << 21) | (rt << 16) | (off & 0xffff)
+def lhu(rt, off, rs): return (0x25 << 26) | (rs << 21) | (rt << 16) | (off & 0xffff)
 def sh(rt, off, rs): return (0x29 << 26) | (rs << 21) | (rt << 16) | (off & 0xffff)
 def jalr(rs, rd=31): return (rs << 21) | (rd << 11) | 9
 def jr(rs): return (rs << 21) | 8
@@ -89,7 +91,13 @@ def make_guest(ram_mb):
     # Exercise the guest-facing shared-RAM MMIO path in the translated CPU,
     # independent of the adapter's direct read/write selftest.
     emit(code, lui(8, 0x1f08), ori(8, 8, 0x0200),
-         lui(9, 0x7654), ori(9, 9, 0x3210), sw(9, 0, 8), lw(23, 0, 8))
+         lui(9, 0x7654), ori(9, 9, 0x3210), sw(9, 0, 8),
+         lui(9, 0x1357), ori(9, 9, 0x2468), sw(9, 4, 8),
+         lui(9, 0x89ab), ori(9, 9, 0xcdef), sw(9, 8, 8),
+         # Each load follows a store to a different address. DRC's dynamic
+         # read callback must use its passed effective address, not the
+         # global address left behind by the preceding store.
+         lw(23, 0, 8), lhu(24, 6, 8), lbu(25, 11, 8))
     terminal = len(code)
     emit(code, j(0), nop())
     # Patch jumps after layout so both RAM profiles use correct branch targets.
@@ -150,7 +158,11 @@ def check_trace(trace, ram_mb):
     if not any(int(row[4 + 22], 16) == 0x3333 for row in rows):
         raise RuntimeError("DMA-loaded upper-RAM code did not execute after invalidation")
     if not any(int(row[4 + 23], 16) == 0x76543210 for row in rows):
-        raise RuntimeError("translated guest shared-RAM MMIO write/read failed")
+        raise RuntimeError("translated guest shared-RAM word read used the wrong address")
+    if not any(int(row[4 + 24], 16) == 0x1357 for row in rows):
+        raise RuntimeError("translated guest shared-RAM halfword read used the wrong address")
+    if not any(int(row[4 + 25], 16) == 0x89 for row in rows):
+        raise RuntimeError("translated guest shared-RAM byte read used the wrong address")
     if ram_mb == 4 and not any(int(row[4 + 19], 16) == 0x1357 for row in rows):
         raise RuntimeError("4 MiB physical mirror alias was not visible")
     if ram_mb == 16 and not any(int(row[4 + 19], 16) == 0x2468 for row in rows):

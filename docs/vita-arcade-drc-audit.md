@@ -8,11 +8,14 @@ The board adapter selects its RAM and ROM sizes before `psxInit()`. System12 pro
 
 ## DRC assumptions found and addressed
 
+The following describes the original console DRC assumptions. The runtime
+geometry, source and mapping changes listed below replace them.
+
 `libpcsxcore/new_dynarec/new_dynarec.c` defines `RAM_SIZE` as `0x200000`. Generated load/store checks use this constant in several sites, including the ARM inline-memory checks around `emit_cmpimm(addr, RAM_SIZE)` and the constant-address checks in `do_readstub`/`do_writestub` generation. This assumes the normal 2 MiB console RAM. A board-selected 4 MiB or 16 MiB allocation does not change the generated checks.
 
 Code-page identity also assumes console mirrors. `pmmask()` clears `0x00e00000` for addresses below 16 MiB, folding bits 21–23 away; `mark_invalid_code()` expands invalidation through 2 MiB mirrors; and `get_page()`/`PAGE_COUNT` retain only 1024 4 KiB pages. On System12, this makes code pages in larger RAM alias to the same DRC page identity. A DMA `Clear()` for a destination above the first 2 MiB can therefore invalidate a different logical code page or miss the intended one. System12 DMA calls `psxCpu->Clear(destination, bytes / 4)` after copying into `psxM`.
 
-There is also a second fast-memory map in `new_dynarec/pcsxmem.c`. It has its own 2 MiB direct RAM mappings and maps only the console's first 8 MiB mirror window. Its BIOS table uses a fixed 512 KiB region, repeated through 4 MiB, instead of the selected `PSX_ROM_SIZE`; that disagrees with System12's 4 MiB ROM mapping. Its per-byte/halfword/word handler tables cover standard `0x1f801xxx` devices, but not System12's board aperture. Consequently generated accesses can bypass the `system12_read()` / `system12_write()` dispatch added in `psxmem.c` unless System12 address ranges are explicitly mapped to DRC dynamic handlers. Simply changing the interpreter/core `memRLUT` is not sufficient.
+There is also a second fast-memory map in `new_dynarec/pcsxmem.c`. It has its own direct RAM mappings, BIOS aliases, and dynamic board-handler table. Those tables now cover the System12 board aperture as well as console I/O. A separate callback ABI bug remained: the ARM DRC read trampoline passes the effective guest address in its first argument but does not update the global `address`; the board read wrappers ignored that argument and called `psxMemRead*()` with the last address written by the guest. This made DRC shared-RAM reads return bytes from an unrelated prior write and made the board's unmapped-read diagnostics report stale addresses. The corresponding write trampoline explicitly updates `address`, which is why the same bug did not affect writes.
 
 Instruction source discovery is a separate blocker. `get_source_start()` returns fixed RAM ranges and only `0x9fc00000`/`0xbfc00000` BIOS aliases, with a hard-coded 512 KiB span; it omits the mapped `0x1fc00000` alias and cannot honor the board's 4 MiB ROM size. It has no board callback or case for System12's current banked window (`0x1fa00000..0x1fbfffff` and its KSEG aliases), so `new_recompile_block()` reports “Compile at bogus memory address” for those ranges. The interpreter's successful LUT fetch does not feed this DRC path. A bank write only changes the System12 `memRLUT` entries in `map_bank()`; already translated code for the logical 2 MiB bank window is not invalidated when the backing bank changes.
 
@@ -25,7 +28,7 @@ The native DRC remains selected; the adapter does not silently fall back to the 
 1. DRC RAM bounds and page identities use the active `PSX_RAM_SIZE`, with console 2 MiB behavior retained. The enlarged page identity map preserves distinct System12 pages and alias expansion follows the selected geometry.
 2. Fixed ROM source discovery covers the selected `PSX_ROM_SIZE` through 1fc/9fc/bfc aliases. A provider supplies bank-window bytes through an exclusive 2 MiB span and keeps the guest virtual PC as the block key.
 3. System12 bank changes call hard invalidation for 1fa00000..1fc00000. The hard invalidator removes source/copy identities as well as linked translations so an old bank cannot be restored.
-4. DRC memory tables route board MMIO to the existing board read/write handlers and dynamically map RAM/ROM geometry. The channel-5 CHCR callbacks are installed for DRC builds, alongside the existing channels.
+4. DRC memory tables route board MMIO to the existing board read/write handlers and dynamically map RAM/ROM geometry. Read callbacks use the address passed by the DRC trampoline; write callbacks retain the write trampoline's global-address contract. The channel-5 CHCR callbacks are installed for DRC builds, alongside the existing channels.
 5. `new_dynarec_arcade_selftest()` and `new_dyna_pcsx_mem_arcade_selftest()` validate RAM aliases, ROM aliases, page identities, and installed handlers. `tests/check_system12_drc.py` executes guest MIPS code in the native DRC against both 4 MiB and 16 MiB profiles. It checks the 1fc ROM alias, distinct bank 0/1 routines at one logical PC, upper-RAM store/load and self-modifying code, the 4 MiB mirror versus the 16 MiB non-alias, and a channel-5 DMA copied routine above 2 MiB.
 
 The DRC-side integration now exposes `new_dynarec_set_code_span_provider()` and `new_dynarec_invalidate_range_hard()`. A non-null source provider enables the board-aware handler pages in `new_dynarec/pcsxmem.c`; the board should register it before `psxInit()` and clear it after `psxShutdown()`. The provider supplies source words and an exclusive virtual-PC limit for the selected banked window. Fixed ROM and RAM source spans use the selected `PSX_ROM_SIZE` and `PSX_RAM_SIZE`. A bank-selection write should call the hard invalidator for the logical `0x1fa00000..0x1fc00000` window (aliases fold to that identity), so old translated blocks cannot be restored from an unchanged old-bank source pointer. `new_dynarec_arcade_selftest()` checks page identity and RAM alias arithmetic, while `new_dyna_pcsx_mem_arcade_selftest()` checks installed RAM/ROM/board-handler table mappings. Until all stages pass in guest execution, the Vita DRC must report this board configuration unsupported at build or board-load time. Selecting the interpreter automatically would hide an unsupported DRC path and would not meet the native-DCR requirement.
@@ -34,23 +37,8 @@ The DRC-side integration now exposes `new_dynarec_set_code_span_provider()` and 
 
 The synthetic ARM64 DRC harness passes `python3 tests/check_system12_drc.py`. Both the legacy COH-700 4 MiB profile and COH-716 16 MiB/alt-bank profile execute through the DRC and report a real 12-byte channel-5 transfer; trace assertions verify both bank signatures, upper-RAM SMC signatures, alias behavior, and a translated guest shared-RAM MMIO roundtrip. The 4 MiB SMC probe writes through the `80610000` mirror after executing the same backing code at `80210000`. The same guest also passes on the interpreter harness. ARMv7 DRC source files were cross-compiled for Vita during implementation, but this is not a Vita device/runtime test. No complete System12 game boot on Vita is claimed by this test.
 
-The actual Soul Calibur profile does **not** pass the DRC game check. The M1
-host page-protection fix allows the early ROM boot to execute, but a 3600-frame
-run reaches reserved-instruction exceptions with the RAM vector at `80`
-overwritten by `ffffffff`. Debugging shows a guest byte-copy loop writing
-through the valid 4 MiB RAM mirror `80400080`; the interpreter does not make
-that write in its successful game run. The DRC failure log records 42,607
-unmapped board reads, with the last at `1f018000` from reported PC `800d21c0`;
-the shared-RAM MMIO read count is only one. A debugger stop at that board-read
-callback observed cycle `0x1233d84d` and byte value `0xff`. This address is
-confirmed against pinned MAME `src/mame/namco/namcos12.cpp`: the base map marks
-`1f018000..1f018003` write-only/no-op, while the actual H8 shared RAM is mapped
-separately at `1f080000..1f083fff`. The native adapter returns open-bus `0xff`
-for the unmapped read, so this observation does not establish a missing shared
-RAM callback or identify the first divergence. The exact INT/DRC point where
-guest control flow first differs remains unmeasured. The exception-vector
-overwrite and reserved-instruction stop are reproducible DRC failures; a frame
-count and zero H8 unsupported opcodes cannot turn them into a game-validation
-PASS.
+The earlier actual Soul Calibur DRC failure was traced to that callback ABI bug. Before the fix, the 3600-frame run ended at reserved-instruction vector `0x80000080`, after the guest read shared RAM through a DRC callback that reused the last store address. The reported 42,607 reads at `1f018000` and returned `0xff` were callback artifacts: they described the stale global address, not the guest's effective load address. The fixed DRC run with the same coin/start input reaches 3600 frames, completes 2,901,716 channel-5 DMA bytes, emits 5,291,999 C352 frames, and reports zero unmapped reads or H8 unsupported opcodes. It does not yet match the interpreter's game state: the interpreter reaches 2,037 DMA transfers and 2,724 flips, while DRC reaches 1,405 transfers and 2,237 flips; final PCs also differ. That comparison shows a later gameplay/timing divergence remains and does not establish DRC game equivalence.
+
+The regression fixture now performs shared-RAM writes at `1f080200`, `1f080204`, and `1f080208`, then reads the first location as a word, the second as a halfword, and the third as a byte. The previous callback implementation fails these checks because each read uses the last store address; the fixed implementation passes under DRC for both 4 MiB and 16 MiB profiles.
 
 If a DRC build is selected for another board family, its loader must reject that board explicitly before CPU initialization until that family's memory, fetch, and invalidation contract is implemented. It must not silently change to the interpreter.
