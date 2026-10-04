@@ -329,6 +329,15 @@ static int display_init(void)
 static void display_finish(void)
 {
     int i;
+    /* The display retains a framebuffer after the last video callback. Stop
+     * scanout and wait for that update before releasing its backing blocks. */
+    int ret = sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_NEXTFRAME);
+    if (ret >= 0)
+        ret = sceDisplayWaitSetFrameBuf();
+    if (ret < 0) {
+        sceClibPrintf("pcsx-vita: display detach failed 0x%x; retaining buffers\n", ret);
+        return;
+    }
     for (i = 0; i < 2; i++) {
         if (g_fb_uid[i] >= 0)
             sceKernelFreeMemBlock(g_fb_uid[i]);
