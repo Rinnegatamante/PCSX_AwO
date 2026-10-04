@@ -1,0 +1,13 @@
+CXX ?= c++
+BUILD ?= build/mn10200
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror
+.PHONY: test clean sanitize
+test: $(BUILD)/mn10200_standalone
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(BUILD)/mn10200_standalone
+$(BUILD)/mn10200_standalone: libpcsxcore/arcade/mn10200.cpp libpcsxcore/arcade/mn10200.h libpcsxcore/arcade/mn10200_engine.inc tests/mn10200_standalone.cpp
+	mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) -Ilibpcsxcore/arcade libpcsxcore/arcade/mn10200.cpp tests/mn10200_standalone.cpp -o $@
+sanitize:
+	$(MAKE) -f tests/Makefile.mn10200 BUILD=build/mn10200-san CXXFLAGS='-std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf build/mn10200 build/mn10200-san
