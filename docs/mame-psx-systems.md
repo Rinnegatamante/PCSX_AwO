@@ -14,7 +14,7 @@ the installed listxml reports MAME 0.287.
 | `konami/konamigv.cpp` | Konami System GV (Baby Phoenix) | 15 | `tmosh`, `weddingr` | CXD8530-class CPU; CXD8514/CXD8561 GPU variants, CD-ROM and game I/O | All 15 source media profiles and local ROM/CHD preparation tested; native board execution pending |
 | `konami/konamigq.cpp` | Konami System GQ | 1 | `cryptklr` | CXD8530BQ/CXD8538Q; MC68000 and TMS57002 sound system | Complete source profile and local ROM/HDD preparation tested; native board execution pending |
 | `konami/ksys573.cpp` | Konami System 573 | 156 | `ddr4m`, `drmn`, `sys573` | CD-ROM, cassette, PC-card, flash and game I/O configurations | No arcade board support |
-| `konami/twinkle.cpp` | Konami Twinkle | 19 | `bmiidx`, `bmiidx8` | CD/DVD media, MC68000/RF5C400 sound and network/session I/O | No arcade board support |
+| `konami/twinkle.cpp` | Konami Twinkle | 19 | `bmiidx`, `bmiidx8` | CD/DVD media, MC68000/RF5C400 sound and network/session I/O | Standalone sound-board MC68000/RF5C400, sample RAM and mailbox/periodic IRQ fixtures pass; native PSX integration, ATA/media and authentic games remain pending |
 | `namco/namcos10.cpp` | Namco System 10 | 45 | `taiko2`, `mrdrilrg`, `ballpom` | Main PCB and MEM PCB generations; optional EXIO, CD-ROM on some sets | Native synthetic MEM(M)/MEM(N) MIPS execution, bank fetch, NAND DMA, GPU and I/O pass; real game boot and add-on boards unverified |
 | `namco/namcos11.cpp` | Namco System 11 | 36 | `tekken`, `souledge`, `danceyes` | COH-100/110 CPU boards; motherboard and ROM daughterboard revisions; C76, C352, keycus | Native COH-100/110 synthetic MIPS/C76 execution, banks, inputs/ADC, audio and EEPROM pass; real game boot unverified |
 | `namco/namcos12.cpp` | Namco System 12 / System 11 Plus | 58 | `tekken3`, `soulclbr`, `truckk` | COH-700/716; System 12 motherboard and ROM daughterboard revisions; JVS, H8 I/O, link/gun, CDXA add-on boards | COH-700 Soul Calibur Asia C reaches attract and coin/start/selection into a match; other board variants remain unverified |
@@ -45,7 +45,7 @@ family is considered finished.
 | Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD tested and common board under review, native integration and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
-| Konami Twinkle | 90–95% | Shared PSX/SCSI/MC68000 and standalone RF5C400 foundations; board, sound integration, media/session I/O and game validation pending |
+| Konami Twinkle | 90–95% | Sound-board MC68000/RF5C400, banked wave RAM and IRQ/mailbox fixtures pass; native PSX board, ATA/media/session I/O and game validation pending |
 | Namco System 10 | 30–45% | Native MEM(M)/MEM(N) guests exercise crypto, bank fetch, NAND DMA, inputs and GPU; authentic games and add-on boards pending |
 | Namco System 11 | 25–40% | Native MIPS/C76 guests exercise banks, keycus, controls, EEPROM and sound; authentic C76/game media and variant validation pending |
 | Namco System 12 | 30–45% | Soul Calibur Asia C reaches a match with C352 audio; other variants, link/gun/JVS/CDXA, timing and sustained gameplay validation pending |
@@ -150,6 +150,11 @@ machine's assets does not imply that it boots.
   No authentic System 10 game boot claim.
 - Konami security cassettes: [X76F041, X76F100 and DS2401](konami-security.md)
   password/pin/timing traces; no System 573 boot claim.
+- Konami Twinkle: the [sound-board component](twinkle-board.md) runs generated
+  MC68000 firmware through its source bus map, RF5C400, banked 32 MiB sample
+  RAM, CY7C131 mailbox and 60 Hz IRQ source. Normal and sanitizer fixtures
+  verify IRQ handlers, reset/timer phase, byte lanes and nonzero PCM callbacks.
+  Native PSX integration, ATA sample loading and authentic games remain pending.
 - Konami System GV: [15-set source registry and local media preparer](konamigv-boards.md)
   preserves game EEPROM/CD pairing and audits ROM hashes, CHD SHA1, CD metadata
   and hunk integrity. Generated CD fixtures pass; native SCSI/board execution

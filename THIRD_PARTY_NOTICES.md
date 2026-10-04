@@ -355,6 +355,11 @@ BSD-3-Clause terms are retained in `mn10200_LICENSE.txt`.
 
 ## MAME Ricoh RF5C400
 
+The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives
+its bus map and interrupt wiring from MAME `src/mame/konami/twinkle.cpp`,
+copyright smf and R. Belmont, BSD-3-Clause. Retained terms are in
+`libpcsxcore/arcade/twinkle_board_LICENSE.txt`.
+
 `libpcsxcore/arcade/rf5c400.{cpp,h}` adapts the sample engine and register map
 from `src/devices/sound/rf5c400.cpp/.h`, copyright Ville Linde, with improvements
 credited upstream to the hoot development team. The source revision is the
