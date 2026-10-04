@@ -337,3 +337,18 @@ Galibert. Full BSD-3-Clause terms are retained in `k054539_LICENSE.txt`.
 `src/emu/diserial.cpp/.h`. Copyright holders are smf, Robbbert, R. Belmont,
 Carl, Miodrag Milanovic, Vas Crabb and hap. Full BSD-3-Clause terms and
 attribution are retained in `i8251_mb89371_LICENSE.txt`.
+
+## MAME Konami GV and GQ common boards
+
+`libpcsxcore/arcade/konamigv.{cpp,h}` and `konamigq.{cpp,h}` adapt the shared
+hardware maps and wiring from `src/mame/konami/konamigv.cpp` and `konamigq.cpp`,
+copyright R. Belmont and smf, at the pinned MAME revision above. Full
+BSD-3-Clause notices are retained in `konamigv_LICENSE.txt` and
+`konamigq_LICENSE.txt`.
+
+## MAME Panasonic MN10200
+
+`libpcsxcore/arcade/mn10200*` adapts the MN1020012A instruction and peripheral
+register implementation from `src/devices/cpu/mn10200/mn10200.cpp/.h`, copyright
+Olivier Galibert, R. Belmont and hap, at the pinned MAME revision above. Full
+BSD-3-Clause terms are retained in `mn10200_LICENSE.txt`.
