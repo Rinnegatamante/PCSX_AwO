@@ -17,7 +17,6 @@ ProcessGroupWatchdog = _HELPER.ProcessGroupWatchdog
 
 
 class CapturedSmoke(CapturedGuest):
-    ISSUE_MARKERS = CapturedGuest.ISSUE_MARKERS + (b"pcsx-vita: smoke FAIL",)
     # Retain the process ownership record used by the fake-host regression test.
     KEY_WORDS = CapturedGuest.KEY_WORDS + (b"owned host pid=",)
 

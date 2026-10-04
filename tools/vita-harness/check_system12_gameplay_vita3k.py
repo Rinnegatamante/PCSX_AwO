@@ -108,7 +108,9 @@ class CapturedGuest:
                b"pcsx-vita: cpu_driver=ari64", b"installed successfully!")
     ISSUE_MARKERS = (b"Unhandled EXC_", b"|C|", b"[InterpreterFallback] Unimplemented instruction",
                      b"Unpredictable instruction", b"pcsx-vita: system12-report FAIL",
-                     b"pcsx-vita: system12-capture FAIL", b"pcsx-vita: display detach failed")
+                     b"pcsx-vita: system12-capture FAIL", b"pcsx-vita: display detach failed",
+                     b"pcsx-vita: smoke FAIL", b"pcsx-vita: inputs replay FAIL",
+                     b"pcsx-vita: vitaGL shutdown FAIL")
     KEY_WORDS = (b"pcsx-vita:", b"Stopping -> Idle", b"installed successfully!",
                  b"[InterpreterFallback] Unimplemented instruction", b"Unpredictable instruction",
                  b"Unhandled EXC_", b"|C|", b"Successfully saved screenshot",
@@ -441,6 +443,30 @@ def copy_new_screenshots(screenshot_root: Path, before: set[Path], output_dir: P
     return copied
 
 
+def preserve_guest_capture(screenshot_root, before, guest_data, output_dir, frames,
+                           guest_completed, runtime_issues):
+    """Preserve evidence before temporary-profile cleanup, including failures."""
+    screenshot_error = None
+    try:
+        screenshots = copy_new_screenshots(screenshot_root, before, output_dir, frames)
+    except (OSError, RuntimeError) as error:
+        screenshots = []
+        screenshot_error = str(error)
+    files = []
+    for suffix in ("txt", "ppm"):
+        source = guest_data / f"system12-{frames}.{suffix}"
+        if source.is_file():
+            target = output_dir / source.name
+            shutil.copy2(source, target)
+            files.append(target.name)
+    (output_dir / f"capture-evidence-{frames}.json").write_text(json.dumps({
+        "requested_frames": frames, "guest_completed": guest_completed,
+        "runtime_issues": runtime_issues, "source_files": files,
+        "native_screenshots": screenshots, "native_screenshot_error": screenshot_error,
+    }, indent=2) + "\n", encoding="utf-8")
+    return screenshots, screenshot_error
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emulator", type=Path, required=True, help="fixed Vita3K.app or its executable")
@@ -576,10 +602,16 @@ def main():
                              "frames=12000/12000 final=0002/0000",)
             before_screenshots = (set(screenshot_root.rglob("*.png"))
                                   if screenshot_root.exists() else set())
-            guest_ok, runtime_issues = run_guest(
-                emulator, args_text, log, args.timeout, expected,
-                extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
-                    if inputs_path else AUTO_SCREENSHOT_TIMES)})
+            guest_ok, runtime_issues = False, {}
+            try:
+                guest_ok, runtime_issues = run_guest(
+                    emulator, args_text, log, args.timeout, expected,
+                    extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
+                        if inputs_path else AUTO_SCREENSHOT_TIMES)})
+            finally:
+                screenshots, screenshot_error = preserve_guest_capture(
+                    screenshot_root, before_screenshots, guest_data, args.output_dir,
+                    frames, guest_ok, runtime_issues)
             if not guest_ok:
                 raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
             report_path = guest_data / f"system12-{frames}.txt"
@@ -588,17 +620,8 @@ def main():
                 raise RuntimeError(f"Vita guest did not produce evidence at {frames} frames")
             report_out = args.output_dir / f"system12-{frames}.txt"
             capture_out = args.output_dir / f"system12-{frames}.ppm"
-            shutil.copy2(report_path, report_out)
-            shutil.copy2(capture_path, capture_out)
             report_info = read_report(report_out, require_replay=bool(inputs_path))
             capture_info = check_capture(capture_out)
-            screenshot_error = None
-            try:
-                screenshots = copy_new_screenshots(screenshot_root, before_screenshots,
-                                                   args.output_dir, frames)
-            except RuntimeError as error:
-                screenshots = []
-                screenshot_error = str(error)
             h8_cycles = int(report_info["records"]["H8"]["cycles"])
             pcm_frames = int(report_info["records"]["C352"]["frames"])
             if h8_cycles <= prior_h8_cycles or pcm_frames < prior_pcm_frames:

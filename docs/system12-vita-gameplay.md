@@ -35,6 +35,9 @@ The copied Vita3K process runs in its own process group. A separate watchdog
 process terminates that group at the per-run timeout even if the Python runner
 stops making progress. Logs are streamed with bounded retained output, and ARM
 instruction fallback/unpredictable-instruction diagnostics invalidate a run.
+Native screenshots and any source report/PPM are copied out even after a guest
+failure or interruption. `capture-evidence-<frames>.json` records whether the
+guest completed and retains diagnostics separately from successful results.
 
 Add `--gameplay-replay` to run 12,000 frames with the same 177 CSV input events
 as the MAME/Mac comparison. This mode defaults to a 1,200-second per-process
@@ -70,6 +73,6 @@ VADDHN and CPU-framebuffer screenshot patches documented in
 `build/vita-validation-neon-capture`. The console probe and all three runs
 completed with zero host instruction/crash diagnostics and zero H8 illegal,
 unsupported, or unmapped accesses. H8 cycles reached 509,466,008, C352 produced
-2,653,468 sample frames, and DMA5 transferred 1,585,008 bytes. Eleven runner
+2,653,468 sample frames, and DMA5 transferred 1,585,008 bytes. Twelve runner
 tests pass. These are execution and capture checks, rather than physical Vita
 or full gameplay validation.

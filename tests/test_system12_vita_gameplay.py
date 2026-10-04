@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -105,6 +106,31 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
             bad_output.mkdir()
             with self.assertRaisesRegex(RuntimeError, "signature/IHDR"):
                 GAMEPLAY.copy_new_screenshots(root, set(), bad_output, 800)
+
+    def test_failed_run_keeps_native_and_source_evidence_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / "screenshots"
+            native.mkdir()
+            header = (b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR" +
+                      (1).to_bytes(4, "big") * 2)
+            (native / "last.png").write_bytes(header + b"fixture")
+            guest = root / "guest"
+            guest.mkdir()
+            (guest / "system12-12000.txt").write_text("partial report")
+            output = root / "output"
+            output.mkdir()
+            screenshots, error = GAMEPLAY.preserve_guest_capture(
+                native, set(), guest, output, 12000, False, {"|C|": 1})
+            self.assertIsNone(error)
+            self.assertEqual(len(screenshots), 1)
+            shutil.rmtree(native)
+            shutil.rmtree(guest)
+            evidence = json.loads((output / "capture-evidence-12000.json").read_text())
+            self.assertFalse(evidence["guest_completed"])
+            self.assertEqual(evidence["runtime_issues"], {"|C|": 1})
+            self.assertEqual((output / "system12-12000.txt").read_text(), "partial report")
+            self.assertTrue(Path(evidence["native_screenshots"][0]["path"]).is_file())
 
     def test_short_guest_markers_are_visible_and_late_fatal_invalidates(self):
         fragments = ("pcsx-vita: system12-report PASS",)
