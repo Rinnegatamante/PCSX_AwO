@@ -502,12 +502,22 @@ int main(int argc, char **argv)
     int ret;
     unsigned validation_frames = 0;
     bool verify_smoke = false;
+    unsigned verify_system12_drc_ram_mb = 0;
     bool system12_profile = false;
     struct retro_system_av_info av;
 
     game_path[0] = '\0';
     for (ret = 1; ret < argc; ret++) {
         if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
+        if (!strcmp(argv[ret], "--verify-system12-drc")) {
+            char *end;
+            unsigned long ram_mb;
+            if (ret + 1 >= argc) return 4;
+            ram_mb = strtoul(argv[++ret], &end, 10);
+            if (*end || (ram_mb != 4 && ram_mb != 16)) return 4;
+            verify_system12_drc_ram_mb = (unsigned)ram_mb;
+            continue;
+        }
         if (!strcmp(argv[ret], "--frames")) {
             char *end;
             unsigned long count;
@@ -534,6 +544,11 @@ int main(int argc, char **argv)
         sceClibPrintf("pcsx-vita: --verify-smoke requires the console smoke executable\n");
         return 4;
     }
+    if (verify_system12_drc_ram_mb && !system12_profile) {
+        sceClibPrintf("pcsx-vita: --verify-system12-drc requires --system12 profile-directory\n");
+        return 4;
+    }
+    if (verify_system12_drc_ram_mb && verify_smoke) return 4;
 
     sceClibPrintf("pcsx-vita: main entered\n");
     make_dirs();
@@ -601,6 +616,26 @@ int main(int argc, char **argv)
         sceClibPrintf("pcsx-vita: smoke %s cpu=%s triangle=%04x background=%04x sentinel=%08x runs=%u\n",
             validation_result ? "FAIL" : "PASS", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter",
             result.triangle, result.background, result.sentinel, runs);
+    }
+    if (verify_system12_drc_ram_mb) {
+        pcsx_vita_system12_drc_result result;
+        uint32_t expected_alias = verify_system12_drc_ram_mb == 4 ? 0x1357 : 0x2468;
+        memset(&result, 0, sizeof(result));
+        int probe_result = pcsx_vita_read_system12_drc(&result);
+        validation_result = !pcsx_vita_uses_dynarec() || probe_result != 0 ||
+            result.magic != 0x53313244 || result.ram_mb != verify_system12_drc_ram_mb ||
+            result.bank0 != 0x1111 || result.bank1 != 0x2222 ||
+            result.upper_ram != 0x51a7cafe || result.alias != expected_alias ||
+            result.smc_before != 0x1234 || result.smc_after != 0x5678 ||
+            result.dma5 != 0x3333 || result.shared_mmio != 0x76543210 ||
+            result.shared_mmio_half != 0x1357 || result.shared_mmio_byte != 0x89;
+        sceClibPrintf("pcsx-vita: system12-drc %s cpu=%s ram=%uM magic=%08x bank0=%08x bank1=%08x upper=%08x alias=%08x smc=%08x/%08x dma5=%08x mmio=%08x half=%08x byte=%08x runs=%u\n",
+            validation_result ? "FAIL" : "PASS",
+            pcsx_vita_uses_dynarec() ? "ari64" : "interpreter",
+            result.ram_mb, result.magic, result.bank0, result.bank1,
+            result.upper_ram, result.alias, result.smc_before, result.smc_after,
+            result.dma5, result.shared_mmio, result.shared_mmio_half,
+            result.shared_mmio_byte, runs);
     }
 
     /* Stop SDL playback before unloading any core board or plugins. */

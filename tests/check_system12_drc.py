@@ -32,7 +32,7 @@ def nop(): return 0
 def emit(code, *words): code.extend(words)
 
 
-def make_guest(ram_mb):
+def make_guest(ram_mb, vita_signature=False):
     """Return main/banked bytes with code and bank markers generated locally."""
     main = bytearray(0x400000)
     banked = bytearray(0x800000 if ram_mb == 16 else 0x2000000)
@@ -72,7 +72,9 @@ def make_guest(ram_mb):
         # Rewrite the compiled block through the 4 MiB RAM mirror, then call
         # it through that same virtual alias. Both addresses resolve to the
         # same physical RAM, so stale translated code must be invalidated.
-        emit(code, lui(16, 0x8061), sw(9, 0, 16), addu(8, 16, 0))
+        # t4 is dead after the alias read; preserve s0, which holds bank 0's
+        # signature and is copied into the Vita DRC result block below.
+        emit(code, lui(12, 0x8061), sw(9, 0, 12), addu(8, 12, 0))
     else:
         # At 16 MiB, 0x80610000 is a distinct physical address, so update and
         # execute the original 0x80210000 code location instead.
@@ -98,6 +100,15 @@ def make_guest(ram_mb):
          # read callback must use its passed effective address, not the
          # global address left behind by the preceding store.
          lw(23, 0, 8), lhu(24, 6, 8), lbu(25, 11, 8))
+    if vita_signature:
+        # The Vita standalone probe reads only this guest-written RAM block.
+        # The guest, not host register inspection, records each computed result.
+        emit(code, lui(8, 0x8023), ori(8, 8, 0xf000),
+             lui(9, 0x5331), ori(9, 9, 0x3244), sw(9, 0, 8),
+             addiu(0, 9, ram_mb), sw(9, 4, 8),
+             sw(16, 8, 8), sw(17, 12, 8), sw(18, 16, 8),
+             sw(19, 20, 8), sw(20, 24, 8), sw(21, 28, 8),
+             sw(22, 32, 8), sw(23, 36, 8), sw(24, 40, 8), sw(25, 44, 8))
     terminal = len(code)
     emit(code, j(0), nop())
     # Patch jumps after layout so both RAM profiles use correct branch targets.
@@ -117,8 +128,8 @@ def make_guest(ram_mb):
     return main, banked
 
 
-def make_regions(directory, ram_mb):
-    main, banked = make_guest(ram_mb)
+def make_regions(directory, ram_mb, vita_signature=False):
+    main, banked = make_guest(ram_mb, vita_signature=vita_signature)
     (directory / "main.bin").write_bytes(main)
     (directory / "banked.bin").write_bytes(banked)
     sub = bytearray(0x80000)
@@ -132,6 +143,13 @@ def make_regions(directory, ram_mb):
             "ram_size=16777216\nmain_size=4194304\nbank_size=8388608\n"
             "sub_size=524288\nwave_size=8388608\nboot_hack=1\nalt_bank=1\n"
             "tektagt_dma=0\nunsupported=none\n", encoding="ascii")
+    elif vita_signature:
+        (directory / "board.cfg").write_text(
+            "schema=1\nmame_set=vita_drc_fixture4\nmachine=coh700\n"
+            "state=namcos12_state\nram_size=4194304\nmain_size=4194304\n"
+            "bank_size=33554432\nsub_size=524288\nwave_size=16777216\n"
+            "boot_hack=0\nalt_bank=0\ntektagt_dma=0\nunsupported=none\n",
+            encoding="ascii")
 
 
 def check_trace(trace, ram_mb):
@@ -175,13 +193,15 @@ def main():
                         default=ROOT / "build/mac-harness/drc/pcsx-harness")
     parser.add_argument("--drc-flag", default="--drc",
                         help="harness argument selecting native DRC (default: --drc)")
+    parser.add_argument("--vita-signature", action="store_true",
+                        help="append guest-written signature words used by the Vita private probe")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="pcsx-system12-drc-") as tmp:
         root = Path(tmp)
         for ram_mb in (4, 16):
             region = root / f"ram{ram_mb}"
             region.mkdir()
-            make_regions(region, ram_mb)
+            make_regions(region, ram_mb, vita_signature=args.vita_signature)
             trace = region / "trace.csv"
             output = region / "frame.ppm"
             command = [str(args.harness.resolve()), "--system12", str(region), args.drc_flag,

@@ -4361,6 +4361,30 @@ void pcsx_vita_read_smoke(pcsx_vita_smoke_result *result)
    result->background = pixels[1];
    result->sentinel = psxMemRead32(&psxRegs, 0x8000f000);
 }
+
+int pcsx_vita_read_system12_drc(pcsx_vita_system12_drc_result *result)
+{
+#if defined(ARCADE_SYSTEM12)
+   if (!result || !system12_active())
+      return -1;
+   result->magic = psxMemRead32(&psxRegs, 0x8023f000);
+   result->ram_mb = psxMemRead32(&psxRegs, 0x8023f004);
+   result->bank0 = psxMemRead32(&psxRegs, 0x8023f008);
+   result->bank1 = psxMemRead32(&psxRegs, 0x8023f00c);
+   result->upper_ram = psxMemRead32(&psxRegs, 0x8023f010);
+   result->alias = psxMemRead32(&psxRegs, 0x8023f014);
+   result->smc_before = psxMemRead32(&psxRegs, 0x8023f018);
+   result->smc_after = psxMemRead32(&psxRegs, 0x8023f01c);
+   result->dma5 = psxMemRead32(&psxRegs, 0x8023f020);
+   result->shared_mmio = psxMemRead32(&psxRegs, 0x8023f024);
+   result->shared_mmio_half = psxMemRead32(&psxRegs, 0x8023f028);
+   result->shared_mmio_byte = psxMemRead32(&psxRegs, 0x8023f02c);
+   return 0;
+#else
+   (void)result;
+   return -1;
+#endif
+}
 #endif
 
 // vim:sw=3:ts=3:expandtab
