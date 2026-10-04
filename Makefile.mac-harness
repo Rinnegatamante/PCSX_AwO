@@ -39,7 +39,7 @@ CXXSOURCES := libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
   libpcsxcore/arcade/ym2610.cpp libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
   libpcsxcore/arcade/ymfm/ymfm_ssg.cpp libpcsxcore/arcade/ymfm/ymfm_adpcm.cpp
 ifeq ($(HAVE_CHD),1)
-CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp
+CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp libpcsxcore/arcade/chd_cd.cpp
 endif
 CFLAGS += -DPCSX_SYSTEM12
 endif
@@ -140,6 +140,7 @@ devices-test: $(BUILD)/test-nor-flash $(BUILD)/test-c352 $(BUILD)/test-serial $(
 	$(MAKE) -f tests/Makefile.tms57002 BUILD=$(BUILD)/tms57002-tests CXX='$(CXX)' test
 ifeq ($(HAVE_CHD),1)
 	$(MAKE) -f tests/Makefile.chd-hd BUILD=$(BUILD)/chd-hd-tests test
+	$(MAKE) -f tests/Makefile.chd-cd BUILD=$(BUILD)/chd-cd-tests test
 	$(MAKE) -f tests/Makefile.chd-scsi-hd BUILD=$(BUILD)/chd-scsi-hd-tests test
 endif
 	python3 -m unittest discover -s tests

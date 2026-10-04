@@ -41,6 +41,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## MAME CD layout and CDDA
+
+The read-only CHD CD backing in `libpcsxcore/arcade/chd_cd.*` derives its track
+layout and CDDA behavior from MAME `cdrom.cpp` (Aaron Giles, R. Belmont) and
+`cdda.cpp` (Aaron Giles, smf), at the pinned revision. Its complete BSD-3-Clause
+license is retained in `libpcsxcore/arcade/chd_cd_LICENSE.txt`. Compressed media
+is decoded by the pinned libchdr described above.
+
 ## MAME TMS57002 DASP
 
 The standalone TMS57002 decoder, execution core, instruction list and generator

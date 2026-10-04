@@ -42,7 +42,7 @@ family is considered finished.
 | Retail PlayStation | 20–35% | Existing console core and native CPU/GPU smoke; native BIOS/disc, controller, sound and retail-game validation pending |
 | Sony ZN family (including Taito FX1) | 50–65% | Capcom and FX1S generated native guests pass; authentic games and Tecmo/Raizing/other daughterboards pending |
 | Taito G-Net | 85–95% | ZSG-2 component tested; complete Zoom sound, CompactFlash, board wiring and game validation pending |
-| Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD and common board under review, native integration and special I/O pending |
+| Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD tested and common board under review, native integration and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
 | Konami Twinkle | 90–95% | Shared PSX/SCSI/MC68000 foundations; board, RF5C400, media/session I/O and game validation pending |
@@ -163,7 +163,10 @@ machine's assets does not imply that it boots.
   media responses.
   The [XM-5401 CD target](nscsi-cd-port.md) passes source command, TOC, block-size,
   media-change and CDDA-control tests plus complete NCR READ DMA transactions;
-  its CHD CD/audio backing and native board integration remain pending.
+  its [CHD CD/audio backing](nscsi-chd-cd.md) passes actual compressed MODE1/raw
+  sectors, pregap/postgap/TOC, real CDDA PCM, a full NCR transaction including
+  terminal disconnect IRQ, and malformed-metadata/callback guards with
+  sanitizers. Native board integration remains pending.
   The [93C46 EEPROM component](eeprom93c46-port.md) passes serial commands,
   write protection, busy deadlines, storage byte order and selective reset
   tests, including sanitizers. Native board integration remains pending.

@@ -1,0 +1,47 @@
+.DEFAULT_GOAL := test
+CXX := xcrun clang++
+CC := xcrun clang
+BUILD ?= build/chd-cd-tests
+ARCADE := libpcsxcore/arcade
+TARGET := $(BUILD)/test-chd-cd
+CXXFLAGS ?= -std=c++17 -O2 -g -Wall -Wextra -Werror -Wno-unused-parameter
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+include tools/mac-harness/libchdr.mk
+CHDOBJDIR := $(BUILD)/libchdr
+LIBCHDR_OBJECTS := $(addprefix $(CHDOBJDIR)/,$(addsuffix .o,$(basename $(notdir $(LIBCHDR_SOURCES))))) $(LIBCHDR_EXTRA_OBJECTS)
+OBJS := $(BUILD)/nscsi_bus.o $(BUILD)/nscsi_target.o $(BUILD)/ncr53cf96.o $(BUILD)/nscsi_cd.o $(BUILD)/chd_cd.o $(LIBCHDR_OBJECTS)
+override CFLAGS += $(LIBCHDR_CFLAGS)
+
+.PHONY: all test sanitize clean
+all: $(TARGET)
+$(BUILD) $(CHDOBJDIR):
+	@mkdir -p $@
+
+$(BUILD)/nscsi_bus.o: $(ARCADE)/nscsi_bus.cpp $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+$(BUILD)/nscsi_target.o: $(ARCADE)/nscsi_target.cpp $(ARCADE)/nscsi_target.h $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+$(BUILD)/ncr53cf96.o: $(ARCADE)/ncr53cf96.cpp $(ARCADE)/ncr53cf96.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+$(BUILD)/nscsi_cd.o: $(ARCADE)/nscsi_cd.cpp $(ARCADE)/nscsi_cd.h $(ARCADE)/nscsi_target.h $(ARCADE)/nscsi_bus.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) -c $< -o $@
+$(BUILD)/chd_cd.o: $(ARCADE)/chd_cd.cpp $(ARCADE)/chd_cd.h $(ARCADE)/nscsi_cd.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(@:.o=.d) -I$(ARCADE) $(LIBCHDR_CFLAGS) -c $< -o $@
+
+$(CHDOBJDIR)/%.o: $(LIBCHDR)/src/%.c | $(CHDOBJDIR)
+	$(CC) $(CFLAGS) -Wno-unused-function $(LIBCHDR_CFLAGS) -MMD -MP -MF $(@:.o=.d) -c $< -o $@
+$(CHDOBJDIR)/LzmaDec.o: $(LIBCHDR_LZMA)/src/LzmaDec.c | $(CHDOBJDIR)
+	$(CC) $(CFLAGS) -Wno-unused-function $(LIBCHDR_CFLAGS) -MMD -MP -MF $(@:.o=.d) -c $< -o $@
+$(CHDOBJDIR)/zstddeclib.o: $(LIBCHDR_ZSTD)/zstddeclib.c | $(CHDOBJDIR)
+	$(CC) $(CFLAGS) -Wno-unused-function $(LIBCHDR_CFLAGS) -MMD -MP -MF $(@:.o=.d) -c $< -o $@
+
+$(TARGET): $(OBJS) tests/test_chd_cd.cpp
+	$(CXX) $(CXXFLAGS) -MMD -MP -MF $(BUILD)/test_chd_cd.d -I$(ARCADE) $(LIBCHDR_CFLAGS) tests/test_chd_cd.cpp $(OBJS) -lz -o $@
+-include $(OBJS:.o=.d) $(BUILD)/test_chd_cd.d
+
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 python3 tests/check_chd_cd.py --binary $(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.chd-cd BUILD=$(BUILD)/sanitize CXXFLAGS='-std=c++17 -O1 -g -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined -fno-omit-frame-pointer' CFLAGS='-std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
