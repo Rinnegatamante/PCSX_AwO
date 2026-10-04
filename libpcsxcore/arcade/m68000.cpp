@@ -60,6 +60,8 @@ void m68000_device::execute_run(int cycles)
 {
     if (cycles <= 0)
         return;
+    m_slice_cycles = cycles;
+    m_running = true;
     m_icount = cycles;
     m_icount -= m_count_before_instruction_step;
     if (m_icount < 0) {
@@ -89,6 +91,16 @@ void m68000_device::execute_run(int cycles)
         m_icount = 0;
     }
     m_total_cycles += static_cast<u64>(cycles);
+    m_running = false;
+}
+
+bool m68000_device::current_cycle(u64 &cycle) const
+{
+    const int remaining = m_post_run ? m_post_run_cycles : m_icount;
+    const u64 elapsed = m_running ? static_cast<u64>(static_cast<int64_t>(m_slice_cycles) - remaining) : 0;
+    if (elapsed > UINT64_MAX - m_total_cycles) return false;
+    cycle = m_total_cycles + elapsed;
+    return true;
 }
 
 void m68000_device::reset()
@@ -293,3 +305,4 @@ bool M68000::stopped() const { return impl_->stopped(); }
 bool M68000::bus_error() const { return impl_->bus_error(); }
 bool M68000::callback_fault() const { return impl_->callback_fault(); }
 uint64_t M68000::total_cycles() const { return impl_->total_cycles(); }
+bool M68000::current_cycle(uint64_t &cycle) const { return impl_->current_cycle(cycle); }

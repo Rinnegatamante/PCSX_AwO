@@ -103,6 +103,7 @@ public:
     bool stopped() const { return m_inst_state == m_decode_table[0x4e72] && !m_int_next_state; }
     bool bus_error() const { return m_bus_error; }
     u64 total_cycles() const { return m_total_cycles; }
+    bool current_cycle(u64 &cycle) const;
     bool callback_active() const { return m_callback_depth != 0; }
     bool callback_fault() const { return m_callback_fault; }
     void note_callback_fault() { m_callback_fault = true; }
@@ -119,6 +120,8 @@ private:
     unsigned m_callback_depth=0;
     bool m_callback_fault=false;
     u64 m_total_cycles=0;
+    int m_slice_cycles=0;
+    bool m_running=false;
     void init_decode_table();
     void abort_access(u32 reason);
     void do_post_run();

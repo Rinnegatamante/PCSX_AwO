@@ -11,6 +11,10 @@ struct Bus {
     struct Write { uint32_t address; uint16_t data, mask; M68kSpace space; };
     std::vector<uint8_t> memory = std::vector<uint8_t>(1u << 24, 0);
     std::vector<Write> writes;
+    struct Access { uint64_t cycle; uint32_t address; uint16_t mask; bool write;
+        bool operator==(const Access &) const = default; };
+    std::vector<Access> accesses;
+    bool timestamp_overflow = false;
     M68000 *owner = nullptr;
     uint32_t reads = 0;
     uint32_t fail_address = 0xffffffff;
@@ -27,7 +31,11 @@ static bool read_word(void *opaque, M68kSpace space, uint32_t address,
                       uint16_t mask, uint16_t *value)
 {
     Bus *bus = static_cast<Bus *>(opaque);
-    (void)mask;
+    if (bus->owner) {
+        uint64_t cycle = 0;
+        if (bus->owner->current_cycle(cycle)) bus->accesses.push_back({cycle,address,mask,false});
+        else bus->timestamp_overflow = true;
+    }
     ++bus->reads;
     if (bus->owner && !bus->tried_reentry) {
         bus->tried_reentry = true;
@@ -54,6 +62,11 @@ static bool write_word(void *opaque, M68kSpace space, uint32_t address,
                        uint16_t data, uint16_t mask)
 {
     Bus *bus = static_cast<Bus *>(opaque);
+    if (bus->owner) {
+        uint64_t cycle = 0;
+        if (bus->owner->current_cycle(cycle)) bus->accesses.push_back({cycle,address,mask,true});
+        else bus->timestamp_overflow = true;
+    }
     if (bus->fail_write_once && address == bus->fail_write_address)
         ++bus->critical_write_attempts;
     if (bus->fail_write_once && address == bus->fail_write_address) {
@@ -345,6 +358,36 @@ static void test_callback_guards_and_cycle_overflow(void)
     assert(overflow_cpu.total_cycles() == std::numeric_limits<uint64_t>::max());
 }
 
+static void test_callback_microcode_cycle_timestamps()
+{
+    Bus bulk, sliced;
+    for (auto *bus : {&bulk, &sliced}) {
+        load_reset_vectors(*bus);
+        put16(*bus, 0x100, 0x33fc); // MOVE.W #0x1234,0x400
+        put16(*bus, 0x102, 0x1234); put32(*bus, 0x104, 0x400);
+        put16(*bus, 0x108, 0x4e72); put16(*bus, 0x10a, 0x2700); // STOP
+        bus->tried_reentry = true;
+    }
+    M68000 a = make_cpu(bulk), b = make_cpu(sliced);
+    bulk.owner = &a; sliced.owner = &b;
+    assert(a.run(300) == 300);
+    for (unsigned i = 0; i < 300; ++i) assert(b.run(1) == 1);
+    assert(bulk.accesses == sliced.accesses && bulk.accesses.size() > 4);
+    assert(bulk.accesses.front().cycle == 8); // source reset microcode before first fetch
+    for (size_t i = 1; i < bulk.accesses.size(); ++i)
+        assert(bulk.accesses[i].cycle >= bulk.accesses[i-1].cycle);
+    uint64_t cycle = 0;
+    assert(a.current_cycle(cycle) && cycle == 300);
+    assert(b.current_cycle(cycle) && cycle == 300);
+    // A valid short budget can issue a future microcoded bus access. Report
+    // an unrepresentable timestamp instead of wrapping an absolute clock.
+    Bus near_end; load_reset_vectors(near_end); near_end.tried_reentry = true;
+    M68000Bus config{&near_end, read_word, write_word}; config.cycle_origin = UINT64_MAX - 1;
+    M68000 end(config); near_end.owner = &end;
+    assert(end.run(1) == 1 && near_end.timestamp_overflow);
+    assert(end.current_cycle(cycle) && cycle == UINT64_MAX);
+}
+
 int main()
 {
     test_reset_alu_mmio_and_slice_equivalence();
@@ -354,6 +397,7 @@ int main()
     test_address_error_and_nmi();
     test_critical_stack_bus_error_literal_path();
     test_callback_guards_and_cycle_overflow();
+    test_callback_microcode_cycle_timestamps();
     std::puts("MAME MC68000 reset/ALU/bus/IRQ/STOP tests PASS");
     return 0;
 }
