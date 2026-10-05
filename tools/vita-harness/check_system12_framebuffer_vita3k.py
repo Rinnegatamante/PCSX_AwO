@@ -26,6 +26,9 @@ EXPECTED_TEXTURE_WINDOW = re.compile(
     r"tw_tl=7c1f tw_tr=7c1f tw_br=4210 "
     r"reset_tl=7fe0 reset_tr=7c1f reset_bl=7fff runs=1\b")
 RESULT_MAGIC = 0x53314642  # S1FB
+DEFAULT_MAIN_SHA256 = "07cbcdecd6a8c4c6cb3b85b060dbd211e06e70f2fea5af62336099c458661bf6"
+TEXTURE_WINDOW_MAIN_SHA256 = "8eb3780d65e540b668f82e52899c41721ef416201a9d0e0683ff59b4a85a6562"
+DEFAULT_GP0_SHA256 = "66469427106cc45f1798a85949e63af3ad2f56f5e7856be251acfcd49abecf52"
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
                    0x7fff, 0x03e0, 0x7c1f, 0x7c1f)
 EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
@@ -117,7 +120,7 @@ def make_guest_code(texture_window=False):
                 indices = []
                 for lane in range(4):
                     x = word_x_inner * 4 + lane
-                    if y < 8:
+                    if y < height // 2:
                         indices.append(1 if x < 8 else 2)
                     else:
                         indices.append(3 if x < 8 else 4)
@@ -202,8 +205,8 @@ def make_guest_code(texture_window=False):
     # onscreen clip while changing CLUT and then TPAGE. Constant-index texture
     # quadrants let interior C0 reads act as a stable oracle without modeling
     # the rasterizer's exact edge and subpixel rules.
-    upload_p4_test_page(0, 16 if texture_window else 8)
-    upload_p4_test_page(64, 16 if texture_window else 8)
+    upload_p4_test_page(0)
+    upload_p4_test_page(64)
     palette_a = [0, 0x001f, 0x03e0, 0x7c00, 0x03ff] + [0] * 11
     palette_b = [0, 0x7fe0, 0x7c1f, 0x7fff, 0x4210] + [0] * 11
     upload_palette(32, 800, palette_a)
@@ -226,6 +229,10 @@ def make_guest_code(texture_window=False):
         # half of the 16x16 four-quadrant indexed texture. The lower sample
         # also checks the bottom-right quadrant. Reset E2 and repeat a fresh
         # polygon to prove subsequent packets use the unwindowed UVs.
+        # Keep the baseline polygon oracle on its original 8-row texture;
+        # extend the texture only after all baseline C0 reads have completed.
+        upload_p4_test_page(0, 16)
+        upload_p4_test_page(64, 16)
         gp0(0xe2000000 | 1 | (1 << 10))
         ft3(20, 80, ((0, 0), (15, 0), (0, 15)), 0x0800, clut_b)
         for x, y, index in ((36, 88, 19), (68, 88, 20), (28, 120, 21)):

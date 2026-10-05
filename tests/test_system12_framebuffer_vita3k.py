@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Host-side checks for the generated System12 framebuffer guest fixture."""
 import importlib.util
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -64,6 +65,9 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         self.assertEqual(commands.count(0xc0000000), 18)
         self.assertNotIn(0xe2000401, commands)
         self.assertNotIn(0xe2000000, commands)
+        gp0_sha256 = hashlib.sha256(b"".join(word.to_bytes(4, "little")
+                                               for word in commands)).hexdigest()
+        self.assertEqual(gp0_sha256, FIXTURE.DEFAULT_GP0_SHA256)
         self.assertIn(0xa0000000, commands)
         self.assertIn(0x80000000, commands)
         polygons = []
@@ -130,12 +134,21 @@ class System12FramebufferFixtureTests(unittest.TestCase):
             region = Path(temp)
             FIXTURE.make_regions(region)
             self.assertEqual((region / "main.bin").stat().st_size, 0x400000)
+            self.assertEqual(hashlib.sha256((region / "main.bin").read_bytes()).hexdigest(),
+                             FIXTURE.DEFAULT_MAIN_SHA256)
             self.assertTrue((region / "banked.bin").is_file())
             self.assertTrue((region / "sub.bin").is_file())
             self.assertTrue((region / "wave.bin").is_file())
             board = (region / "board.cfg").read_text(encoding="ascii")
             self.assertIn("ram_size=4194304", board)
             self.assertIn("machine=coh700", board)
+
+            optional_region = region / "texture-window"
+            optional_region.mkdir()
+            FIXTURE.make_regions(optional_region, texture_window=True)
+            self.assertEqual(hashlib.sha256(
+                (optional_region / "main.bin").read_bytes()).hexdigest(),
+                FIXTURE.TEXTURE_WINDOW_MAIN_SHA256)
 
     def test_optional_texture_window_probe_sets_and_resets_e2(self):
         _code, commands = FIXTURE.make_guest_code(texture_window=True)
