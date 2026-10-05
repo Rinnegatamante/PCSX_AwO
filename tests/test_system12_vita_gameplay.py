@@ -140,8 +140,12 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
                     "print('Stopping -> Idle',flush=True); time.sleep(10)")
             process = subprocess.Popen([sys.executable, "-u", "-c", code],
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            captured = GAMEPLAY.CapturedGuest(process, log, "unit pass")
+            captured = GAMEPLAY.CapturedGuest(process, log, "unit pass", fragments)
             try:
+                with self.assertRaisesRegex(ValueError, "exactly match"):
+                    captured.wait_for_messages((), 0.1, stable=0)
+                with self.assertRaisesRegex(ValueError, "exactly match"):
+                    captured.wait_for_messages(("different token",), 0.1, stable=0)
                 self.assertTrue(captured.wait_for_messages(fragments, 2, stable=0.15))
             finally:
                 process.terminate()
@@ -154,7 +158,7 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
                     "time.sleep(10)")
             process = subprocess.Popen([sys.executable, "-u", "-c", code],
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            captured = GAMEPLAY.CapturedGuest(process, log, "unit late fatal")
+            captured = GAMEPLAY.CapturedGuest(process, log, "unit late fatal", fragments)
             try:
                 self.assertFalse(captured.wait_for_messages(fragments, 2, stable=0.5))
             finally:

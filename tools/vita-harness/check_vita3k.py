@@ -77,7 +77,8 @@ def run_owned(command, log, timeout, label, expected, installation=False, requir
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                start_new_session=True)
     watchdog = ProcessGroupWatchdog(process, timeout)
-    captured = CapturedSmoke(process, log, label)
+    captured = CapturedSmoke(process, log, label,
+                             (expected,) if installation else ())
     natural_exit = False
     try:
         if installation:

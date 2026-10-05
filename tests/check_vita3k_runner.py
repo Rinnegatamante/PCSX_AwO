@@ -45,6 +45,9 @@ else:
         if mode != "lifecycle-missing":
             state = "FAIL (-1)" if mode == "lifecycle-fail" else "PASS (0)"
             print(f"pcsx-vita: vitaGL shutdown {state}", flush=True)
+        if mode == "lifecycle-noise":
+            print("pcsx-vita: system12-report PASS path=ux0:data/report.txt", flush=True)
+            print("pcsx-vita: system12-capture PASS path=ux0:data/capture.ppm", flush=True)
     elif mode != "no-guest":
         runs = 30 if mode == "wrong-runs" else 3
         print(f"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs={runs}", flush=True)
@@ -62,6 +65,11 @@ else:
     if mode == "late-fatal":
         time.sleep(.15)
         print("|C| guest teardown failed", flush=True)
+    if mode == "lifecycle-noise":
+        print("Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=0x1234", flush=True)
+        print("Vita3K recovered protected access pc=0x00001234 addr=0x60001000 write=1", flush=True)
+        for index in range(256):
+            print(f"pcsx-vita: telemetry marker={index}", flush=True)
     if mode == "smoke-fail":
         print("pcsx-vita: smoke FAIL triangle=0000", flush=True)
     if mode == "readback-fail":
@@ -136,6 +144,22 @@ def main():
         assert passed and not issues
         assert "vitaGL-shutdown stage=stop-gc.purge.begin" in trace_log.read_text()
         assert "Vita3K protection miss #1 vaddr=0x60800050 tree_count=3" in trace_log.read_text()
+
+        noisy_host = root / "lifecycle-noise"
+        noisy_host.write_text(FAKE_HOST)
+        noisy_host.chmod(0o700)
+        noisy_log = root / "lifecycle-noise.log"
+        noisy_tokens = (
+            "pcsx-vita: cpu_driver=ari64",
+            "pcsx-vita: system12-report PASS path=ux0:data/report.txt",
+            "pcsx-vita: system12-capture PASS path=ux0:data/capture.ppm",
+            "pcsx-vita: vitaGL shutdown PASS (0)",
+        )
+        passed, issues = gameplay.run_guest(noisy_host, "test", noisy_log, 2, noisy_tokens)
+        assert passed and not issues
+        noisy_output = noisy_log.read_text()
+        assert "forwarded faults=1 matched recoveries=1 unresolved=0" in noisy_output
+        assert "pcsx-vita: telemetry marker=255" in noisy_output
         result_path = root / "results.json"
         gameplay.write_results(result_path, {"renderer": "vitagl"}, [
             {"frames": 400, "status": "completed", "runtime_issues": {}},

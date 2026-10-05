@@ -231,3 +231,11 @@ lost early expected tokens. A native sample showed the host in Qt idle;
 only the owned process group was terminated. `geometry-evidence.json` beside
 the frozen VPK keeps this run failed at runner completion detection. Do not
 reclassify it as a passing validation; rerun with corrected token retention.
+
+The runner now registers the exact completion tokens before starting its output
+pump and retains only their seen flags independently of the recent-message
+ring. Idle, paired fault recovery and late error checks remain required. The
+fake-host regression emits 256 diagnostic messages after early tokens and a
+forwarded/recovered fault pair; gameplay evidence tests also reject empty or
+mismatched token sets. Both suites pass. The separate console renderer's regex
+smoke path is unchanged; installation registers its literal completion token.

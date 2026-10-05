@@ -124,10 +124,13 @@ class CapturedGuest:
     FORWARDED = re.compile(rb"Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=(0x[0-9a-fA-F]+)\s*$")
     RECOVERED = re.compile(rb"Vita3K recovered protected access pc=(0x[0-9a-fA-F]+) addr=0x[0-9a-fA-F]+ write=[01]\s*$")
 
-    def __init__(self, process, log: Path, label: str):
+    def __init__(self, process, log: Path, label: str, expected_tokens=()):
         self.process = process
         self.log = log
         self.label = label
+        self.expected_tokens = tuple(token.encode("utf-8") if isinstance(token, str) else token
+                                     for token in expected_tokens)
+        self.expected_tokens_seen = set()
         self.markers = set()
         self.issue_counts = {marker.decode("ascii", errors="replace"): 0
                              for marker in self.ISSUE_MARKERS}
@@ -147,6 +150,9 @@ class CapturedGuest:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
         encoded = raw_line
         self.lines_seen += 1
+        for token in self.expected_tokens:
+            if token in encoded:
+                self.expected_tokens_seen.add(token)
         forwarded = self.FORWARDED.search(encoded)
         recovered = self.RECOVERED.search(encoded)
         if forwarded:
@@ -200,13 +206,16 @@ class CapturedGuest:
             stream.close()
 
     def wait_for_messages(self, fragments, timeout, stable=0.75, require_idle=True):
+        fragments = tuple(token.encode("utf-8") if isinstance(token, str) else token
+                          for token in fragments)
+        if not fragments or fragments != self.expected_tokens:
+            raise ValueError("wait fragments must exactly match the expected tokens captured at startup")
         deadline = time.monotonic() + timeout
         stable_at = None
         while time.monotonic() < deadline:
             if any(self.issue_counts.values()):
                 return False
-            matches = all(any(fragment in message for message in self.messages)
-                          for fragment in fragments)
+            matches = all(token in self.expected_tokens_seen for token in self.expected_tokens)
             idle = "Stopping -> Idle" in self.markers
             if matches and (idle or not require_idle) and not any(self.pending_faults.values()):
                 if stable_at is None:
@@ -312,10 +321,11 @@ def install_vpk(emulator: Path, vpk: Path, title_id: str, log: Path, timeout: fl
                                 "--", str(vpk.resolve())], stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, start_new_session=True)
     watchdog = ProcessGroupWatchdog(process, timeout)
-    captured = CapturedGuest(process, log, f"install {title_id}")
+    expected_tokens = (f"[{title_id}] installed successfully!",)
+    captured = CapturedGuest(process, log, f"install {title_id}", expected_tokens)
     try:
-        installed = captured.wait_for_messages((f"[{title_id}] installed successfully!",),
-                                               timeout, stable=0.25, require_idle=False)
+        installed = captured.wait_for_messages(expected_tokens, timeout,
+                                               stable=0.25, require_idle=False)
     finally:
         watchdog.close()
         captured.close()
@@ -335,7 +345,7 @@ def run_guest(emulator: Path, app_args: str, log: Path, timeout: float,
                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env=environment, start_new_session=True)
     watchdog = ProcessGroupWatchdog(process, timeout)
-    captured = CapturedGuest(process, log, f"game args={app_args}")
+    captured = CapturedGuest(process, log, f"game args={app_args}", done_tokens)
     natural_exit = False
     try:
         passed = captured.wait_for_messages(done_tokens, timeout)
@@ -633,12 +643,13 @@ def main():
                 f"pcsx-vita, ux0:app/{SMOKE_ID}/smoke.exe, --frames, 3, --verify-smoke"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
             smoke_watchdog = ProcessGroupWatchdog(process, args.timeout)
-            console_capture = CapturedGuest(process, log, "console smoke")
+            console_tokens = (
+                "pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 "
+                "sentinel=534d4f4b runs=3",)
+            console_capture = CapturedGuest(process, log, "console smoke", console_tokens)
             console_natural_exit = False
             try:
-                console_ok = console_capture.wait_for_messages((
-                    "pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 "
-                    "sentinel=534d4f4b runs=3",), args.timeout)
+                console_ok = console_capture.wait_for_messages(console_tokens, args.timeout)
             finally:
                 console_natural_exit = process.poll() is not None
                 smoke_watchdog.close()
