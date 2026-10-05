@@ -143,9 +143,13 @@ machine's assets does not imply that it boots.
   arithmetic, external-memory and four-channel stream tests. The [MN10200 sound
   CPU](mn10200-port.md) and [standalone Zoom board](zoom-board-port.md) pass
   generated firmware execution, word-register access, mailbox lanes, reset
-  synchronization and nonzero DSP audio fixtures, including sanitizers. Native
-  PSX integration, PCMCIA/CompactFlash and authentic
-  G-Net game execution remain pending.
+  synchronization and nonzero DSP audio fixtures, including sanitizers.
+  The [native G-Net adapter](gnet-native.md) now connects the common Sony ZN
+  map, flash/Zoom buses and clock synchronization for the two BIOS-root
+  profiles. Generated MIPS interpreter/ARM64 DRC fixtures verify banked reads
+  and the public nonzero PCM callback, including reset/load lifetime and
+  sink disable. Production PCM resampling/mixing, main-CPU/vblank timing,
+  PCMCIA/CompactFlash and authentic G-Net game execution remain pending.
   The [NOR engine](nor-flash.md) now has source-derived E28F400B/TE28F160
   profiles, with x16 programming, IDs, erase geometry and timing fixtures plus
   sanitizers. The [standalone G-Net flash/Zoom composition](gnet-zoom-flash-port.md)
