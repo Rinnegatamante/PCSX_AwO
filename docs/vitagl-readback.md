@@ -164,3 +164,13 @@ dirty=false and viewport ratio 1:1. The next synchronization uses a different
 specific draw with the missing source binding. Native captures at `040353`
 and `040354` remain black after the GPU-surface lookup. This host reuses only
 the isolated guest shader cache; its source/patch hashes match its manifest.
+
+Moving the presentation Y flip from fragment to vertex stage also leaves the
+backbuffer black. That scratch probe passes 180 frames with 12 matched native
+fault recoveries, shutdown and Idle:
+`/tmp/pcsx-vitagl-display-vertexflip-20261005.log`. It is not retained in the
+renderer source. Its package, source delta and evidence record are kept under
+`build/vita-validation-display-trace5/vertexflip-probe-*` (the package is
+`pcsx-vitagl-vertexflip-probe.vpk`). The SDK renderer source is restored to the
+repository version; the separate production VPK remains unchanged. Native
+VitaGL presentation and physical hardware validation remain pending.
