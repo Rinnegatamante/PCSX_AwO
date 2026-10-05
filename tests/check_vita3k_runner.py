@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Check harness process ownership/completion, without emulating a Vita."""
 from pathlib import Path
+import importlib.util
+import json
 import os
 import subprocess
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+GAMEPLAY_RUNNER = ROOT / "tools/vita-harness/check_system12_gameplay_vita3k.py"
 FAKE_HOST = r'''#!/usr/bin/env python3
 from pathlib import Path
 import os
@@ -72,8 +75,37 @@ time.sleep(30)  # A completed guest leaves its host UI open.
 
 
 def main():
+    spec = importlib.util.spec_from_file_location("system12_gameplay_vita3k", GAMEPLAY_RUNNER)
+    gameplay = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gameplay)
+    assert gameplay.select_milestones() == (400, 800, 1800)
+    assert gameplay.select_milestones(1800) == (1800,)
+    assert gameplay.select_milestones(None, True) == (12000,)
+    try:
+        gameplay.select_milestones(1800, True)
+    except ValueError as error:
+        assert "cannot be combined" in str(error)
+    else:
+        raise AssertionError("--frames and --gameplay-replay should conflict")
+
     with tempfile.TemporaryDirectory(prefix="pcsx-vita3k-runner-") as tmp:
         root = Path(tmp)
+        result_path = root / "results.json"
+        gameplay.write_results(result_path, {"renderer": "vitagl"}, [
+            {"frames": 400, "status": "completed", "runtime_issues": {}},
+            {"frames": 800, "status": "completed", "runtime_issues": {}},
+            {"frames": 1800, "status": "failed",
+             "runtime_issues": {"pcsx-vita: vitaGL shutdown FAIL": 1},
+             "error": "RuntimeError: System12 guest run failed at 1800 frames"},
+        ], [400, 800], "failed", {"frames": 1800,
+                                  "error": "RuntimeError: System12 guest run failed at 1800 frames"})
+        aggregate = json.loads(result_path.read_text())
+        assert aggregate["status"] == "failed"
+        assert aggregate["completed_milestones"] == [400, 800]
+        assert aggregate["failed_milestone"]["frames"] == 1800
+        assert aggregate["milestones"][-1]["runtime_issues"]
+        assert aggregate["host_execution_issues"] is True
+
         for mode, install, expected in (
                 ("idle-host", False, 0),
                 ("crash", False, 1),

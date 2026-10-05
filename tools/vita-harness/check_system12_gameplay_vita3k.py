@@ -497,10 +497,39 @@ def preserve_guest_capture(screenshot_root, before, guest_data, output_dir, fram
     return screenshots, screenshot_error
 
 
+def select_milestones(frames=None, gameplay_replay=False):
+    if gameplay_replay and frames is not None:
+        raise ValueError("--frames cannot be combined with --gameplay-replay")
+    if gameplay_replay:
+        return (GAMEPLAY_REPLAY_FRAMES,)
+    if frames is None:
+        return MILESTONES
+    if frames not in MILESTONES:
+        raise ValueError(f"--frames must be one of {', '.join(map(str, MILESTONES))}")
+    return (frames,)
+
+
+def write_results(path, metadata, milestones, completed_milestones,
+                  status, failed_milestone=None):
+    """Persist cumulative progress, including the first failure, for review."""
+    payload = dict(metadata)
+    payload.update({
+        "status": status,
+        "completed_milestones": list(completed_milestones),
+        "failed_milestone": failed_milestone,
+        "host_execution_issues": any(result.get("runtime_issues") for result in milestones),
+        "milestones": milestones,
+    })
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emulator", type=Path, required=True, help="fixed Vita3K.app or its executable")
-    parser.add_argument("--vpk", type=Path, required=True, help="ARCADE_SYSTEM12=1 NEON VPK")
+    parser.add_argument("--vpk", type=Path, required=True, help="ARCADE_SYSTEM12=1 VPK")
+    parser.add_argument("--renderer", choices=("neon", "vitagl"), default="neon")
+    parser.add_argument("--shader-compiler", type=Path,
+                        help="existing local libshacccg.suprx; required for VitaGL")
     parser.add_argument("--firmware-fs", type=Path, required=True,
                         help="local Vita3K filesystem containing vs0, os0, sa0")
     parser.add_argument("--config-template", type=Path)
@@ -513,15 +542,24 @@ def main():
                         help="per-process timeout (replay defaults to 1200 seconds)")
     parser.add_argument("--gameplay-replay", action="store_true",
                         help="replay the 177 deterministic inputs through frame 12,000")
+    parser.add_argument("--frames", type=int, choices=MILESTONES,
+                        help="run only this standard frame milestone (400, 800, or 1800)")
     parser.add_argument("--reuse-console-smoke", type=Path,
                         help="reuse smoke evidence JSON when VPK and host hashes match")
     args = parser.parse_args()
+    try:
+        frames_to_run = select_milestones(args.frames, args.gameplay_replay)
+    except ValueError as error:
+        parser.error(str(error))
     if args.timeout is None:
         args.timeout = 1200 if args.gameplay_replay else 240
     if (not (args.emulator.is_file() or args.emulator.is_dir()) or not args.vpk.is_file() or
             not args.firmware_fs.is_dir() or
             (not args.reuse_console_smoke and not args.smoke_exe.is_file()) or
-            not args.profile.is_dir() or args.timeout <= 0 or not args.vita_pack_vpk or
+            not args.profile.is_dir() or args.timeout <= 0 or
+            (args.renderer == "vitagl" and (not args.shader_compiler or
+                                           not args.shader_compiler.is_file())) or
+            not args.vita_pack_vpk or
             not args.vita_mksfoex):
         parser.error("emulator, VPK, local firmware/profile, pack tools, and timeout are required")
     if args.output_dir.exists():
@@ -544,6 +582,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pcsx-vita-system12-gameplay-") as temp:
         base = Path(temp)
         emulator, fs, portable = read_cli(base, args)
+        if args.renderer == "vitagl":
+            checker = load_module("vitagl_game_checker", ROOT / "tools/vita-harness/check_vita3k.py")
+            checker.install_local_shader_compiler(emulator, args.shader_compiler)
         (args.output_dir / "native-screenshot-setup.json").write_text(json.dumps({
             "config_key": "screenshot-format", "config_value": 2,
             "auto_screenshot_env": (GAMEPLAY_SCREENSHOT_TIMES if args.gameplay_replay
@@ -596,7 +637,7 @@ def main():
                           process.returncode in (0, -signal.SIGTERM, -signal.SIGKILL) and
                           (not console_natural_exit or process.returncode == 0))
             if not console_ok:
-                raise RuntimeError(f"console NEON smoke failed; log={log}")
+                raise RuntimeError(f"console {args.renderer} smoke failed; log={log}")
             smoke_record = {"console_smoke": "PASS", "vpk_sha256": vpk_hash,
                             "host_sha256": host_hash, "reused": False}
         else:
@@ -615,83 +656,114 @@ def main():
         prior_pcm_frames = 0
         guest_data = fs / "ux0/data"
         screenshot_root = portable / "screenshots"
-        frames_to_run = (GAMEPLAY_REPLAY_FRAMES,) if args.gameplay_replay else MILESTONES
-        for frames in frames_to_run:
-            report_guest = f"ux0:data/system12-{frames}.txt"
-            capture_guest = f"ux0:data/system12-{frames}.ppm"
-            args_text = (f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/soulclbrac, "
-                         f"--frames, {frames}, --report-system12, {report_guest}, "
-                         f"--capture-ppm, {capture_guest}")
-            if inputs_path:
-                args_text += f", --inputs, ux0:app/{TITLE_ID}/soulclbrac/inputs.csv"
-            expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
-                        f"pcsx-vita: system12-capture PASS path={capture_guest}",
-                        "pcsx-vita: cpu_driver=ari64")
-            if inputs_path:
-                expected += ("pcsx-vita: inputs replay PASS events=177/177 "
-                             "frames=12000/12000 final=0002/0000",)
-            before_screenshots = (set(screenshot_root.rglob("*.png"))
-                                  if screenshot_root.exists() else set())
-            guest_ok, runtime_issues = False, {}
-            try:
-                guest_ok, runtime_issues = run_guest(
-                    emulator, args_text, log, args.timeout, expected,
-                    extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
-                        if inputs_path else AUTO_SCREENSHOT_TIMES)})
-            finally:
-                screenshots, screenshot_error = preserve_guest_capture(
-                    screenshot_root, before_screenshots, guest_data, args.output_dir,
-                    frames, guest_ok, runtime_issues)
-            if not guest_ok:
-                raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
-            report_path = guest_data / f"system12-{frames}.txt"
-            capture_path = guest_data / f"system12-{frames}.ppm"
-            if not report_path.is_file() or not capture_path.is_file():
-                raise RuntimeError(f"Vita guest did not produce evidence at {frames} frames")
-            report_out = args.output_dir / f"system12-{frames}.txt"
-            capture_out = args.output_dir / f"system12-{frames}.ppm"
-            report_info = read_report(report_out, require_replay=bool(inputs_path))
-            capture_info = check_capture(capture_out)
-            h8_cycles = int(report_info["records"]["H8"]["cycles"])
-            pcm_frames = int(report_info["records"]["C352"]["frames"])
-            if h8_cycles <= prior_h8_cycles or pcm_frames < prior_pcm_frames:
-                raise RuntimeError(f"board device progress stalled by frame {frames}")
-            prior_h8_cycles, prior_pcm_frames = h8_cycles, pcm_frames
-            results.append({"frames": frames, "report": report_out.name,
-                            "capture": capture_out.name,
-                            "capture_info": capture_info,
-                            "native_screenshots": screenshots,
-                            "native_screenshot_error": screenshot_error,
-                            "report_info": report_info,
-                            "runtime_issues": runtime_issues})
-            (args.output_dir / "results.json").write_text(json.dumps({
-                "vpk": str(args.vpk.resolve()), "vpk_sha256": vpk_hash,
-                "host_sha256": host_hash, "title_id": TITLE_ID,
-                "console_smoke": "PASS", "board_execution_verified": False,
-                "console_smoke_reused": bool(reused_smoke),
-                "gameplay_replay": bool(inputs_path),
-                "input_event_count": len(input_events) if input_events is not None else 0,
-                "host_execution_issues": any(result["runtime_issues"] for result in results),
-                "milestones": results,
-            }, indent=2) + "\n", encoding="utf-8")
-            if screenshot_error:
-                raise RuntimeError(screenshot_error)
-
-        if (not inputs_path and
-                len({r["report_info"]["records"]["H8"]["cycles"] for r in results}) < 3):
-            raise RuntimeError("H8 cycles did not change across all requested milestones")
-
-        has_runtime_issues = any(result["runtime_issues"] for result in results)
-        (args.output_dir / "results.json").write_text(json.dumps({
+        results_metadata = {
+            "renderer": args.renderer,
             "vpk": str(args.vpk.resolve()), "vpk_sha256": vpk_hash,
             "host_sha256": host_hash, "title_id": TITLE_ID,
             "console_smoke": "PASS", "board_execution_verified": False,
             "console_smoke_reused": bool(reused_smoke),
             "gameplay_replay": bool(inputs_path),
             "input_event_count": len(input_events) if input_events is not None else 0,
-            "host_execution_issues": has_runtime_issues,
-            "milestones": results,
-        }, indent=2) + "\n", encoding="utf-8")
+        }
+        completed_milestones = []
+        for frames in frames_to_run:
+            report_guest = f"ux0:data/system12-{frames}.txt"
+            capture_guest = f"ux0:data/system12-{frames}.ppm"
+            args_text = (f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/soulclbrac, "
+                         f"--frames, {frames}, --report-system12, {report_guest}")
+            if args.renderer == "neon":
+                args_text += f", --capture-ppm, {capture_guest}"
+            if inputs_path:
+                args_text += f", --inputs, ux0:app/{TITLE_ID}/soulclbrac/inputs.csv"
+            expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
+                        "pcsx-vita: cpu_driver=ari64")
+            if args.renderer == "neon":
+                expected += (f"pcsx-vita: system12-capture PASS path={capture_guest}",)
+            else:
+                expected += ("pcsx-vita: GPU = CTR High Octane native, VRAM=1024x1024",
+                             "pcsx-vita: vitaGL shutdown PASS (0)")
+            if inputs_path:
+                expected += ("pcsx-vita: inputs replay PASS events=177/177 "
+                             "frames=12000/12000 final=0002/0000",)
+            before_screenshots = (set(screenshot_root.rglob("*.png"))
+                                  if screenshot_root.exists() else set())
+            guest_ok, runtime_issues = False, {}
+            report_info = None
+            capture_info = None
+            error = None
+            try:
+                guest_ok, runtime_issues = run_guest(
+                    emulator, args_text, log, args.timeout, expected,
+                    extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
+                        if inputs_path else AUTO_SCREENSHOT_TIMES)})
+                if not guest_ok:
+                    raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
+                report_path = guest_data / f"system12-{frames}.txt"
+                capture_path = guest_data / f"system12-{frames}.ppm"
+                if not report_path.is_file() or (args.renderer == "neon" and not capture_path.is_file()):
+                    raise RuntimeError(f"Vita guest did not produce evidence at {frames} frames")
+                report_out = args.output_dir / f"system12-{frames}.txt"
+                capture_out = args.output_dir / f"system12-{frames}.ppm"
+                shutil.copy2(report_path, report_out)
+                report_info = read_report(report_out, require_replay=bool(inputs_path))
+                if args.renderer == "neon":
+                    shutil.copy2(capture_path, capture_out)
+                    capture_info = check_capture(capture_out)
+                h8_cycles = int(report_info["records"]["H8"]["cycles"])
+                pcm_frames = int(report_info["records"]["C352"]["frames"])
+                if h8_cycles <= prior_h8_cycles or pcm_frames < prior_pcm_frames:
+                    raise RuntimeError(f"board device progress stalled by frame {frames}")
+                prior_h8_cycles, prior_pcm_frames = h8_cycles, pcm_frames
+            except Exception as caught:
+                error = caught
+            finally:
+                try:
+                    screenshots, screenshot_error = preserve_guest_capture(
+                        screenshot_root, before_screenshots, guest_data, args.output_dir,
+                        frames, guest_ok, runtime_issues)
+                except Exception as caught:
+                    screenshots, screenshot_error = [], None
+                    if error is None:
+                        error = caught
+            if error is None and screenshot_error:
+                error = RuntimeError(screenshot_error)
+
+            milestone = {"frames": frames, "status": "completed" if error is None else "failed",
+                         "report": (f"system12-{frames}.txt"
+                                    if (args.output_dir / f"system12-{frames}.txt").is_file() else None),
+                         "capture": (f"system12-{frames}.ppm"
+                                     if args.renderer == "neon" and
+                                     (args.output_dir / f"system12-{frames}.ppm").is_file() else None),
+                         "capture_info": capture_info,
+                         "native_screenshots": screenshots,
+                         "native_screenshot_error": screenshot_error,
+                         "report_info": report_info,
+                         "runtime_issues": runtime_issues}
+            if error is not None:
+                milestone["error"] = f"{type(error).__name__}: {error}"
+                results.append(milestone)
+                failure = {"frames": frames, "error": milestone["error"],
+                           "runtime_issues": runtime_issues}
+                write_results(args.output_dir / "results.json", results_metadata,
+                              results, completed_milestones, "failed", failure)
+                raise error
+
+            results.append(milestone)
+            completed_milestones.append(frames)
+            write_results(args.output_dir / "results.json", results_metadata,
+                          results, completed_milestones, "running")
+
+        if (not inputs_path and
+                len({r["report_info"]["records"]["H8"]["cycles"] for r in results}) < len(frames_to_run)):
+            error = RuntimeError("H8 cycles did not change across all requested milestones")
+            failure = {"frames": list(frames_to_run), "error": f"{type(error).__name__}: {error}"}
+            write_results(args.output_dir / "results.json", results_metadata,
+                          results, completed_milestones, "failed", failure)
+            raise error
+
+        has_runtime_issues = any(result["runtime_issues"] for result in results)
+        write_results(args.output_dir / "results.json", results_metadata, results,
+                      completed_milestones, "failed" if has_runtime_issues else "passed")
     print(f"Vita3K System12 gameplay evidence captured: {args.output_dir}")
     return 1 if has_runtime_issues else 0
 
