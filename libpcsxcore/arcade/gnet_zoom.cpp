@@ -1,5 +1,6 @@
 /* GPL-2.0-or-later. Source-derived Taito G-Net flash/Zoom composition. */
 #include "gnet_zoom.h"
+#include "mb3773.h"
 #include "nor_flash.h"
 
 #include <array>
@@ -12,15 +13,18 @@
 struct gnet_zoom_board {
     gnet_zoom_config_t config{};
     std::array<nor_flash_t *, 5> flash{};
+    MB3773 *watchdog = nullptr;
     std::array<uint8_t *, 5> raw{};
     std::array<size_t, 5> size{};
     std::array<std::vector<uint8_t>, 5> engine_image{};
     zoom_board *zoom = nullptr;
     uint64_t last_cycle = 0;
     uint64_t fractional_25ths = 0;
+    uint64_t watchdog_time_us = 0;
     unsigned bank = 0;
     uint8_t control = 0x10;
     uint32_t fault = 0;
+    bool reset_callback_active = false;
 };
 
 namespace {
@@ -127,6 +131,16 @@ static void zoom_audio_frame(void *opaque, float left, float right,
         b->config.audio_frame(b->config.audio_opaque, left, right, cycle);
 }
 
+static void watchdog_soft_reset(void *opaque)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    if (b && b->config.request_soft_reset) {
+        b->reset_callback_active = true;
+        b->config.request_soft_reset(b->config.reset_opaque);
+        b->reset_callback_active = false;
+    }
+}
+
 static int zoom_flash_write16(void *opaque, unsigned zoom_chip, uint32_t word,
                               uint16_t data, uint16_t mem_mask)
 {
@@ -143,10 +157,15 @@ static int advance_flash_clock(gnet_zoom_board *b, uint64_t cycle)
         return GNET_ZOOM_TIME;
     uint64_t scaled = elapsed * 4 + b->fractional_25ths;
     uint64_t microseconds = scaled / 25;
+    if (microseconds > std::numeric_limits<uint64_t>::max() - b->watchdog_time_us)
+        return GNET_ZOOM_TIME;
     b->fractional_25ths = scaled % 25;
     if (microseconds) {
         for (nor_flash_t *flash : b->flash)
             nor_flash_advance_us(flash, microseconds);
+        b->watchdog_time_us += microseconds;
+        if (mb3773_advance_to_us(b->watchdog, b->watchdog_time_us) != MB3773_OK)
+            return GNET_ZOOM_TIME;
     }
     b->last_cycle = cycle;
     return GNET_ZOOM_OK;
@@ -241,6 +260,13 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     auto *b = new (std::nothrow) gnet_zoom_board;
     if (!b) return GNET_ZOOM_NOMEM;
     b->config = *config;
+    MB3773Config watchdog_config{};
+    watchdog_config.opaque = b;
+    watchdog_config.request_soft_reset = watchdog_soft_reset;
+    if (mb3773_create(&watchdog_config, &b->watchdog) != MB3773_OK) {
+        delete b;
+        return GNET_ZOOM_NOMEM;
+    }
     b->raw[0] = config->firm_flash;
     b->size[0] = config->firm_flash_size;
     b->raw[1] = config->zoom_program_flash;
@@ -260,6 +286,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
             }
         }
     } catch (...) {
+        mb3773_destroy(b->watchdog);
         delete b;
         return GNET_ZOOM_NOMEM;
     }
@@ -275,6 +302,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     for (nor_flash_t *flash : b->flash) {
         if (!flash) {
             for (nor_flash_t *made : b->flash) nor_flash_destroy(made);
+            mb3773_destroy(b->watchdog);
             delete b;
             return GNET_ZOOM_NOMEM;
         }
@@ -296,6 +324,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     zoom_config.time_sync = zoom_time_sync;
     if (zoom_board_create(&zoom_config, &b->zoom) != ZOOM_BOARD_OK) {
         for (nor_flash_t *flash : b->flash) nor_flash_destroy(flash);
+        mb3773_destroy(b->watchdog);
         delete b;
         return GNET_ZOOM_DEVICE;
     }
@@ -308,9 +337,11 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
 extern "C" int gnet_zoom_try_destroy(gnet_zoom_board *b)
 {
     if (!b) return GNET_ZOOM_OK;
-    if (zoom_board_is_busy(b->zoom)) return GNET_ZOOM_BUSY;
+    if (b->reset_callback_active || zoom_board_is_busy(b->zoom))
+        return GNET_ZOOM_BUSY;
     zoom_board_destroy(b->zoom);
     for (nor_flash_t *flash : b->flash) nor_flash_destroy(flash);
+    mb3773_destroy(b->watchdog);
     delete b;
     return GNET_ZOOM_OK;
 }
@@ -330,6 +361,8 @@ extern "C" int gnet_zoom_control_write(gnet_zoom_board *b, uint8_t data)
     if (!b) return GNET_ZOOM_ARGUMENT;
     int clock_result = advance_flash_clock(b, zoom_board_main_cycles(b->zoom));
     if (clock_result != GNET_ZOOM_OK) return clock_result;
+    if (mb3773_write_ck(b->watchdog, (data >> 5) & 1) != MB3773_OK)
+        return GNET_ZOOM_DEVICE;
     bool old_reset = (b->control & 0x10) != 0;
     bool next_reset = (data & 0x10) != 0;
     if (old_reset != next_reset) {
@@ -438,4 +471,9 @@ extern "C" int gnet_zoom_flash_ready(const gnet_zoom_board *b,
 {
     if (!b || chip >= b->flash.size()) return GNET_ZOOM_ARGUMENT;
     return nor_flash_ready(b->flash[chip]);
+}
+
+extern "C" uint64_t gnet_zoom_watchdog_reset_requests(const gnet_zoom_board *b)
+{
+    return b ? mb3773_reset_requests(b->watchdog) : 0;
 }

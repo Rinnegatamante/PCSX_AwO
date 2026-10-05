@@ -13,7 +13,7 @@ CPP_SOURCES := $(ARCADE)/gnet_zoom.cpp $(ARCADE)/zoom_board.cpp \
 COMMON := -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable $(INCLUDES)
 TARGET := $(BUILD)/test-gnet-zoom
 SAN_TARGET := $(BUILD)/test-gnet-zoom-sanitize
-HEADERS := $(ARCADE)/gnet_zoom.h $(ARCADE)/zoom_board.h \
+HEADERS := $(ARCADE)/gnet_zoom.h $(ARCADE)/zoom_board.h $(ARCADE)/mb3773.h \
            $(ARCADE)/mn10200.h $(ARCADE)/mn10200_engine.inc $(ARCADE)/nor_flash.h \
            $(ARCADE)/zsg2.h $(ARCADE)/tms57002.h $(wildcard $(TMS)/*.h)
 
@@ -38,13 +38,21 @@ $(BUILD)/zsg2-san.o: $(ARCADE)/zsg2.c $(ARCADE)/zsg2.h
 	@mkdir -p $(BUILD)
 	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -I$(ARCADE) -c $< -o $@
 
-$(TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash.o $(BUILD)/zsg2.o
+$(BUILD)/mb3773.o: $(ARCADE)/mb3773.c $(ARCADE)/mb3773.h
 	@mkdir -p $(BUILD)
-	$(CXX) $(COMMON) -O2 $(CPP_SOURCES) $(BUILD)/nor_flash.o $(BUILD)/zsg2.o -o $@
+	$(CC) -std=c99 -Wall -Wextra -Werror -O2 -I$(ARCADE) -c $< -o $@
 
-$(SAN_TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o
+$(BUILD)/mb3773-san.o: $(ARCADE)/mb3773.c $(ARCADE)/mb3773.h
 	@mkdir -p $(BUILD)
-	$(CXX) $(COMMON) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer $(CPP_SOURCES) $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o -o $@
+	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash.o $(BUILD)/zsg2.o $(BUILD)/mb3773.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O2 $(CPP_SOURCES) $(BUILD)/nor_flash.o $(BUILD)/zsg2.o $(BUILD)/mb3773.o -o $@
+
+$(SAN_TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o $(BUILD)/mb3773-san.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer $(CPP_SOURCES) $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o $(BUILD)/mb3773-san.o -o $@
 
 test: $(TARGET)
 	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(TARGET)

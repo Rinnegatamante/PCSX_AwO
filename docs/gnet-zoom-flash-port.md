@@ -20,7 +20,12 @@ copy back only their two changed bytes; erase operations copy the erased block.
 
 The PSX window is 16-bit at `1f000000–1f7fffff`; bank selection is
 `BIT(control,2) | (JP1 << 1)`, with JP1 choosing the initial upper bank bit.
-The control byte is at `1fb40000`, with bit 4 holding the sound board in reset.
+The control byte is at `1fb40000`: bit 4 holds the sound board in reset, bit 5
+clocks the source MB3773 watchdog, and bit 2 selects the flash bank. The
+watchdog is advanced on the same 6.25 MHz MN10200 internal-cycle timeline as
+Zoom and NOR. Its five-second timeout requests a deferred soft reset through
+the caller callback; the host must schedule the actual system reset after the
+current callback. As in MAME, only a falling edge on bit 5 rearms the timer.
 Reset release applies the Zoom device reset and sends `0xff` to its program and
 three sample flashes, matching MAME. Bank 0 maps firmware, the PCMCIA memory
 window, and Zoom program flash. Bank 1 and bank 3 map the three sample flashes,
@@ -55,7 +60,9 @@ Partial x16 lane writes and PCMCIA are not implemented. `gnet_zoom_try_destroy`
 returns `GNET_ZOOM_BUSY` if called reentrantly from an audio callback or while
 the Zoom child is synchronizing; retry destruction after the callback returns.
 The adapter does not include the PSX core, CAT702, full G-Net board, or real
-media package.
+media package. The synthetic test verifies the MB3773 five-second expiry and
+falling-edge kick through the G-Net control register; it does not assert a game
+boot.
 
 Run the focused tests with:
 

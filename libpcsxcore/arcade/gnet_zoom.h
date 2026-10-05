@@ -13,6 +13,7 @@ extern "C" {
 #define GNET_EPROM_BYTES 0x100000u
 
 typedef struct gnet_zoom_board gnet_zoom_board;
+typedef void (*gnet_zoom_soft_reset_fn)(void *opaque);
 
 typedef enum gnet_zoom_result {
     GNET_ZOOM_OK = 0,
@@ -37,14 +38,19 @@ typedef struct gnet_zoom_config {
     const uint8_t *eprom;      /* 1 MiB read-only region visible in bank 2 */
     size_t eprom_size;
     unsigned jp1;              /* Source JP1 strap, 0 or 1. */
+    void *reset_opaque;
+    /* Called when the source MB3773 watchdog expires. Schedule reset after
+     * this callback returns; do not reset/reenter/destroy the board here. */
+    gnet_zoom_soft_reset_fn request_soft_reset;
     void *audio_opaque;
     zoom_audio_frame_fn audio_frame;
 } gnet_zoom_config_t;
 
 int gnet_zoom_create(const gnet_zoom_config_t *config, gnet_zoom_board **out);
 void gnet_zoom_destroy(gnet_zoom_board *board);
-/* Returns BUSY without freeing anything when called from an audio/device
- * callback or while the child board is synchronizing. Retry after it returns. */
+/* Returns BUSY without freeing anything when called from an audio/device or
+ * watchdog-reset callback, or while the child board is synchronizing. Retry
+ * after the callback or synchronization returns. */
 int gnet_zoom_try_destroy(gnet_zoom_board *board);
 
 /* G-Net main-board control register 1fb40000. Reset is active-high on bit 4;
@@ -70,6 +76,7 @@ uint32_t gnet_zoom_sound_d(const gnet_zoom_board *board, unsigned index);
 uint32_t gnet_zoom_sound_ram_read(const gnet_zoom_board *board, unsigned offset);
 uint32_t gnet_zoom_fault(const gnet_zoom_board *board);
 int gnet_zoom_flash_ready(const gnet_zoom_board *board, unsigned chip);
+uint64_t gnet_zoom_watchdog_reset_requests(const gnet_zoom_board *board);
 
 #ifdef __cplusplus
 }

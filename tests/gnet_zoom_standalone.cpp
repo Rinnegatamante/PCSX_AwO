@@ -87,6 +87,19 @@ struct ReadyProbe {
     unsigned frames = 0;
 };
 
+struct SoftResetProbe {
+    gnet_zoom_board *board = nullptr;
+    unsigned requests = 0;
+    int destroy_result = GNET_ZOOM_OK;
+};
+
+void probe_soft_reset(void *opaque)
+{
+    auto *probe = static_cast<SoftResetProbe *>(opaque);
+    ++probe->requests;
+    probe->destroy_result = gnet_zoom_try_destroy(probe->board);
+}
+
 void probe_flash_ready_from_audio(void *opaque, float, float, uint64_t cycle)
 {
     auto *probe = static_cast<ReadyProbe *>(opaque);
@@ -272,6 +285,35 @@ void test_busy_destroy_refusal_and_time_error_propagation()
     assert(gnet_zoom_run(board, UINT64_MAX) == GNET_ZOOM_TIME);
     assert(gnet_zoom_try_destroy(board) == GNET_ZOOM_OK);
 }
+
+void test_mame_mb3773_control_bit_and_five_second_timer()
+{
+    Media media;
+    SoftResetProbe probe;
+    auto config = media.config();
+    config.reset_opaque = &probe;
+    config.request_soft_reset = probe_soft_reset;
+    gnet_zoom_board *board = nullptr;
+    assert(gnet_zoom_create(&config, &board) == GNET_ZOOM_OK && board);
+    probe.board = board;
+
+    constexpr uint64_t cycles_per_second = 6250000;
+    assert(gnet_zoom_sync_to_cycle(board, 49 * cycles_per_second / 10) == GNET_ZOOM_OK);
+    assert(gnet_zoom_control_write(board, 0x30) == GNET_ZOOM_OK); // CK high does not kick.
+    assert(gnet_zoom_sync_to_cycle(board, 5 * cycles_per_second) == GNET_ZOOM_OK);
+    assert(probe.requests == 1);
+    assert(probe.destroy_result == GNET_ZOOM_BUSY);
+    assert(gnet_zoom_watchdog_reset_requests(board) == 1);
+
+    assert(gnet_zoom_control_write(board, 0x10) == GNET_ZOOM_OK); // Falling CK rearms at 5 s.
+    assert(gnet_zoom_sync_to_cycle(board, 10 * cycles_per_second - 1) == GNET_ZOOM_OK);
+    assert(probe.requests == 1);
+    assert(gnet_zoom_sync_to_cycle(board, 10 * cycles_per_second) == GNET_ZOOM_OK);
+    assert(probe.requests == 2);
+    assert(probe.destroy_result == GNET_ZOOM_BUSY);
+    assert(gnet_zoom_watchdog_reset_requests(board) == 2);
+    assert(gnet_zoom_try_destroy(board) == GNET_ZOOM_OK);
+}
 } // namespace
 
 int main()
@@ -281,5 +323,6 @@ int main()
     test_nor_busy_time_and_bad_config();
     test_cpu_fetch_advances_nor_at_bus_cycle_independent_of_quantum();
     test_busy_destroy_refusal_and_time_error_propagation();
+    test_mame_mb3773_control_bit_and_five_second_timer();
     std::puts("G-Net Zoom/NOR standalone tests passed");
 }
