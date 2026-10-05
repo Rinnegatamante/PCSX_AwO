@@ -150,6 +150,19 @@ void Platform_EndScene(void)
     NativeRenderer_SwapWindow();
 }
 
+void VitaCtrNativeRenderer_PresentCurrentFrame(void)
+{
+    const DISPENV *display = NativeGpu_GetRenderDispEnv();
+    const int blank = NativeGpu_GetRenderDisplayBlank();
+
+    if (blank)
+        NativeRenderer_PresentBlank();
+    else if (display->isrgb24)
+        NativeRenderer_PresentVRAMDisplay();
+    else
+        NativeRenderer_PresentMainRenderTarget();
+}
+
 typedef struct VitaCtrVramTask {
     uint16_t *pixels;
     int x, y, w, h;
@@ -292,7 +305,7 @@ static void backend_renderer_init(void *arg)
     RendererInitTask *task = (RendererInitTask *)arg;
     task->result = 0;
 
-    if (!NativeRenderer_InitialiseRender((char *)"PCSX-ReARMed", 960, 544, 0))
+    if (!NativeRenderer_InitialiseRender((char *)"PCSX AwO", 960, 544, 0))
         return;
     if (!NativeRenderer_InitialisePSX())
         return;
@@ -322,18 +335,18 @@ static int init_context(void)
     sceIoMkdir("ux0:data/pcsx-rearmed/shader_cache", 0777);
 
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
-        SysPrintf("pcsx-vita: SDL video init failed: %s\n", SDL_GetError());
+        SysPrintf("PCSX AwO: SDL video init failed: %s\n", SDL_GetError());
         return 0;
     }
     if (!NativeGpu_InitBackend(960, 544)) {
-        SysPrintf("pcsx-vita: High Octane GPU thread init failed\n");
+        SysPrintf("PCSX AwO: High Octane GPU thread init failed\n");
         return 0;
     }
 
     memset(&task, 0, sizeof(task));
     NativeGpu_RunBackendTaskSync(backend_renderer_init, &task);
     if (!task.result) {
-        SysPrintf("pcsx-vita: High Octane renderer init failed\n");
+        SysPrintf("PCSX AwO: High Octane renderer init failed\n");
         NativeGpu_ShutdownBackend();
         return 0;
     }
@@ -342,7 +355,7 @@ static int init_context(void)
     NativeGpu_BeginFrontendFrame();
     s_frame_started = 1;
     s_context_ready = 1;
-    SysPrintf("pcsx-vita: GPU = CTR High Octane native, 4:3 725x544 target\n");
+    SysPrintf("PCSX AwO: GPU = CTR High Octane native, 4:3 725x544 target\n");
     return 1;
 }
 
@@ -578,7 +591,7 @@ void renderer_set_config(const struct rearmed_cbs *cbs)
 {
     s_guest_vram = gpu.vram;
     if (!s_context_ready && !init_context()) {
-        SysPrintf("pcsx-vita: deferred High Octane renderer init failed\n");
+        SysPrintf("PCSX AwO: deferred High Octane renderer init failed\n");
         return;
     }
     if (cbs->pl_set_gpu_caps)

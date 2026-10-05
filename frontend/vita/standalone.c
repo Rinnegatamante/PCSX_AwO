@@ -18,9 +18,13 @@
 #include <SDL3/SDL.h>
 #include <libretro.h>
 
+#include "rom_selector.h"
+
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define BIOS_DIR APP_ROOT "/bios"
 #define SAVE_DIR APP_ROOT "/saves"
+#define ROMS_DIR APP_ROOT "/roms"
+#define COVERS_DIR APP_ROOT "/covers"
 
 #define DISPLAY_W 960
 #define DISPLAY_H 544
@@ -44,12 +48,14 @@ static uint16_t g_xmap[GAME_W];
 static uint16_t g_ymap[DISPLAY_H];
 
 static SceCtrlData g_pad;
-static int g_exit_hold;
 static bool g_exit_requested;
+static bool g_pause_requested;
+static bool g_pause_combo_down;
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
 
+unsigned int _newlib_heap_size_user = 40 * 1024 * 1024;
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
 
@@ -61,8 +67,8 @@ int getVMBlock(void)
         return g_vm_block;
 
     size = (_newlib_vm_size_user + 0xfffff) & ~0xfffff;
-    g_vm_block = sceKernelAllocMemBlockForVM("pcsx-jit", size);
-    sceClibPrintf("pcsx-vita: JIT VM block size=0x%x uid=0x%x\n", size, g_vm_block);
+    g_vm_block = sceKernelAllocMemBlockForVM("pcsx-awo-jit", size);
+    sceClibPrintf("PCSX AwO: JIT VM block size=0x%x uid=0x%x\n", size, g_vm_block);
     return g_vm_block;
 }
 
@@ -228,7 +234,7 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
 
     if (!SDL_PutAudioStreamData(g_audio_stream, data, (int)(frames * AUDIO_FRAME_BYTES))) {
         if (g_audio_put_errors < 8u)
-            sceClibPrintf("pcsx-vita: SDL_PutAudioStreamData failed: %s\n", SDL_GetError());
+            sceClibPrintf("PCSX AwO: SDL_PutAudioStreamData failed: %s\n", SDL_GetError());
         g_audio_put_errors++;
         return frames;
     }
@@ -242,16 +248,16 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
 
 static void input_poll_cb(void)
 {
-    const uint32_t quit_mask = SCE_CTRL_SELECT | SCE_CTRL_START | SCE_CTRL_L1 | SCE_CTRL_R1;
+    const uint32_t pause_mask = SCE_CTRL_SELECT | SCE_CTRL_START;
     memset(&g_pad, 0, sizeof(g_pad));
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
         sceCtrlPeekBufferPositive(0, &g_pad, 1);
 
-    if ((g_pad.buttons & quit_mask) == quit_mask) {
-        if (++g_exit_hold >= 120)
-            g_exit_requested = true;
-    } else {
-        g_exit_hold = 0;
+    {
+        const bool combo_down = (g_pad.buttons & pause_mask) == pause_mask;
+        if (combo_down && !g_pause_combo_down)
+            g_pause_requested = true;
+        g_pause_combo_down = combo_down;
     }
 }
 
@@ -277,6 +283,12 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
     }
     if (device != RETRO_DEVICE_JOYPAD)
         return 0;
+
+    if ((g_pad.buttons & (SCE_CTRL_START | SCE_CTRL_SELECT)) ==
+        (SCE_CTRL_START | SCE_CTRL_SELECT)) {
+        if (id == RETRO_DEVICE_ID_JOYPAD_START || id == RETRO_DEVICE_ID_JOYPAD_SELECT)
+            return 0;
+    }
 
     switch (id) {
     case RETRO_DEVICE_ID_JOYPAD_B:      button = SCE_CTRL_CROSS; break;
@@ -306,7 +318,7 @@ static int display_init(void)
     int i;
 
     for (i = 0; i < 2; i++) {
-        g_fb_uid[i] = sceKernelAllocMemBlock(i ? "pcsx-fb1" : "pcsx-fb0",
+        g_fb_uid[i] = sceKernelAllocMemBlock(i ? "pcsx-awo-fb1" : "pcsx-awo-fb0",
             SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, DISPLAY_MEM_SIZE, NULL);
         if (g_fb_uid[i] < 0)
             return g_fb_uid[i];
@@ -347,7 +359,7 @@ static int audio_init(void)
     SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");
 
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-        sceClibPrintf("pcsx-vita: SDL audio init failed: %s\n", SDL_GetError());
+        sceClibPrintf("PCSX AwO: SDL audio init failed: %s\n", SDL_GetError());
         return -1;
     }
 
@@ -359,7 +371,7 @@ static int audio_init(void)
     g_audio_stream = SDL_OpenAudioDeviceStream(
         SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &want, NULL, NULL);
     if (!g_audio_stream) {
-        sceClibPrintf("pcsx-vita: SDL_OpenAudioDeviceStream failed: %s\n", SDL_GetError());
+        sceClibPrintf("PCSX AwO: SDL_OpenAudioDeviceStream failed: %s\n", SDL_GetError());
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
         return -1;
     }
@@ -370,11 +382,11 @@ static int audio_init(void)
     SDL_GetAudioStreamFormat(g_audio_stream, &src_spec, &dst_spec);
     SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(g_audio_stream),
         &device_spec, &device_frames);
-    sceClibPrintf("pcsx-vita: audio stream src=%dHz dst=%dHz device=%dHz frames=%d\n",
+    sceClibPrintf("PCSX AwO: audio stream src=%dHz dst=%dHz device=%dHz frames=%d\n",
         src_spec.freq, dst_spec.freq, device_spec.freq, device_frames);
 
     if (!SDL_ResumeAudioStreamDevice(g_audio_stream)) {
-        sceClibPrintf("pcsx-vita: SDL_ResumeAudioStreamDevice failed: %s\n", SDL_GetError());
+        sceClibPrintf("PCSX AwO: SDL_ResumeAudioStreamDevice failed: %s\n", SDL_GetError());
         SDL_DestroyAudioStream(g_audio_stream);
         g_audio_stream = NULL;
         SDL_QuitSubSystem(SDL_INIT_AUDIO);
@@ -391,6 +403,44 @@ static void audio_finish(void)
         g_audio_stream = NULL;
     }
     SDL_QuitSubSystem(SDL_INIT_AUDIO);
+}
+
+static void audio_set_paused(bool paused)
+{
+    if (!g_audio_stream)
+        return;
+    if (paused)
+        SDL_PauseAudioStreamDevice(g_audio_stream);
+    else
+        SDL_ResumeAudioStreamDevice(g_audio_stream);
+}
+
+static void audio_clear(void)
+{
+    if (g_audio_stream)
+        SDL_ClearAudioStream(g_audio_stream);
+}
+
+static void wait_for_menu_input_release(void)
+{
+    const uint32_t mask =
+        SCE_CTRL_UP | SCE_CTRL_DOWN | SCE_CTRL_LEFT | SCE_CTRL_RIGHT |
+        SCE_CTRL_TRIANGLE | SCE_CTRL_CIRCLE | SCE_CTRL_CROSS | SCE_CTRL_SQUARE |
+        SCE_CTRL_START | SCE_CTRL_SELECT;
+
+    for (;;) {
+        SceCtrlData pad;
+        memset(&pad, 0, sizeof(pad));
+        if (sceCtrlPeekBufferPositiveExt2(0, &pad, 1) < 0)
+            sceCtrlPeekBufferPositive(0, &pad, 1);
+        if ((pad.buttons & mask) == 0)
+            break;
+        sceKernelDelayThread(1000);
+    }
+
+    memset(&g_pad, 0, sizeof(g_pad));
+    g_pause_combo_down = false;
+    g_pause_requested = false;
 }
 
 static bool has_ext(const char *name, const char *ext)
@@ -418,34 +468,6 @@ static int extension_rank(const char *name)
     return 999;
 }
 
-static bool find_game(char *out, size_t out_size)
-{
-    SceUID dfd;
-    SceIoDirent ent;
-    char best[256] = {0};
-    int best_rank = 999;
-
-    dfd = sceIoDopen(APP_ROOT);
-    if (dfd < 0)
-        return false;
-
-    memset(&ent, 0, sizeof(ent));
-    while (sceIoDread(dfd, &ent) > 0) {
-        int rank = extension_rank(ent.d_name);
-        if (rank < best_rank) {
-            snprintf(best, sizeof(best), "%s", ent.d_name);
-            best_rank = rank;
-        }
-        memset(&ent, 0, sizeof(ent));
-    }
-    sceIoDclose(dfd);
-
-    if (best_rank == 999)
-        return false;
-    snprintf(out, out_size, "%s/%s", APP_ROOT, best);
-    return true;
-}
-
 static bool is_game_path(const char *path)
 {
     const char *base;
@@ -463,7 +485,9 @@ static bool is_game_path(const char *path)
 
     if (strcasecmp(base, "eboot.bin") == 0 ||
         strcasecmp(base, "pcsx-rearmed-vita.elf") == 0 ||
-        strcasecmp(base, "pcsx-rearmed-vita.velf") == 0)
+        strcasecmp(base, "pcsx-rearmed-vita.velf") == 0 ||
+        strcasecmp(base, "pcsx-awo.elf") == 0 ||
+        strcasecmp(base, "pcsx-awo.velf") == 0)
         return false;
 
     return true;
@@ -473,32 +497,36 @@ static void make_dirs(void)
     sceIoMkdir(APP_ROOT, 0777);
     sceIoMkdir(BIOS_DIR, 0777);
     sceIoMkdir(SAVE_DIR, 0777);
+    sceIoMkdir(ROMS_DIR, 0777);
+    sceIoMkdir(COVERS_DIR, 0777);
 }
 
 int main(int argc, char **argv)
 {
     struct retro_game_info game;
     char game_path[1024];
+    bool game_loaded = false;
+    int exit_code = 0;
     int ret;
 
-    sceClibPrintf("pcsx-vita: main entered\n");
+    sceClibPrintf("PCSX AwO: main entered\n");
     make_dirs();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
 
     ret = display_init();
     if (ret < 0) {
-        sceClibPrintf("pcsx-vita: display init failed 0x%x\n", ret);
+        sceClibPrintf("PCSX AwO: display init failed 0x%x\n", ret);
         return 1;
     }
-    sceClibPrintf("pcsx-vita: display initialized\n");
+    sceClibPrintf("PCSX AwO: display initialized\n");
 
     ret = audio_init();
     if (ret < 0)
-        sceClibPrintf("pcsx-vita: audio init failed 0x%x; continuing silent\n", ret);
+        sceClibPrintf("PCSX AwO: audio init failed 0x%x; continuing silent\n", ret);
     else
-        sceClibPrintf("pcsx-vita: audio initialized\n");
+        sceClibPrintf("PCSX AwO: audio initialized\n");
 
-    sceClibPrintf("pcsx-vita: entering retro_init\n");
+    sceClibPrintf("PCSX AwO: entering retro_init\n");
     retro_set_environment(environment_cb);
     retro_set_video_refresh(video_cb);
     retro_set_audio_sample(NULL);
@@ -506,47 +534,101 @@ int main(int argc, char **argv)
     retro_set_input_poll(input_poll_cb);
     retro_set_input_state(input_state_cb);
     retro_init();
-    sceClibPrintf("pcsx-vita: retro_init complete\n");
+    sceClibPrintf("PCSX AwO: retro_init complete\n");
 
     game_path[0] = '\0';
     for (ret = 1; ret < argc; ret++) {
         if (is_game_path(argv[ret])) {
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
-            break;
         }
     }
-    if (game_path[0] == '\0' && !find_game(game_path, sizeof(game_path))) {
-        sceClibPrintf("pcsx-vita: core initialized; no game found in %s\n", APP_ROOT);
-        retro_deinit();
-        audio_finish();
-        display_finish();
-        if (g_vm_block > 0)
-            sceKernelFreeMemBlock(g_vm_block);
-        return 2;
+
+    for (;;) {
+        if (game_path[0] == '\0') {
+            ret = VitaRomSelector_Run(game_path, sizeof(game_path));
+            if (ret <= 0) {
+                sceClibPrintf("PCSX AwO: ROM selector %s\n", ret < 0 ? "failed" : "closed");
+                exit_code = ret < 0 ? 2 : 0;
+                break;
+            }
+        }
+
+        sceClibPrintf("PCSX AwO: booting %s\n", game_path);
+        memset(&game, 0, sizeof(game));
+        game.path = game_path;
+        if (!retro_load_game(&game)) {
+            sceClibPrintf("PCSX AwO: retro_load_game failed\n");
+            exit_code = 3;
+            break;
+        }
+
+        game_loaded = true;
+        g_pause_requested = false;
+        g_pause_combo_down = false;
+        memset(&g_pad, 0, sizeof(g_pad));
+        audio_clear();
+        audio_set_paused(false);
+
+        while (!g_exit_requested && game_loaded) {
+            retro_run();
+            if (!g_pause_requested)
+                continue;
+
+            g_pause_requested = false;
+            audio_set_paused(true);
+            ret = VitaPauseMenu_Run();
+            if (ret == 0) {
+                wait_for_menu_input_release();
+                audio_set_paused(false);
+                continue;
+            }
+
+            wait_for_menu_input_release();
+
+            retro_unload_game();
+            game_loaded = false;
+            audio_clear();
+
+            if (ret == 1) {
+                sceClibPrintf("PCSX AwO: restarting %s\n", game_path);
+                memset(&game, 0, sizeof(game));
+                game.path = game_path;
+                if (!retro_load_game(&game)) {
+                    sceClibPrintf("PCSX AwO: restart retro_load_game failed\n");
+                    exit_code = 3;
+                    g_exit_requested = true;
+                    break;
+                }
+                game_loaded = true;
+                g_pause_requested = false;
+                g_pause_combo_down = false;
+                memset(&g_pad, 0, sizeof(g_pad));
+                audio_set_paused(false);
+                continue;
+            }
+
+            sceClibPrintf("PCSX AwO: closing game\n");
+            game_path[0] = '\0';
+        }
+
+        if (g_exit_requested) {
+            if (game_loaded) {
+                retro_unload_game();
+                game_loaded = false;
+            }
+            break;
+        }
+
+        if (game_loaded) {
+            retro_unload_game();
+            game_loaded = false;
+        }
     }
 
-    sceClibPrintf("pcsx-vita: booting %s\n", game_path);
-
-    memset(&game, 0, sizeof(game));
-    game.path = game_path;
-    if (!retro_load_game(&game)) {
-        sceClibPrintf("pcsx-vita: retro_load_game failed\n");
-        retro_deinit();
-        audio_finish();
-        display_finish();
-        if (g_vm_block > 0)
-            sceKernelFreeMemBlock(g_vm_block);
-        return 3;
-    }
-
-    while (!g_exit_requested)
-        retro_run();
-
-    retro_unload_game();
     retro_deinit();
     audio_finish();
     display_finish();
     if (g_vm_block > 0)
         sceKernelFreeMemBlock(g_vm_block);
-    return 0;
+    return exit_code;
 }
