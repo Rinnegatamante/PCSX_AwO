@@ -361,6 +361,11 @@ its bus map, flash sample reader and reset wiring from MAME
 hap, superctr, cam900 and smf, BSD-3-Clause. Retained terms are in
 `libpcsxcore/arcade/zoom_board_LICENSE.txt`.
 
+The standalone G-Net flash-bank composition in `libpcsxcore/arcade/gnet_zoom.*`
+uses the maps, little-endian flash regions, JP1 strap and reset wiring from
+the same pinned `taitogn.cpp` and `taito_zm.cpp` sources. Their BSD-3-Clause
+attribution and terms are retained in `zoom_board_LICENSE.txt`.
+
 ## MAME Konami Twinkle sound board
 
 The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives

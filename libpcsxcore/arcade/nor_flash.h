@@ -38,6 +38,10 @@ void nor_flash_destroy(nor_flash_t *flash);
 /* Addresses are byte offsets for x8 devices and 16-bit word offsets for x16. */
 int nor_flash_read(nor_flash_t *flash, uint32_t address, uint16_t *value);
 int nor_flash_write(nor_flash_t *flash, uint32_t address, uint16_t value);
+/* Byte span changed by the most recent nor_flash_write call, if any. Erases
+ * report their complete changed span; command/status writes report no span. */
+int nor_flash_last_write_dirty_span(const nor_flash_t *flash,
+                                    size_t *byte_offset, size_t *byte_length);
 void nor_flash_advance_us(nor_flash_t *flash, uint64_t microseconds);
 int nor_flash_ready(const nor_flash_t *flash);
 

@@ -106,6 +106,7 @@ static void test_gnet_intel_profile(nor_flash_profile_t profile, size_t size,
     nor_flash_t *f;
     uint32_t target_word = 0x1234;
     uint32_t target_byte = target_word * 2;
+    size_t dirty_offset = 0, dirty_length = 0;
     uint16_t value;
     assert(image);
     memset(image, 0x5a, size);
@@ -128,7 +129,10 @@ static void test_gnet_intel_profile(nor_flash_profile_t profile, size_t size,
     /* The pinned intelfsh x16 FM_WRITEPART1 path assigns both bytes. */
     image[target_byte] = image[target_byte + 1] = 0x00;
     wr(f, target_word, 0x40);
+    assert(!nor_flash_last_write_dirty_span(f, &dirty_offset, &dirty_length));
     wr(f, target_word, 0x12f0);
+    assert(nor_flash_last_write_dirty_span(f, &dirty_offset, &dirty_length));
+    assert(dirty_offset == target_byte && dirty_length == 2);
     assert(image[target_byte] == 0x12 && image[target_byte + 1] == 0xf0);
     assert(rd(f, target_word) == 0x80);
     wr(f, 0, 0xff);
@@ -137,6 +141,12 @@ static void test_gnet_intel_profile(nor_flash_profile_t profile, size_t size,
     /* Intel block erase has 64 KiB sectors and a 1 s status interval. */
     wr(f, target_word, 0x20);
     wr(f, target_word, 0xd0);
+    assert(nor_flash_last_write_dirty_span(f, &dirty_offset, &dirty_length));
+    if (profile == NOR_FLASH_INTEL_E28F400B_X16) {
+        assert(dirty_offset == 0 && dirty_length == 0x4000);
+    } else {
+        assert(dirty_offset == (target_byte & ~0xffffu) && dirty_length == 0x10000);
+    }
     if (profile == NOR_FLASH_INTEL_E28F400B_X16) {
         assert(nor_flash_sector_size(f, 0) == 0x4000);
         assert(nor_flash_sector_size(f, 0x2000) == 0x2000);

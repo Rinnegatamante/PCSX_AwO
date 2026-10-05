@@ -75,7 +75,17 @@ struct nor_flash {
     uint64_t now_us, busy_until_us;
     uint32_t erase_start, busy_read_start, busy_read_length;
     uint8_t toggle;
+    size_t dirty_start, dirty_end;
+    int dirty_valid;
 };
+
+static void mark_dirty(nor_flash_t *flash, size_t start, size_t length)
+{
+    if (!length) return;
+    flash->dirty_start = start;
+    flash->dirty_end = start + length;
+    flash->dirty_valid = 1;
+}
 
 static int profile_spec(nor_flash_profile_t profile, flash_spec *spec)
 {
@@ -201,6 +211,7 @@ static void array_program(nor_flash_t *flash, uint32_t address, uint16_t value)
     } else {
         flash->image[off] &= (uint8_t)value;
     }
+    mark_dirty(flash, off, flash->spec.width / 8);
 }
 
 static void finish_if_due(nor_flash_t *flash)
@@ -244,6 +255,7 @@ static void intel_erase_block(nor_flash_t *flash, uint32_t address)
         base &= ~(length - 1);
     }
     for (uint32_t i = 0; i < length; i++) flash->image[base + i] = 0xff;
+    mark_dirty(flash, base, length);
     flash->status = 0;
     flash->mode = MODE_INTEL_STATUS;
     flash->busy_until_us = UINT64_MAX - flash->now_us < delay
@@ -399,6 +411,7 @@ static void amd_begin_erase(nor_flash_t *flash, uint32_t address, int chip)
         delay = flash->spec.sector_erase_us;
     }
     for (uint32_t i = 0; i < length; i++) flash->image[start + i] = 0xff;
+    mark_dirty(flash, start, length);
     if (!chip) flash->busy_read_start = start / (flash->spec.width / 8);
     /* MAME leaves the last polled sector unchanged on chip erase. */
     /* intelfsh::read_full uses a fixed 64K address-unit polling window, also
@@ -476,6 +489,7 @@ static int amd_write(nor_flash_t *flash, uint32_t address, uint16_t value)
 int nor_flash_write(nor_flash_t *flash, uint32_t address, uint16_t value)
 {
     if (!flash) return NOR_FLASH_ERR_ARGUMENT;
+    flash->dirty_valid = 0;
     if (address >= bus_size(flash)) return NOR_FLASH_ERR_RANGE;
     finish_if_due(flash);
     if (!flash->spec.intel) return amd_write(flash, address, value);
@@ -486,6 +500,16 @@ int nor_flash_write(nor_flash_t *flash, uint32_t address, uint16_t value)
           (value & 0xff) == 0xaa)))
         return amd_write(flash, address, value);
     return intel_write(flash, address, value);
+}
+
+int nor_flash_last_write_dirty_span(const nor_flash_t *flash,
+                                    size_t *byte_offset, size_t *byte_length)
+{
+    if (!flash || !byte_offset || !byte_length) return 0;
+    if (!flash->dirty_valid) return 0;
+    *byte_offset = flash->dirty_start;
+    *byte_length = flash->dirty_end - flash->dirty_start;
+    return 1;
 }
 
 uint8_t *nor_flash_image(nor_flash_t *flash)

@@ -244,6 +244,12 @@ static int sync_to(zoom_board *b, uint64_t main_cycle)
         return ZOOM_BOARD_TIME;
     }
     b->synchronizing = true;
+    if (b->config.time_sync &&
+        b->config.time_sync(b->config.time_opaque, main_cycle) != 0) {
+        b->synchronizing = false;
+        b->fault = ZOOM_FAULT_TIME;
+        return ZOOM_BOARD_TIME;
+    }
     int zr = 0;
     if (target_zsg > b->zsg_cycle) {
         zr = zsg2_run_cycles(b->zsg, target_zsg - b->zsg_cycle);
@@ -413,6 +419,11 @@ void zoom_board_destroy(zoom_board *b)
     delete b;
 }
 
+int zoom_board_is_busy(const zoom_board *b)
+{
+    return b && (b->callback_active || b->synchronizing);
+}
+
 int zoom_board_set_sound_reset(zoom_board *b, int asserted)
 {
     if (!b || b->callback_active || b->synchronizing) return ZOOM_BOARD_DEVICE;
@@ -468,12 +479,12 @@ int64_t zoom_board_run(zoom_board *b, uint64_t cycles)
     b->cpu_running = false;
     if (used < 0) {
         collect_device_faults(b);
-        return used;
+        return b->fault == ZOOM_FAULT_TIME ? ZOOM_BOARD_TIME : ZOOM_BOARD_DEVICE;
     }
     collect_device_faults(b);
     uint64_t final_local = mn10200_get_cycles(b->cpu);
     int r = sync_to(b, b->cpu_cycle_origin + final_local);
-    return r == ZOOM_BOARD_OK ? used : ZOOM_BOARD_DEVICE;
+    return r == ZOOM_BOARD_OK ? used : r;
 }
 
 int zoom_board_sync_to_cycle(zoom_board *b, uint64_t cycle)

@@ -175,5 +175,7 @@ __pycache__/
 /tests/test_nor_flash-sanitize.dSYM/
 /build/vita-validation-gxm-memcpy-diagnostic*/
 /build/vita-validation-host-pages*/
+/build/vita-validation-gxm-gpu-trace/
+/build/gnet-zoom-tests/
 /build/mac-harness-noboard/
 /build/mac-harness-gv/

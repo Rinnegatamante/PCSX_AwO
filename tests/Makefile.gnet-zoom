@@ -1,0 +1,56 @@
+CXX ?= c++
+CC ?= cc
+PYTHON ?= python3
+BUILD ?= build/gnet-zoom-tests
+GEN := $(BUILD)/generated
+ARCADE := libpcsxcore/arcade
+TMS := $(ARCADE)/tms57002
+INCLUDES := -I$(GEN) -I$(ARCADE) -I$(TMS)
+CPP_SOURCES := $(ARCADE)/gnet_zoom.cpp $(ARCADE)/zoom_board.cpp \
+               $(ARCADE)/mn10200.cpp $(ARCADE)/tms57002.cpp \
+               $(TMS)/tms57002_core.cpp $(TMS)/tms57kdec.cpp \
+               $(TMS)/tmsops.cpp tests/gnet_zoom_standalone.cpp
+COMMON := -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable $(INCLUDES)
+TARGET := $(BUILD)/test-gnet-zoom
+SAN_TARGET := $(BUILD)/test-gnet-zoom-sanitize
+HEADERS := $(ARCADE)/gnet_zoom.h $(ARCADE)/zoom_board.h \
+           $(ARCADE)/mn10200.h $(ARCADE)/mn10200_engine.inc $(ARCADE)/nor_flash.h \
+           $(ARCADE)/zsg2.h $(ARCADE)/tms57002.h $(wildcard $(TMS)/*.h)
+
+.PHONY: test sanitize clean
+$(GEN)/tms57002.hxx: $(TMS)/tmsinstr.lst $(TMS)/tmsmake.py
+	@mkdir -p $(GEN)
+	$(PYTHON) $(TMS)/tmsmake.py s $< $@
+
+$(BUILD)/nor_flash.o: $(ARCADE)/nor_flash.c $(ARCADE)/nor_flash.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O2 -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/nor_flash-san.o: $(ARCADE)/nor_flash.c $(ARCADE)/nor_flash.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/zsg2.o: $(ARCADE)/zsg2.c $(ARCADE)/zsg2.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O2 -I$(ARCADE) -c $< -o $@
+
+$(BUILD)/zsg2-san.o: $(ARCADE)/zsg2.c $(ARCADE)/zsg2.h
+	@mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -O1 -fsanitize=address,undefined -fno-omit-frame-pointer -I$(ARCADE) -c $< -o $@
+
+$(TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash.o $(BUILD)/zsg2.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O2 $(CPP_SOURCES) $(BUILD)/nor_flash.o $(BUILD)/zsg2.o -o $@
+
+$(SAN_TARGET): $(CPP_SOURCES) $(HEADERS) $(GEN)/tms57002.hxx $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o
+	@mkdir -p $(BUILD)
+	$(CXX) $(COMMON) -O1 -fsanitize=address,undefined -fno-omit-frame-pointer $(CPP_SOURCES) $(BUILD)/nor_flash-san.o $(BUILD)/zsg2-san.o -o $@
+
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(TARGET)
+
+sanitize: $(SAN_TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)

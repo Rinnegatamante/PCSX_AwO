@@ -50,6 +50,7 @@ typedef int (*zoom_flash_write16_fn)(void *opaque, unsigned chip,
                                      uint16_t mem_mask);
 typedef void (*zoom_audio_frame_fn)(void *opaque, float left, float right,
                                     uint64_t zsg2_cycle);
+typedef int (*zoom_time_sync_fn)(void *opaque, uint64_t internal_cycle);
 
 typedef struct zoom_board_config {
     /* Borrowed raw, little-endian flash array images. Each image must have the
@@ -63,10 +64,17 @@ typedef struct zoom_board_config {
     zoom_flash_write16_fn flash_write16;
     void *audio_opaque;
     zoom_audio_frame_fn audio_frame;
+    /* Called at the exact MN10200-domain timestamp before the corresponding
+     * ZSG-2/TMS device advancement and any sample callbacks. */
+    void *time_opaque;
+    zoom_time_sync_fn time_sync;
 } zoom_board_config;
 
 int zoom_board_create(const zoom_board_config *config, zoom_board **out);
 void zoom_board_destroy(zoom_board *board); /* not from a device callback */
+/* True while run/synchronization is inside callbacks; a containing device can
+ * use this to refuse destruction without freeing callback-owned state. */
+int zoom_board_is_busy(const zoom_board *board);
 
 /* The main-board sound reset input is active high. The board starts held in
  * reset, matching taitogn_state::driver_reset. Deasserting it applies the
