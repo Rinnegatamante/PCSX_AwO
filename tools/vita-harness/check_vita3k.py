@@ -2,8 +2,11 @@
 """Run the DRC/GPU smoke guest with an independently bounded Vita3K host."""
 import argparse
 import importlib.util
+import hashlib
+import json
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import time
@@ -78,6 +81,30 @@ def run_owned(command, log, timeout, label, expected, installation=False, requir
             process.returncode in accepted and (not natural_exit or process.returncode == 0))
 
 
+def install_local_shader_compiler(emulator, source):
+    """Copy only the explicitly supplied compiler into an isolated portable fs."""
+    bundle = next((parent for parent in emulator.resolve().parents
+                   if parent.suffix == ".app"), None)
+    if bundle is None:
+        raise ValueError("--shader-compiler requires an isolated Vita3K.app executable")
+    portable = bundle.parent / "portable"
+    if not (portable / "config.yml").is_file() or not (portable / "fs").is_dir():
+        raise ValueError("--shader-compiler requires the app's sibling portable profile")
+    if not source.is_file() or not 0 < source.stat().st_size <= 16 * 1024 * 1024:
+        raise ValueError("--shader-compiler must name an existing local compiler module")
+    source = source.resolve()
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    target = portable / "fs/ur0/data/libshacccg.suprx"
+    if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() != digest:
+        raise ValueError("portable profile already contains a different shader compiler")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        shutil.copy2(source, target)
+    (portable / "pcsx-shader-compiler.json").write_text(json.dumps(
+        {"source": str(source), "sha256": digest, "size": source.stat().st_size},
+        indent=2) + "\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--emulator", type=Path, required=True)
@@ -85,6 +112,8 @@ def main():
     parser.add_argument("--check-lifecycle", action="store_true",
                         help="check ari64 and VitaGL shutdown, without asserting GPU pixels")
     parser.add_argument("--vpk", type=Path, help="install this VPK and launch it")
+    parser.add_argument("--shader-compiler", type=Path,
+                        help="local libshacccg.suprx to copy into this isolated portable profile")
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--log", type=Path, required=True)
@@ -93,6 +122,13 @@ def main():
         parser.error("invalid frame count or timeout")
     if args.check_lifecycle and args.renderer != "vitagl":
         parser.error("--check-lifecycle requires --renderer vitagl")
+    if args.shader_compiler:
+        if args.renderer != "vitagl":
+            parser.error("--shader-compiler requires --renderer vitagl")
+        try:
+            install_local_shader_compiler(args.emulator, args.shader_compiler)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
     title = "PCSXN0012" if args.renderer == "neon" else "PCSXG0012"
     base_command = [str(args.emulator.resolve()), "--keep-config", "--log-level", "1"]
     guest_args = f"pcsx-vita, ux0:app/{title}/smoke.exe, --frames, {args.frames}"

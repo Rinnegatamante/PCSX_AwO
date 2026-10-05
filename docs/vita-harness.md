@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Required library build and packaging; earlier GXM transfer readback recovers the background pixel | Shader startup failure, resource teardown, triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Patched library/package build; with the local compiler, GPU/ari64 startup and shutdown/Idle are observed | Host protection diagnostics, black native capture/triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -26,7 +26,9 @@ HAVE_SHADER_CACHE=1 NO_DEBUG=1 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1
 
 `tools/vita-harness/build_vitagl.py` clones the clean local `../vitaGL` source
 into `build/vita-deps/vitaGL`, builds there, and records the source commit,
-flags and archive SHA-256 in `pcsx-build.json`. It does not install over the
+ordered shutdown/shader-cache patch hashes, flags and archive SHA-256 in
+`pcsx-build.json`. It rejects any extra edits in its build copy, including
+changes outside patch hunks in the same files. It does not install over the
 SDK library. The standalone build calls the helper and uses that checkout's
 header and archive. A matching recorded archive can be reused. To build:
 
@@ -88,6 +90,13 @@ For a rebuilt VitaGL guest with the shutdown patch, add `--renderer vitagl
 startup, frame execution and resource teardown without asserting readback
 pixels. Run the default pixel probe separately before calling VitaGL graphics
 validated; a lifecycle PASS alone is not a graphics PASS.
+
+VitaGL also needs the locally supplied `libshacccg.suprx` compiler module.
+Copying only `vs0`/`os0`/`sa0` does not provide it. Add
+`--shader-compiler /path/to/local/libshacccg.suprx` to `check_vita3k.py` to copy
+that file into the isolated app's sibling portable profile at
+`fs/ur0/data/libshacccg.suprx`. The runner records its SHA-256 and refuses to
+replace a different existing compiler. It never downloads that module.
 
 Observed NEON results on the local M1/Vita3K build: three consecutive runs
 passed with `cpu=ari64`, the expected pixels and RAM sentinel, and the guest's
@@ -191,8 +200,10 @@ releases the external heap containing VitaGL's main context before the host
 tries to destroy that still-registered context. The resource-lifetime fix is
 implemented in an isolated library patch but not yet runtime-verified
 (`build/vita-validation-gxm-free-diagnostic3/vitagl-free-trace.log`).
-The fresh lifecycle guest fails earlier during shader startup, so it provides
-no result for that teardown fix. The triangle mismatch also remains unresolved.
+The first fresh lifecycle guest failed earlier during shader startup. Supplying
+the existing local compiler allowed a later diagnostic to reach shutdown/Idle,
+but host protection diagnostics still reject an overall PASS. The triangle
+mismatch also remains unresolved.
 New instruction tests run directly in
 Dynarmic without leaving an emulator or debugger window open.
 The required four library build flags remain enabled. VitaGL is not validated
@@ -215,13 +226,42 @@ It logged `dst=8822be78`, `guest_src=00000000`, `len=10195`,
 `pc=81247cf4`, `lr=811a4eb9`. Mapping the LR against the packaged ELF
 identifies `serialize_shader` in VitaGL `custom_shaders.c:692`, copying
 `s->prog` with its recorded size. The compiled-program pointer was null;
-the shader compilation/cache path needs repair before another lifecycle result
-can be assessed. This diagnostic does not establish why that pointer is null.
+the shader compilation/cache path serialized failed output. The library now
+skips that cache write and rejects linking before attribute/program analysis;
+the renderer propagates compile/link failure into initialization failure and
+cleans up partial resources. The raw host log also established that the fresh
+profile lacked the local `libshacccg.suprx` compiler module.
 
 The watchdog closed all owned processes. The native PNG saved at
 `build/vita-validation-gxm-memcpy-diagnostic2/emulator/portable/screenshots/PCSX-ReARMed Vita vitagl/PCSX-ReARMed Vita vitagl_2026-10-05-015114.png`
 is black, consistent with failure before rendering; the filtered log is
 `/tmp/pcsx-vitagl-memcpy-20261005.log`.
+
+### Compiler supplied and final shutdown diagnostic
+
+The existing local compiler is 3,407,920 bytes with SHA-256
+`188adb8c34c3983d63244c32d981fd7b518a8dcfd200f5886233fface6b5fa40`.
+It was copied from the user's Vita3K filesystem into this private profile;
+no module was downloaded. The final patched archive is
+`build/vita-deps/vitaGL-shader-cache-final3/libvitaGL.a`, SHA-256
+`76a0cf95c8c16f19ebe2c632c22c407bd723a0720fc8cea5d63ba79d080819f8`.
+The linked VPK SHA-256 is
+`2102ea666b6fcd13fc771503b287671619cbda1737a14ff3b1f09b7c9732dfd8`.
+
+The bounded debugger diagnostic in
+`/tmp/pcsx-vitagl-final3-bounded-lldb-20261005.log` reached GPU initialization,
+`cpu_driver=ari64`, `vitaGL shutdown PASS (0)` and `Stopping -> Idle`.
+It also recorded 15 Dynarmic `Unhandled EXC_BAD_ACCESS` messages and four
+Vita3K critical protection-recovery messages, so it is not an overall
+lifecycle PASS. The last native PNG at
+`build/vita-validation-gxm-shader-cache/emulator/portable/screenshots/PCSX-ReARMed Vita vitagl/PCSX-ReARMed Vita vitagl_2026-10-05-021239.png`
+is black. The pixel probe and extended arcade GPU remain unverified.
+
+LLDB launched Vita3K into a different process group; closing the debugger
+group left the child alive. The known child PID was then closed explicitly and
+process inspection confirmed no Vita3K/LLDB/debugserver remained. Future
+debugger diagnostics must launch the host under its own PID watchdog before
+attaching LLDB, so both processes have independent ownership/deadlines.
 
 ## VitaGL GPU geometry limits
 
