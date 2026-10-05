@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <macros.h>
+#include "../../libpcsxcore/system.h"
 #include "platform/native_renderer_types.h"
 #include "namespace_Gamepad.h"
 
@@ -519,7 +520,10 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyTexture(s_vram.texture);
 #ifdef __vita__
 	NativeRenderer_DestroyTexture(s_vramUploadTexture);
-	glDeleteProgram(s_vramUploadShader);
+	if (s_vramUploadShader != 0)
+	{
+		glDeleteProgram(s_vramUploadShader);
+	}
 #endif
 
 	NativeRenderer_DestroyTexture(s_whiteTexture);
@@ -544,9 +548,18 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyTexture(s_presentLutTexture);
 #endif
 	NativeRenderer_DestroyPSXShaders();
-	glDeleteProgram(s_packShader);
-	glDeleteProgram(s_presentVramShader);
-	glDeleteProgram(s_presentRgbaShader);
+	if (s_packShader != 0)
+	{
+		glDeleteProgram(s_packShader);
+	}
+	if (s_presentVramShader != 0)
+	{
+		glDeleteProgram(s_presentVramShader);
+	}
+	if (s_presentRgbaShader != 0)
+	{
+		glDeleteProgram(s_presentRgbaShader);
+	}
 	glDeleteVertexArrays(1, &s_vramQuadVAO);
 	glDeleteBuffers(1, &s_vramQuadVBO);
 }
@@ -971,8 +984,8 @@ internal int NativeRenderer_Shader_CheckShaderStatus(GLuint shader);
 internal int NativeRenderer_Shader_CheckProgramStatus(GLuint program);
 internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxShader, const char *fragmentDefines);
 internal void NativeRenderer_GenerateCommonTextures(void);
-internal void NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines);
-internal void NativeRenderer_InitialisePSXShaders(void);
+internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines);
+internal int NativeRenderer_InitialisePSXShaders(void);
 internal void NativeRenderer_InitRG8LUT(void);
 internal void NativeRenderer_Ortho2D(float left, float right, float bottom, float top, float znear, float zfar);
 internal void NativeRenderer_SetShader(const ShaderID shader);
@@ -1029,21 +1042,48 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	{
 		for (int variant = 0; variant < 3; variant++)
 		{
-			glDeleteProgram(s_gteFullyOpaqueShaderVariants[format][variant].shader);
+			if (s_gteFullyOpaqueShaderVariants[format][variant].shader != 0)
+			{
+				glDeleteProgram(s_gteFullyOpaqueShaderVariants[format][variant].shader);
+			}
 		}
 	}
 	for (int variant = 0; variant < 3; variant++)
 	{
-		glDeleteProgram(s_gteUntexturedShaderVariants[variant].shader);
+		if (s_gteUntexturedShaderVariants[variant].shader != 0)
+		{
+			glDeleteProgram(s_gteUntexturedShaderVariants[variant].shader);
+		}
 	}
 #else
-	glDeleteProgram(s_gteShader4.shader);
-	glDeleteProgram(s_gteShader8.shader);
-	glDeleteProgram(s_gteShader16.shader);
-	glDeleteProgram(s_gteShader4SuperTurbo.shader);
-	glDeleteProgram(s_gteShader8SuperTurbo.shader);
-	glDeleteProgram(s_gteShader16SuperTurbo.shader);
-	glDeleteProgram(s_gteShader32Rgba.shader);
+	if (s_gteShader4.shader != 0)
+	{
+		glDeleteProgram(s_gteShader4.shader);
+	}
+	if (s_gteShader8.shader != 0)
+	{
+		glDeleteProgram(s_gteShader8.shader);
+	}
+	if (s_gteShader16.shader != 0)
+	{
+		glDeleteProgram(s_gteShader16.shader);
+	}
+	if (s_gteShader4SuperTurbo.shader != 0)
+	{
+		glDeleteProgram(s_gteShader4SuperTurbo.shader);
+	}
+	if (s_gteShader8SuperTurbo.shader != 0)
+	{
+		glDeleteProgram(s_gteShader8SuperTurbo.shader);
+	}
+	if (s_gteShader16SuperTurbo.shader != 0)
+	{
+		glDeleteProgram(s_gteShader16SuperTurbo.shader);
+	}
+	if (s_gteShader32Rgba.shader != 0)
+	{
+		glDeleteProgram(s_gteShader32Rgba.shader);
+	}
 #endif
 }
 
@@ -1401,7 +1441,7 @@ const char *gte_shader_32_rgba = "	uniform sampler2D s_texture;\n"
 
 internal int NativeRenderer_Shader_CheckShaderStatus(GLuint shader)
 {
-	char info[1024];
+	char info[1024] = {0};
 	GLint result;
 
 	glGetShaderiv(shader, GL_COMPILE_STATUS, &result);
@@ -1412,10 +1452,17 @@ internal int NativeRenderer_Shader_CheckShaderStatus(GLuint shader)
 	}
 
 	glGetShaderInfoLog(shader, sizeof(info), NULL, info);
-	if (info[0] && strlen(info) > 8)
+	if (info[0])
 	{
 		NATIVE_RENDERER_ERROR("%s\n", info);
-		assert(0);
+		for (char *ch = info; *ch; ch++)
+		{
+			if (*ch == '\n' || *ch == '\r')
+			{
+				*ch = ' ';
+			}
+		}
+		SysPrintf("pcsx-vita: shader compiler: %s\n", info);
 	}
 
 	return 0;
@@ -1423,7 +1470,7 @@ internal int NativeRenderer_Shader_CheckShaderStatus(GLuint shader)
 
 internal int NativeRenderer_Shader_CheckProgramStatus(GLuint program)
 {
-	char info[1024];
+	char info[1024] = {0};
 	GLint result;
 
 	glGetProgramiv(program, GL_LINK_STATUS, &result);
@@ -1434,10 +1481,17 @@ internal int NativeRenderer_Shader_CheckProgramStatus(GLuint program)
 	}
 
 	glGetProgramInfoLog(program, sizeof(info), NULL, info);
-	if (info[0] && strlen(info) > 8)
+	if (info[0])
 	{
 		NATIVE_RENDERER_ERROR("%s\n", info);
-		assert(0);
+		for (char *ch = info; *ch; ch++)
+		{
+			if (*ch == '\n' || *ch == '\r')
+			{
+				*ch = ' ';
+			}
+		}
+		SysPrintf("pcsx-vita: shader linker: %s\n", info);
 	}
 
 	return 0;
@@ -1512,15 +1566,32 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	const int fs_list_cnt = isPsxShader ? 5 : 3;
 
 	GLuint program = glCreateProgram();
+	if (program == 0)
+	{
+		NATIVE_RENDERER_ERROR("%s\n", "Failed to create Shader program!");
+		SysPrintf("pcsx-vita: failed to create shader program\n");
+		return 0;
+	}
 
 	{
 		GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+		if (vertexShader == 0)
+		{
+			glDeleteProgram(program);
+			NATIVE_RENDERER_ERROR("%s\n", "Failed to create Vertex Shader!");
+			SysPrintf("pcsx-vita: failed to create vertex shader\n");
+			return 0;
+		}
 		glShaderSource(vertexShader, vs_list_cnt, vs_list, NULL);
 		glCompileShader(vertexShader);
 
 		if (NativeRenderer_Shader_CheckShaderStatus(vertexShader) == 0)
 		{
 			NATIVE_RENDERER_ERROR("%s\n", "Failed to compile Vertex Shader!");
+			SysPrintf("pcsx-vita: vertex shader compilation failed\n");
+			glDeleteShader(vertexShader);
+			glDeleteProgram(program);
+			return 0;
 		}
 
 		glAttachShader(program, vertexShader);
@@ -1529,12 +1600,23 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 
 	{
 		GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+		if (fragmentShader == 0)
+		{
+			glDeleteProgram(program);
+			NATIVE_RENDERER_ERROR("%s\n", "Failed to create Fragment Shader!");
+			SysPrintf("pcsx-vita: failed to create fragment shader\n");
+			return 0;
+		}
 		glShaderSource(fragmentShader, fs_list_cnt, fs_list, NULL);
 		glCompileShader(fragmentShader);
 
 		if (NativeRenderer_Shader_CheckShaderStatus(fragmentShader) == 0)
 		{
 			NATIVE_RENDERER_ERROR("%s\n", "Failed to compile Fragment Shader!");
+			SysPrintf("pcsx-vita: fragment shader compilation failed\n");
+			glDeleteShader(fragmentShader);
+			glDeleteProgram(program);
+			return 0;
 		}
 
 		glAttachShader(program, fragmentShader);
@@ -1553,6 +1635,9 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	if (NativeRenderer_Shader_CheckProgramStatus(program) == 0)
 	{
 		NATIVE_RENDERER_ERROR("%s\n", "Failed to link Shader!");
+		SysPrintf("pcsx-vita: shader program link failed\n");
+		glDeleteProgram(program);
+		return 0;
 	}
 
 	GLint textureSampler = 0;
@@ -1633,9 +1718,13 @@ internal void NativeRenderer_GenerateCommonTextures(void)
 #endif
 }
 
-internal void NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines)
+internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines)
 {
 	sh->shader = NativeRenderer_Shader_Compile(source, true, fragmentDefines);
+	if (sh->shader == 0)
+	{
+		return 0;
+	}
 
 	sh->bilinearFilterLoc = glGetUniformLocation(sh->shader, "bilinearFilter");
 	sh->projectionLoc = glGetUniformLocation(sh->shader, "Projection");
@@ -1648,9 +1737,10 @@ internal void NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source,
 #endif
 	sh->psxDrawMaskSetLoc = glGetUniformLocation(sh->shader, "psxDrawMaskSet");
 	sh->psxTextureOutputStpLoc = glGetUniformLocation(sh->shader, "psxTextureOutputStp");
+	return 1;
 }
 
-internal void NativeRenderer_InitialisePSXShaders(void)
+internal int NativeRenderer_InitialisePSXShaders(void)
 {
 #ifdef __vita__
 	local_persist const char *variantDefines[NATIVE_PSX_SHADER_VARIANT_COUNT] = {
@@ -1675,36 +1765,53 @@ internal void NativeRenderer_InitialisePSXShaders(void)
 	for (int format = TF_4_BIT; format <= TF_32_BIT_RGBA; format++)
 	{
 		const int variantCount = format == TF_32_BIT_RGBA ? NATIVE_PSX_SHADER_STP_QUARTER + 1 : NATIVE_PSX_SHADER_VARIANT_COUNT;
-		        for (int variant = 0; variant < variantCount; variant++)
-        {
-            NativeRenderer_CompilePSXShader(&s_gteShaderVariants[format][variant], sources[format], variantDefines[variant]);
-        }
+		for (int variant = 0; variant < variantCount; variant++)
+		{
+			if (!NativeRenderer_CompilePSXShader(&s_gteShaderVariants[format][variant], sources[format], variantDefines[variant]))
+			{
+				return 0;
+			}
+		}
 	}
 	for (int variant = 0; variant < NATIVE_PSX_SHADER_VARIANT_COUNT; variant++)
 	{
-		NativeRenderer_CompilePSXShader(&s_gteCachedP4ShaderVariants[variant], gte_shader_cached_p4, variantDefines[variant]);
+		if (!NativeRenderer_CompilePSXShader(&s_gteCachedP4ShaderVariants[variant], gte_shader_cached_p4, variantDefines[variant]))
+		{
+			return 0;
+		}
 	}
 	for (int format = TF_4_BIT; format <= TF_8_BIT; format++)
 	{
 		for (int variant = 0; variant < 3; variant++)
 		{
-			NativeRenderer_CompilePSXShader(&s_gteFullyOpaqueShaderVariants[format][variant], sources[format],
-			                                fullyOpaqueVariantDefines[variant]);
+			if (!NativeRenderer_CompilePSXShader(&s_gteFullyOpaqueShaderVariants[format][variant], sources[format],
+			                                     fullyOpaqueVariantDefines[variant]))
+			{
+				return 0;
+			}
 		}
 	}
 	for (int variant = 0; variant < 3; variant++)
 	{
-		NativeRenderer_CompilePSXShader(&s_gteUntexturedShaderVariants[variant], gte_shader_untextured, variantDefines[variant]);
+		if (!NativeRenderer_CompilePSXShader(&s_gteUntexturedShaderVariants[variant], gte_shader_untextured,
+		                                     variantDefines[variant]))
+		{
+			return 0;
+		}
 	}
 #else
-	NativeRenderer_CompilePSXShader(&s_gteShader4, gte_shader_4, NULL);
-	NativeRenderer_CompilePSXShader(&s_gteShader8, gte_shader_8, NULL);
-	NativeRenderer_CompilePSXShader(&s_gteShader16, gte_shader_16, NULL);
-	NativeRenderer_CompilePSXShader(&s_gteShader4SuperTurbo, gte_shader_4, "#define SUPER_TURBO_TINT\n");
-	NativeRenderer_CompilePSXShader(&s_gteShader8SuperTurbo, gte_shader_8, "#define SUPER_TURBO_TINT\n");
-	NativeRenderer_CompilePSXShader(&s_gteShader16SuperTurbo, gte_shader_16, "#define SUPER_TURBO_TINT\n");
-	NativeRenderer_CompilePSXShader(&s_gteShader32Rgba, gte_shader_32_rgba, NULL);
+	if (!NativeRenderer_CompilePSXShader(&s_gteShader4, gte_shader_4, NULL) ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader8, gte_shader_8, NULL) ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader16, gte_shader_16, NULL) ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader4SuperTurbo, gte_shader_4, "#define SUPER_TURBO_TINT\n") ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader8SuperTurbo, gte_shader_8, "#define SUPER_TURBO_TINT\n") ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader16SuperTurbo, gte_shader_16, "#define SUPER_TURBO_TINT\n") ||
+	    !NativeRenderer_CompilePSXShader(&s_gteShader32Rgba, gte_shader_32_rgba, NULL))
+	{
+		return 0;
+	}
 #endif
+	return 1;
 }
 
 #ifdef __vita__
@@ -1874,11 +1981,15 @@ global_variable const char *ctr_vram_upload_shader = "#ifdef VERTEX\n"
                                                     "#endif\n";
 #endif
 
-internal void NativeRenderer_InitVRAMPipelines(void)
+internal int NativeRenderer_InitVRAMPipelines(void)
 {
 	local_persist const float quad[12] = {-1.f, -1.f, -1.f, 1.f, 1.f, 1.f, -1.f, -1.f, 1.f, 1.f, 1.f, -1.f};
 
 	s_packShader = NativeRenderer_Shader_Compile(ctr_pack_shader, false, NULL);
+	if (s_packShader == 0)
+	{
+		return 0;
+	}
 	glUseProgram(s_packShader);
 	const GLint packSrcLoc = glGetUniformLocation(s_packShader, "s_src");
 	s_packFlipYLoc = glGetUniformLocation(s_packShader, "flipY");
@@ -1886,9 +1997,17 @@ internal void NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(0);
 
 	s_presentVramShader = NativeRenderer_Shader_Compile(ctr_present_vram_shader, false, NULL);
+	if (s_presentVramShader == 0)
+	{
+		return 0;
+	}
 	s_presentVramSourceRectLoc = glGetUniformLocation(s_presentVramShader, "sourceRect");
 
 	s_presentRgbaShader = NativeRenderer_Shader_Compile(ctr_present_rgba_shader, false, NULL);
+	if (s_presentRgbaShader == 0)
+	{
+		return 0;
+	}
 	glUseProgram(s_presentRgbaShader);
 	const GLint presentRgbaSrcLoc = glGetUniformLocation(s_presentRgbaShader, "s_src");
 	s_presentRgbaFlipYLoc = glGetUniformLocation(s_presentRgbaShader, "flipY");
@@ -1902,6 +2021,10 @@ internal void NativeRenderer_InitVRAMPipelines(void)
 
 #ifdef __vita__
 	s_vramUploadShader = NativeRenderer_Shader_Compile(ctr_vram_upload_shader, false, NULL);
+	if (s_vramUploadShader == 0)
+	{
+		return 0;
+	}
 	glUseProgram(s_vramUploadShader);
 	glUniform1i(glGetUniformLocation(s_vramUploadShader, "s_src"), 0);
 	s_vramUploadRectLoc = glGetUniformLocation(s_vramUploadShader, "targetRect");
@@ -1917,6 +2040,7 @@ internal void NativeRenderer_InitVRAMPipelines(void)
 	glVertexAttribPointer(a_position, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	return 1;
 }
 
 internal void NativeRenderer_InitRG8LUT(void)
@@ -1960,8 +2084,10 @@ int NativeRenderer_InitialisePSX(void)
 #endif
     NativeRenderer_InitRG8LUT();
     NativeRenderer_GenerateCommonTextures();
-    NativeRenderer_InitialisePSXShaders();
-    NativeRenderer_InitVRAMPipelines();
+	if (!NativeRenderer_InitialisePSXShaders() || !NativeRenderer_InitVRAMPipelines())
+	{
+		return 0;
+	}
 
 	glDepthFunc(GL_LEQUAL);
 	glEnable(GL_STENCIL_TEST);

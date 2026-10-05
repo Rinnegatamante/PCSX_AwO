@@ -1,0 +1,99 @@
+diff --git a/source/custom_shaders.c b/source/custom_shaders.c
+index 132b305..5cdc172 100644
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
+@@ -733,8 +733,10 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
+ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLboolean save_bindings) {
+ #endif
+ 	// Compiling shader source
+-	s->prog = shark_compile_shader_extended((const char *)s->source, &s->size, s->type == GL_FRAGMENT_SHADER ? SHARK_FRAGMENT_SHADER : SHARK_VERTEX_SHADER, compiler_opts, compiler_fastmath, compiler_fastprecision, compiler_fastint);
++	size_t compiled_size = s->size;
++	s->prog = shark_compile_shader_extended((const char *)s->source, &compiled_size, s->type == GL_FRAGMENT_SHADER ? SHARK_FRAGMENT_SHADER : SHARK_VERTEX_SHADER, compiler_opts, compiler_fastmath, compiler_fastprecision, compiler_fastint);
+ 	if (s->prog) {
++		s->size = compiled_size;
+ 		vgl_free(s->source);
+ 		s->source = NULL;
+ 		SceGxmProgram *res = (SceGxmProgram *)vglMalloc(s->size);
+@@ -773,12 +775,20 @@ static inline __attribute__((always_inline)) void compile_shader(shader *s, GLbo
+ #endif
+ 	shark_clear_output();
+ #ifdef HAVE_SHADER_CACHE
+-	SceUID f = sceIoOpen(cache_fname, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777);
+-	size_t sz;
+-	void *buf = serialize_shader(NULL, &sz, s, save_bindings);
+-	sceIoWrite(f, buf, sz);
+-	sceIoClose(f);
+-	vgl_free(buf);
++	if (s->prog) {
++		SceUID f = sceIoOpen(cache_fname, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777);
++		if (f >= 0) {
++			size_t sz;
++			void *buf = serialize_shader(NULL, &sz, s, save_bindings);
++			if (buf) {
++				sceIoWrite(f, buf, sz);
++				vgl_free(buf);
++			}
++			sceIoClose(f);
++		}
++	} else {
++		sceClibPrintf("pcsx-vita: VitaGL shader compilation failed; cache entry was not written.\n");
++	}
+ #endif
+ }
+ 
+@@ -2182,6 +2192,14 @@ void glGetProgramBinary(GLuint prog, GLsizei bufSize, GLsizei *length, GLenum *b
+ 
+ 	// Grabbing passed program
+ 	program *p = &progs[prog - 1];
++	if (p->status != PROG_LINKED || !p->vshader || !p->fshader || !p->vshader->prog || !p->fshader->prog) {
++		if (length)
++			*length = 0;
++#ifndef SKIP_ERROR_HANDLING
++		SET_GL_ERROR(GL_INVALID_OPERATION)
++#endif
++		return;
++	}
+ 
+ 	// Saving info related to bound attributes locations
+ 	GLuint *b = (GLuint *)binary;
+@@ -2425,14 +2443,29 @@ void glLinkProgram(GLuint progr) {
+ 				fname = vert_fname;
+ #endif
+ 				vgl_compile_shader(p->vshader, GL_TRUE);
++				if (!p->vshader->prog) {
++					glsl_sema_mode = VGL_MODE_POSTPONED;
++					sceClibPrintf("pcsx-vita: VitaGL program link failed because vertex shader compilation failed.\n");
++					return;
++				}
+ 			}
+ 			if (!p->fshader->prog) {
+ #ifdef HAVE_SHADER_CACHE
+ 				fname = frag_fname;
+ #endif
+ 				vgl_compile_shader(p->fshader, GL_TRUE);
++				if (!p->fshader->prog) {
++					glsl_sema_mode = VGL_MODE_POSTPONED;
++					sceClibPrintf("pcsx-vita: VitaGL program link failed because fragment shader compilation failed.\n");
++					return;
++				}
+ 			}
+ 		}
++		if (!p->vshader->prog || !p->fshader->prog) {
++			glsl_sema_mode = VGL_MODE_POSTPONED;
++			sceClibPrintf("pcsx-vita: VitaGL program link failed because a shader program is missing.\n");
++			return;
++		}
+ 
+ 		// Setting progressive default attribute bindings
+ 		set_default_attrib_binding();
+@@ -2446,6 +2479,10 @@ void glLinkProgram(GLuint progr) {
+ 		}
+ 		glsl_sema_mode = VGL_MODE_POSTPONED;
+ 	}
++	if (!p->vshader || !p->fshader || !p->vshader->prog || !p->fshader->prog) {
++		sceClibPrintf("pcsx-vita: VitaGL program link failed because a shader program is missing.\n");
++		return;
++	}
+ 
+ 	if (p->status == PROG_LINKED) {
+ 		vgl_log("%s:%d: %s: A program has been re-linked. vitaGL doesn't support re-linking, glitches may happen.\n", __FILE__, __LINE__, __func__);

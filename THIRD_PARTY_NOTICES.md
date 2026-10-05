@@ -385,6 +385,16 @@ team, under GPL-2.0-or-later. The GPL version 2 terms are included in `COPYING`.
 The private build manifest records source and patch hashes; these patches are
 used by the validation host and are not linked into the Vita core.
 
+## VitaGL validation patches
+
+The shutdown and shader-cache patches under `tools/vita-harness/patches`
+derive from the local VitaGL source at commit
+`8a47034e078f7c39aa45e43493d7fe360a52a871`. The affected source headers retain
+Rinnegatamante's copyright and LGPL-3.0-or-later notices. The upstream
+`COPYING` file contains GPL version 3 terms and is retained verbatim in
+`tools/vita-harness/patches/vitagl-COPYING.txt`. The private library build records
+the source commit, ordered patch hashes, four flags and archive SHA-256.
+
 ## MAME Ricoh RF5C400
 
 `libpcsxcore/arcade/rf5c400.{cpp,h}` adapts the sample engine and register map

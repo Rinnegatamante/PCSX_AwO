@@ -1,0 +1,672 @@
+diff --git a/source/egl.c b/source/egl.c
+index 60fd386..ab36eff 100644
+--- a/source/egl.c
++++ b/source/egl.c
+@@ -340,7 +340,7 @@ EGLenum eglQueryAPI(void) {
+ }
+ 
+ EGLBoolean eglTerminate(EGLDisplay dpy) {
+-	EGL_RET(EGL_TRUE)
++	return vglShutdown() < 0 ? EGL_FALSE : EGL_TRUE;
+ }
+ 
+ EGLContext eglGetCurrentContext(void) {
+diff --git a/source/gxm.c b/source/gxm.c
+index f74e4af..0174523 100644
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -58,7 +58,7 @@ static void *gxm_shader_patcher_fragment_usse_addr; // Shader Patcher fragment U
+ 
+ SceGxmDepthStencilSurface gxm_depth_stencil_surface; // Depth/Stencil surfaces setup for sceGxm
+ 
+-static SceUID shared_fb; // In-use hared framebuffer identifier
++static SceUID shared_fb = -1; // In-use shared framebuffer identifier
+ static SceSharedFbInfo shared_fb_info; // In-use shared framebuffer info struct
+ framebuffer *in_use_framebuffer = NULL; // Currently in use framebuffer
+ framebuffer *old_framebuffer = NULL; // Framebuffer used in last scene
+@@ -67,6 +67,7 @@ GLboolean dirty_query = GL_FALSE; // Flag whether occlusion queries needs result
+ static GLboolean needs_end_scene = GL_FALSE; // Flag for gxm end scene requirement at scene reset
+ static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is required
+ static GLboolean scene_not_flushed = GL_FALSE; // Flag for when a scene had been forcibly flushed as last operation
++static inline void scene_end(void);
+ uint32_t vgl_debug_scene_splits = 0; // DEBUG: mid-frame scene splits (scene_end called from scene_reset)
+ uint32_t vgl_debug_log_draws = 0; // DEBUG: per-draw ffp logging switch
+ 
+@@ -101,6 +102,8 @@ float DISPLAY_HEIGHT_FLOAT; // Display height in pixels (float)
+ 
+ GLboolean system_app_mode = GL_FALSE; // Flag for system app mode usage
+ static GLboolean gxm_initialized = GL_FALSE; // Current sceGxm state
++static volatile GLboolean gc_shutdown_requested = GL_FALSE;
++static GLboolean gc_started = GL_FALSE;
+ GLboolean is_rendering_display = GL_TRUE; // Flag for when drawing without fbo is being performed
+ 
+ float *legacy_pool = NULL; // Mempool for GL1 immediate draw pipeline
+@@ -273,6 +276,28 @@ static void display_queue_callback(const void *callbackData) {
+ }
+ 
+ // Garbage collector
++static void garbage_collector_collect_one(void) {
++	// Purging all elements marked for deletion
++	for (int i = 0; i < FRAME_PURGE_LIST_SIZE; i++) {
++		if (frame_purge_list[frame_purge_clean_idx][i]) {
++			vgl_free(frame_purge_list[frame_purge_clean_idx][i]);
++			frame_purge_list[frame_purge_clean_idx][i] = NULL;
++		} else
++			break;
++	}
++	for (int i = 0; i < FRAME_PURGE_RENDERTARGETS_LIST_SIZE; i++) {
++		if (frame_rt_purge_list[frame_purge_clean_idx][i]) {
++			sceGxmDestroyRenderTarget(frame_rt_purge_list[frame_purge_clean_idx][i]);
++			frame_rt_purge_list[frame_purge_clean_idx][i] = NULL;
++		} else
++			break;
++	}
++	frame_purge_clean_idx = (frame_purge_clean_idx + 1) % FRAME_PURGE_FREQ;
++	frame_purge_idx = (frame_purge_idx + 1) % FRAME_PURGE_FREQ;
++	frame_elem_purge_idx = 0;
++	frame_rt_purge_idx = 0;
++}
++
+ #if defined(HAVE_PTHREAD) && !defined(HAVE_SINGLE_THREADED_GC)
+ void garbage_collector(void *arg) {
+ #else
+@@ -282,32 +307,19 @@ int garbage_collector(unsigned int args, void *arg) {
+ 	for (;;) {
+ 		// Waiting for garbage collection request
+ 		sceKernelWaitSema(gc_mutex[0], 1, NULL);
+-#endif
+-		// Purging all elements marked for deletion
+-		for (int i = 0; i < FRAME_PURGE_LIST_SIZE; i++) {
+-			if (frame_purge_list[frame_purge_clean_idx][i]) {
+-				vgl_free(frame_purge_list[frame_purge_clean_idx][i]);
+-				frame_purge_list[frame_purge_clean_idx][i] = NULL;
+-			} else
+-				break;
+-		}
+-		for (int i = 0; i < FRAME_PURGE_RENDERTARGETS_LIST_SIZE; i++) {
+-			if (frame_rt_purge_list[frame_purge_clean_idx][i]) {
+-				sceGxmDestroyRenderTarget(frame_rt_purge_list[frame_purge_clean_idx][i]);
+-				frame_rt_purge_list[frame_purge_clean_idx][i] = NULL;
+-			} else
+-				break;
+-		}
+-		frame_purge_clean_idx = (frame_purge_clean_idx + 1) % FRAME_PURGE_FREQ;
+-		frame_purge_idx = (frame_purge_idx + 1) % FRAME_PURGE_FREQ;
+-		frame_elem_purge_idx = 0;
+-		frame_rt_purge_idx = 0;
+-#ifndef HAVE_SINGLE_THREADED_GC
++		if (gc_shutdown_requested)
++			break;
++		garbage_collector_collect_one();
+ 		sceKernelSignalSema(gc_mutex[1], 1);
+ 	}
+ #ifndef HAVE_PTHREAD
+-	return sceKernelExitDeleteThread(0);
++	return sceKernelExitThread(0);
++#else
++	return;
+ #endif
++#else
++	garbage_collector_collect_one();
++	return 0;
+ #endif
+ }
+ 
+@@ -330,6 +342,7 @@ GLboolean start_shader_compiler(void) {
+ void init_gxm(void) {
+ 	if (gxm_initialized)
+ 		return;
++	gc_shutdown_requested = GL_FALSE;
+ 
+ #ifdef HAVE_RAZOR
+ 	// Initializing sceRazor debugger
+@@ -360,12 +373,14 @@ void init_gxm(void) {
+ 	// Initializing garbage collector
+ 	gc_mutex[0] = sceKernelCreateSema("vitaGL GC Sema Push", 0, 0, FRAME_PURGE_FREQ, NULL);
+ 	gc_mutex[1] = sceKernelCreateSema("vitaGL GC Sema Pull", 0, FRAME_PURGE_FREQ, FRAME_PURGE_FREQ, NULL);
+-#ifdef HAVE_PTRHEAD
++#ifdef HAVE_PTHREAD
+ 	pthread_create(&gc_thread, NULL, garbage_collector, NULL);
+ 	pthread_setaffinity_np(gc_thread, 4, &gc_thread_affinity);
++	gc_started = GL_TRUE;
+ #else
+ 	gc_thread = sceKernelCreateThread("vitaGL Garbage Collector", &garbage_collector, gc_thread_priority, 0x10000, 0, gc_thread_affinity, NULL);
+-	sceKernelStartThread(gc_thread, 0, NULL);
++	if (gc_thread >= 0 && sceKernelStartThread(gc_thread, 0, NULL) >= 0)
++		gc_started = GL_TRUE;
+ #endif
+ #endif
+ 
+@@ -401,6 +416,173 @@ void init_gxm(void) {
+ #endif
+ }
+ 
++static int stop_garbage_collector(void) {
++	int result = 0;
++#ifndef HAVE_SINGLE_THREADED_GC
++	if (gc_started) {
++		gc_shutdown_requested = GL_TRUE;
++		int rc = sceKernelSignalSema(gc_mutex[0], 1);
++		if (rc < 0)
++			return rc;
++#ifdef HAVE_PTHREAD
++		rc = pthread_join(gc_thread, NULL);
++		if (rc != 0)
++			return -rc;
++#else
++		rc = sceKernelWaitThreadEnd(gc_thread, NULL, NULL);
++		if (rc < 0)
++			return rc;
++		rc = sceKernelDeleteThread(gc_thread);
++		if (rc < 0)
++			return rc;
++#endif
++		gc_started = GL_FALSE;
++	}
++	if (gc_mutex[0] > 0) {
++		int rc = sceKernelDeleteSema(gc_mutex[0]);
++		if (rc < 0)
++			return rc;
++		gc_mutex[0] = -1;
++	}
++	if (gc_mutex[1] > 0) {
++		int rc = sceKernelDeleteSema(gc_mutex[1]);
++		if (rc < 0)
++			return rc;
++		gc_mutex[1] = -1;
++	}
++#endif
++	for (int i = 0; i < FRAME_PURGE_FREQ; i++) {
++		for (int j = 0; j < FRAME_PURGE_LIST_SIZE; j++) {
++			if (!frame_purge_list[i][j])
++				break;
++			vgl_free(frame_purge_list[i][j]);
++			frame_purge_list[i][j] = NULL;
++		}
++		for (int j = 0; j < FRAME_PURGE_RENDERTARGETS_LIST_SIZE; j++) {
++			if (!frame_rt_purge_list[i][j])
++				break;
++			int rc = sceGxmDestroyRenderTarget(frame_rt_purge_list[i][j]);
++			if (rc < 0) {
++				if (!result) result = rc;
++			} else
++				frame_rt_purge_list[i][j] = NULL;
++		}
++	}
++	return result;
++}
++
++int vglShutdown(void) {
++	if (!gxm_initialized)
++		return 0;
++	int result = 0;
++
++#ifndef SKIP_SPLASHSCREEN
++	int splash_result = shutdown_splashscreen();
++	if (splash_result < 0) return splash_result;
++#endif
++
++	if (needs_end_scene && gxm_context) {
++		scene_end();
++		needs_end_scene = GL_FALSE;
++	}
++	if (gxm_context)
++		sceGxmFinish(gxm_context);
++	int rc = sceGxmDisplayQueueFinish();
++	if (rc < 0) return rc;
++
++	// The display queue has no more callbacks that can publish a framebuffer.
++	rc = sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_NEXTFRAME);
++	if (rc < 0) return rc;
++	rc = sceDisplayWaitSetFrameBuf();
++	if (rc < 0) return rc;
++
++	rc = stop_garbage_collector();
++	if (rc < 0) return rc;
++	glReleaseShaderCompiler();
++
++	if (gxm_shader_patcher) {
++		rc = sceGxmShaderPatcherDestroy(gxm_shader_patcher);
++		if (rc < 0) return rc;
++		gxm_shader_patcher = NULL;
++	}
++
++	for (int i = 0; i < DISPLAY_MAX_BUFFER_COUNT; i++) {
++		if (gxm_sync_objects[i]) {
++			rc = sceGxmSyncObjectDestroy(gxm_sync_objects[i]);
++			if (rc < 0) return rc;
++			gxm_sync_objects[i] = NULL;
++		}
++	}
++
++	if (gxm_render_target) {
++		rc = sceGxmDestroyRenderTarget(gxm_render_target);
++		if (rc < 0) return rc;
++		gxm_render_target = NULL;
++	}
++#ifdef HAVE_SHARED_RENDERTARGETS
++	for (int i = 0; i < MAX_RENDER_TARGETS_NUM; i++) {
++		if (rt_list[i].rt) {
++			rc = sceGxmDestroyRenderTarget(rt_list[i].rt);
++			if (rc < 0) return rc;
++			vgl_memset(&rt_list[i], 0, sizeof(rt_list[i]));
++		}
++	}
++#endif
++
++	if (gxm_context) {
++		rc = sceGxmDestroyContext(gxm_context);
++		if (rc < 0) return rc;
++		gxm_context = NULL;
++	}
++
++	for (int i = 0; i < GXM_CONTEXTS_NUM; i++) {
++		if (vdm_ring_buffer_addr[i]) vgl_free(vdm_ring_buffer_addr[i]);
++		if (vertex_ring_buffer_addr[i]) vgl_free(vertex_ring_buffer_addr[i]);
++		if (fragment_ring_buffer_addr[i]) vgl_free(fragment_ring_buffer_addr[i]);
++		if (context_host_mem[i]) vgl_free(context_host_mem[i]);
++		if (fragment_usse_ring_buffer_addr[i]) gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[i]);
++		vdm_ring_buffer_addr[i] = NULL;
++		vertex_ring_buffer_addr[i] = NULL;
++		fragment_ring_buffer_addr[i] = NULL;
++		context_host_mem[i] = NULL;
++		fragment_usse_ring_buffer_addr[i] = NULL;
++	}
++
++	if (gxm_shader_patcher_buffer_addr) vgl_free(gxm_shader_patcher_buffer_addr);
++	if (gxm_shader_patcher_vertex_usse_addr) gpu_vertex_usse_free_mapped(gxm_shader_patcher_vertex_usse_addr);
++	if (gxm_shader_patcher_fragment_usse_addr) gpu_fragment_usse_free_mapped(gxm_shader_patcher_fragment_usse_addr);
++	gxm_shader_patcher_buffer_addr = NULL;
++	gxm_shader_patcher_vertex_usse_addr = NULL;
++	gxm_shader_patcher_fragment_usse_addr = NULL;
++
++	for (int i = 0; i < DISPLAY_MAX_BUFFER_COUNT; i++) {
++		if (!system_app_mode && gxm_color_surfaces_addr[i])
++			vgl_free(gxm_color_surfaces_addr[i]);
++		gxm_color_surfaces_addr[i] = NULL;
++	}
++	if (system_app_mode && shared_fb_info.fb_base)
++		sceGxmUnmapMemory(shared_fb_info.fb_base);
++	if (gxm_depth_stencil_surface.depthData)
++		vgl_free(gxm_depth_stencil_surface.depthData);
++	if (gxm_depth_stencil_surface.stencilData)
++		vgl_free(gxm_depth_stencil_surface.stencilData);
++	vgl_memset(&gxm_depth_stencil_surface, 0, sizeof(gxm_depth_stencil_surface));
++
++	if (system_app_mode && shared_fb >= 0) {
++		sceSharedFbClose(shared_fb);
++		shared_fb = -1;
++	}
++	rc = vgl_mem_term();
++	if (rc < 0) return rc;
++	rc = sceGxmTerminate();
++	if (rc < 0 && !result) result = rc;
++	if (rc >= 0)
++		gxm_initialized = GL_FALSE;
++	needs_scene_reset = GL_TRUE;
++	scene_not_flushed = GL_FALSE;
++	return result;
++}
++
+ void init_gxm_context(SceGxmContext **ctx, uint8_t ctx_slot) {
+ 	// Allocating VDM ring buffer
+ 	vdm_ring_buffer_addr[ctx_slot] = gpu_alloc_mapped_aligned_for_gpu(4096, gxm_vdm_buf_size);
+@@ -451,9 +633,10 @@ void init_display_color_surfaces(GLboolean is_swap) {
+ 		shared_fb = sceSharedFbOpen(1);
+ 		vgl_memset(&shared_fb_info, 0, sizeof(SceSharedFbInfo));
+ 		sceSharedFbGetInfo(shared_fb, &shared_fb_info);
+-		if (shared_fb_info.index == 1)
++		if (shared_fb_info.index == 1) {
+ 			sceSharedFbClose(shared_fb);
+-		else {
++			shared_fb = -1;
++		} else {
+ 			sceGxmMapMemory(shared_fb_info.fb_base, shared_fb_info.fb_size, SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE);
+ 			gxm_color_surfaces_addr[0] = shared_fb_info.fb_base;
+ 			gxm_color_surfaces_addr[1] = shared_fb_info.fb_base2;
+@@ -606,14 +789,11 @@ void scene_reset(void) {
+ 		}
+ 
+ #ifndef SKIP_SPLASHSCREEN	
+-		// If we're running the boot splashscreen, we need to terminate it first
++		// Stop and join the splash thread before using its display resources.
+ 		if (is_splashscreen_active) {
+-			sceKernelSignalSema(splash_mutex[0], 1);
+-			sceKernelWaitSema(splash_mutex[1], 1, NULL);
+-			is_splashscreen_active = GL_FALSE;
+-			clear_splashscreen();
+-			sceKernelDeleteSema(splash_mutex[0]);
+-			sceKernelDeleteSema(splash_mutex[1]);
++			int r = shutdown_splashscreen();
++			if (r < 0)
++				vgl_log("vitaGL splash shutdown failed (%d)\n", r);
+ 		}
+ #endif
+ 
+diff --git a/source/shared.h b/source/shared.h
+index 5e3e91d..051de2a 100644
+--- a/source/shared.h
++++ b/source/shared.h
+@@ -1275,6 +1275,7 @@ void update_polygon_offset(); // Updates current polygon offset mode
+ /* splashscreen.c */
+ void invoke_splashscreen(void);
+ void clear_splashscreen();
++int shutdown_splashscreen(void);
+ 
+ /* misc functions */
+ static inline __attribute__((always_inline)) void vector4f_convert_to_local_space(vector4f *out, int x, int y, int width, int height) { // Converts screen coords to local space
+diff --git a/source/splashscreen.c b/source/splashscreen.c
+index 51673ba..e16a8b4 100644
+--- a/source/splashscreen.c
++++ b/source/splashscreen.c
+@@ -49,6 +49,10 @@ const SceGxmProgramParameter *splash_normal_mat;
+ const SceGxmProgramParameter *splash_ambient;
+ 
+ static SceGxmContext *splash_gxm_context;
++static SceUID splash_thread = -1;
++static GLboolean splash_finished = GL_FALSE;
++static void *gpu_splash_vtxs;
++static void *gpu_splash_idxs;
+ 
+ extern SceGxmRenderTarget *gxm_render_target;
+ extern SceGxmSyncObject *gxm_sync_objects[DISPLAY_MAX_BUFFER_COUNT];
+@@ -6298,8 +6302,8 @@ int splashscreen_thread(unsigned int args, void *arg) {
+ 	
+ 	// Decompress the splashscreen data
+ 	uint8_t *tmp = (uint8_t*)vglMalloc(SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
+-	void *gpu_splash_vtxs = gpu_alloc_mapped_for_cpu(sizeof(float) * SPLASH_VTX_COUNT * 6);
+-	void *gpu_splash_idxs = gpu_alloc_mapped_for_cpu(sizeof(uint16_t) * SPLASH_IDX_COUNT);
++	gpu_splash_vtxs = gpu_alloc_mapped_for_cpu(sizeof(float) * SPLASH_VTX_COUNT * 6);
++	gpu_splash_idxs = gpu_alloc_mapped_for_cpu(sizeof(uint16_t) * SPLASH_IDX_COUNT);
+ 	lz77_decompress(&vgl_splash_data[SPLASH_MDL_OFFS], tmp, SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
+ 	uint8_t *p = tmp;
+ 	float *v_out = (float*)gpu_splash_vtxs;
+@@ -6471,19 +6475,10 @@ int splashscreen_thread(unsigned int args, void *arg) {
+ 
+ 	// Notify main renderer thread that splashscreen is over
+ 	sceGxmFinish(splash_gxm_context);
++	splash_finished = GL_TRUE;
+ 	sceKernelSignalSema(splash_mutex[1], 1);
+ 	
+-	// Cleanup any resource used for the splashscreen
+-	vgl_free(gpu_splash_idxs);
+-	vgl_free(gpu_splash_vtxs);
+-	sceGxmDestroyContext(splash_gxm_context);
+-	vgl_free(vdm_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
+-	vgl_free(vertex_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
+-	vgl_free(fragment_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
+-	vgl_free(context_host_mem[VGL_CONTEXT_SPLASHSCREEN]);
+-	gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
+-	
+-	return sceKernelExitDeleteThread(0);
++	return sceKernelExitThread(0);
+ }
+ 
+ void invoke_splashscreen() {
+@@ -6525,11 +6520,56 @@ void invoke_splashscreen() {
+ 	// Starting dedicated thread for splashscreen rendering
+ 	splash_mutex[0] = sceKernelCreateSema("vitaGL Splashscreen Sema Push", 0, 0, 1, NULL);
+ 	splash_mutex[1] = sceKernelCreateSema("vitaGL Splashscreen Sema Pull", 0, 0, 1, NULL);
+-	SceUID splash_thd = sceKernelCreateThread("vitaGL Splashscreen", &splashscreen_thread, 64, 0x10000, 0, SCE_KERNEL_CPU_MASK_USER_ALL, NULL);
+-	sceKernelStartThread(splash_thd, 0, NULL);
++	splash_thread = sceKernelCreateThread("vitaGL Splashscreen", &splashscreen_thread, 64, 0x10000, 0, SCE_KERNEL_CPU_MASK_USER_ALL, NULL);
++	splash_finished = GL_FALSE;
++	sceKernelStartThread(splash_thread, 0, NULL);
+ 	is_splashscreen_active = GL_TRUE;
+ }
+ 
++int shutdown_splashscreen(void) {
++	if (is_splashscreen_active) {
++		if (!splash_finished) {
++			sceKernelSignalSema(splash_mutex[0], 1);
++			sceKernelWaitSema(splash_mutex[1], 1, NULL);
++		}
++		is_splashscreen_active = GL_FALSE;
++	}
++	if (splash_thread >= 0) {
++		int rc = sceKernelWaitThreadEnd(splash_thread, NULL, NULL);
++		if (rc < 0)
++			return rc;
++		rc = sceKernelDeleteThread(splash_thread);
++		if (rc < 0)
++			return rc;
++		splash_thread = -1;
++	}
++	if (splash_gxm_context) {
++		int rc = sceGxmDestroyContext(splash_gxm_context);
++		if (rc < 0)
++			return rc;
++		splash_gxm_context = NULL;
++		vgl_free(gpu_splash_idxs);
++		vgl_free(gpu_splash_vtxs);
++		vgl_free(vdm_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
++		vgl_free(vertex_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
++		vgl_free(fragment_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
++		vgl_free(context_host_mem[VGL_CONTEXT_SPLASHSCREEN]);
++		gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN]);
++		context_host_mem[VGL_CONTEXT_SPLASHSCREEN] = NULL;
++		vdm_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN] = NULL;
++		vertex_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN] = NULL;
++		fragment_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN] = NULL;
++		fragment_usse_ring_buffer_addr[VGL_CONTEXT_SPLASHSCREEN] = NULL;
++		clear_splashscreen();
++	}
++	if (splash_mutex[0] > 0)
++		sceKernelDeleteSema(splash_mutex[0]);
++	if (splash_mutex[1] > 0)
++		sceKernelDeleteSema(splash_mutex[1]);
++	splash_mutex[0] = splash_mutex[1] = 0;
++	return 0;
++}
++
+ void clear_splashscreen() {
+ 	vglVertexProgramCacheInvalidate(splash_vertex_id);
+ 	sceGxmShaderPatcherForceUnregisterProgram(gxm_shader_patcher, splash_fragment_id);
+diff --git a/source/utils/mem_utils.c b/source/utils/mem_utils.c
+index 4b791b7..2d34c6d 100644
+--- a/source/utils/mem_utils.c
++++ b/source/utils/mem_utils.c
+@@ -31,6 +31,8 @@ static void *mempool_mspace[VGL_MEM_ALL - 1] = {}; // sceClibMspace heaps
+ static void *mempool_addr[VGL_MEM_ALL] = {}; // Base addresses of heap memblocks
+ static void *mempool_end[VGL_MEM_ALL] = {}; // Addresses of heap memblocks ends
+ static size_t mempool_size[VGL_MEM_ALL] = {}; // Sizes (in bytes) of heap memblocks
++static SceUID mempool_uid[VGL_MEM_ALL - 1] = {}; // Owned memblocks backing internal heaps
++static GLboolean mempool_is_mapped[VGL_MEM_ALL] = {};
+ 
+ GLboolean vgl_has_cdlg_support = GL_TRUE;
+ 
+@@ -437,28 +439,27 @@ void vgl_mem_init(size_t size_ram, size_t size_cdram, size_t size_phycont, size_
+ 	heap_init();
+ #endif
+ 
+-	SceUID mempool_id[VGL_MEM_ALL - 1] = {}; // UIDs of heap memblocks
+ 	if (mempool_size[VGL_MEM_VRAM]) {
+-		mempool_id[VGL_MEM_VRAM] = sceKernelAllocMemBlock("cdram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, mempool_size[VGL_MEM_VRAM], NULL);
++		mempool_uid[VGL_MEM_VRAM] = sceKernelAllocMemBlock("cdram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, mempool_size[VGL_MEM_VRAM], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 		sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_VRAM], "cdram heap mutex", 0, 0, NULL);
+ #endif
+ 	}
+ 	if (has_cached_mem) {
+ 		if (mempool_size[VGL_MEM_RAM]) {
+-			mempool_id[VGL_MEM_RAM] = sceKernelAllocMemBlock("ram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, mempool_size[VGL_MEM_RAM], NULL);
++			mempool_uid[VGL_MEM_RAM] = sceKernelAllocMemBlock("ram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, mempool_size[VGL_MEM_RAM], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_RAM], "ram heap mutex", 0, 0, NULL);
+ #endif
+ 		}
+ 		if (mempool_size[VGL_MEM_PHYCONT]) {
+-			mempool_id[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
++			mempool_uid[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_PHYCONT], "phycont heap mutex", 0, 0, NULL);
+ #endif
+ 		}
+ 		if (mempool_size[VGL_MEM_BUDGET]) {
+-			mempool_id[VGL_MEM_BUDGET] = sceKernelAllocMemBlock("cdlg_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_CDIALOG_RW, mempool_size[VGL_MEM_BUDGET], NULL);
++			mempool_uid[VGL_MEM_BUDGET] = sceKernelAllocMemBlock("cdlg_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_CDIALOG_RW, mempool_size[VGL_MEM_BUDGET], NULL);
+ 			vgl_has_cdlg_support = GL_FALSE;
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_BUDGET], "cdlg heap mutex", 0, 0, NULL);
+@@ -466,19 +467,19 @@ void vgl_mem_init(size_t size_ram, size_t size_cdram, size_t size_phycont, size_
+ 		}
+ 	} else {
+ 		if (mempool_size[VGL_MEM_RAM]) {
+-			mempool_id[VGL_MEM_RAM] = sceKernelAllocMemBlock("ram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, mempool_size[VGL_MEM_RAM], NULL);
++			mempool_uid[VGL_MEM_RAM] = sceKernelAllocMemBlock("ram_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE, mempool_size[VGL_MEM_RAM], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_RAM], "ram heap mutex", 0, 0, NULL);
+ #endif
+ 		}
+ 		if (mempool_size[VGL_MEM_PHYCONT]) {
+-			mempool_id[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
++			mempool_uid[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_PHYCONT], "phycont heap mutex", 0, 0, NULL);
+ #endif
+ 		}
+ 		if (mempool_size[VGL_MEM_BUDGET]) {
+-			mempool_id[VGL_MEM_BUDGET] = sceKernelAllocMemBlock("cdlg_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_CDIALOG_NC_RW, mempool_size[VGL_MEM_BUDGET], NULL);
++			mempool_uid[VGL_MEM_BUDGET] = sceKernelAllocMemBlock("cdlg_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_CDIALOG_NC_RW, mempool_size[VGL_MEM_BUDGET], NULL);
+ 			vgl_has_cdlg_support = GL_FALSE;
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_BUDGET], "cdlg heap mutex", 0, 0, NULL);
+@@ -488,11 +489,11 @@ void vgl_mem_init(size_t size_ram, size_t size_cdram, size_t size_phycont, size_
+ 	for (int i = 0; i < VGL_MEM_EXTERNAL; i++) {
+ 		if (mempool_size[i]) {
+ 			mempool_addr[i] = NULL;
+-			sceKernelGetMemBlockBase(mempool_id[i], &mempool_addr[i]);
++			sceKernelGetMemBlockBase(mempool_uid[i], &mempool_addr[i]);
+ 
+ 			if (mempool_addr[i]) {
+ 				mempool_end[i] = (void *)((uintptr_t)mempool_addr[i] + mempool_size[i]);
+-				sceGxmMapMemory(mempool_addr[i], mempool_size[i], SCE_GXM_MEMORY_ATTRIB_RW);
++				mempool_is_mapped[i] = sceGxmMapMemory(mempool_addr[i], mempool_size[i], SCE_GXM_MEMORY_ATTRIB_RW) >= 0;
+ #ifndef HAVE_CUSTOM_HEAP
+ 				mempool_mspace[i] = sceClibMspaceCreate(mempool_addr[i], mempool_size[i]);
+ #else
+@@ -532,30 +533,78 @@ void vgl_mem_init(size_t size_ram, size_t size_cdram, size_t size_phycont, size_
+ 	SceKernelMemBlockInfo info;
+ 	info.size = sizeof(SceKernelMemBlockInfo);
+ 	sceKernelGetMemBlockInfoByAddr(dummy, &info);
+-	sceGxmMapMemory(info.mappedBase, info.mappedSize, SCE_GXM_MEMORY_ATTRIB_RW);
++	mempool_is_mapped[VGL_MEM_EXTERNAL] = sceGxmMapMemory(info.mappedBase, info.mappedSize, SCE_GXM_MEMORY_ATTRIB_RW) >= 0;
+ 
+ 	mempool_size[VGL_MEM_EXTERNAL] = info.mappedSize;
+ 	mempool_addr[VGL_MEM_EXTERNAL] = info.mappedBase;
+ 	mempool_end[VGL_MEM_EXTERNAL] = (void *)((uintptr_t)mempool_addr[VGL_MEM_EXTERNAL] + mempool_size[VGL_MEM_EXTERNAL]);
+ }
+ 
++int vgl_mem_term(void) {
++	int result = 0;
++	// The GXM context, patcher, and queued resources must already be destroyed.
++	// Drop the mapping of newlib's externally-owned heap, but do not free it:
++	// the guest CRT owns that block and releases it after main returns.
++	if (mempool_addr[VGL_MEM_EXTERNAL] && mempool_is_mapped[VGL_MEM_EXTERNAL]) {
++		int rc = sceGxmUnmapMemory(mempool_addr[VGL_MEM_EXTERNAL]);
++		if (rc < 0)
++			result = rc;
++		else
++			mempool_is_mapped[VGL_MEM_EXTERNAL] = GL_FALSE;
++	}
++
++	for (int i = 0; i < VGL_MEM_EXTERNAL; i++) {
++		if (mempool_addr[i] && mempool_is_mapped[i]) {
++#ifndef HAVE_CUSTOM_HEAP
++			if (mempool_mspace[i]) {
++				sceClibMspaceDestroy(mempool_mspace[i]);
++				mempool_mspace[i] = NULL;
++			}
++#endif
++			int rc = sceGxmUnmapMemory(mempool_addr[i]);
++			if (rc < 0) {
++				if (!result)
++					result = rc;
++			} else
++				mempool_is_mapped[i] = GL_FALSE;
++		}
++		if (!mempool_is_mapped[i] && mempool_uid[i] > 0) {
++			int rc = sceKernelFreeMemBlock(mempool_uid[i]);
++			if (rc < 0 && !result)
++				result = rc;
++			if (rc >= 0)
++				mempool_uid[i] = 0;
++		}
++		if (!mempool_is_mapped[i] && mempool_uid[i] == 0) {
++			mempool_addr[i] = NULL;
++			mempool_end[i] = NULL;
++			mempool_size[i] = 0;
++		}
++	}
++	if (!mempool_is_mapped[VGL_MEM_EXTERNAL]) {
++		mempool_addr[VGL_MEM_EXTERNAL] = NULL;
++		mempool_end[VGL_MEM_EXTERNAL] = NULL;
++		mempool_size[VGL_MEM_EXTERNAL] = 0;
++	}
++	return result;
++}
++
+ #ifndef PHYCONT_ON_DEMAND
+ void vgl_mem_provide_phycont(size_t size_phycont) {
+ 	if (mempool_size[VGL_MEM_PHYCONT])
+ 		return;
+ 
+-	SceUID mempool_id;
+-	mempool_size[VGL_MEM_PHYCONT] = VGL_ALIGN(size_phycont, 1024 * 1024);
++        mempool_size[VGL_MEM_PHYCONT] = VGL_ALIGN(size_phycont, 1024 * 1024);
+ 	if (has_cached_mem) {
+ 		if (mempool_size[VGL_MEM_PHYCONT]) {
+-			mempool_id = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
++			mempool_uid[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_PHYCONT], "phycont heap mutex", 0, 0, NULL);
+ #endif
+ 		}
+ 	} else {
+ 		if (mempool_size[VGL_MEM_PHYCONT]) {
+-			mempool_id = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
++			mempool_uid[VGL_MEM_PHYCONT] = sceKernelAllocMemBlock("phycont_mempool", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, mempool_size[VGL_MEM_PHYCONT], NULL);
+ #if defined(HAVE_CUSTOM_HEAP) && !defined(HAVE_SINGLE_THREADED_GC)
+ 			sceKernelCreateLwMutex(&tm_mutexes[VGL_MEM_PHYCONT], "phycont heap mutex", 0, 0, NULL);
+ #endif
+@@ -563,10 +612,11 @@ void vgl_mem_provide_phycont(size_t size_phycont) {
+ 	}
+ 	
+ 	mempool_addr[VGL_MEM_PHYCONT] = NULL;
+-	sceKernelGetMemBlockBase(mempool_id, &mempool_addr[VGL_MEM_PHYCONT]);
++	if (mempool_uid[VGL_MEM_PHYCONT] > 0)
++		sceKernelGetMemBlockBase(mempool_uid[VGL_MEM_PHYCONT], &mempool_addr[VGL_MEM_PHYCONT]);
+ 	if (mempool_addr[VGL_MEM_PHYCONT]) {
+ 		mempool_end[VGL_MEM_PHYCONT] = (void *)((uintptr_t)mempool_addr[VGL_MEM_PHYCONT] + mempool_size[VGL_MEM_PHYCONT]);
+-		sceGxmMapMemory(mempool_addr[VGL_MEM_PHYCONT], mempool_size[VGL_MEM_PHYCONT], SCE_GXM_MEMORY_ATTRIB_RW);
++		mempool_is_mapped[VGL_MEM_PHYCONT] = sceGxmMapMemory(mempool_addr[VGL_MEM_PHYCONT], mempool_size[VGL_MEM_PHYCONT], SCE_GXM_MEMORY_ATTRIB_RW) >= 0;
+ #ifndef HAVE_CUSTOM_HEAP
+ 		mempool_mspace[VGL_MEM_PHYCONT] = sceClibMspaceCreate(mempool_addr[VGL_MEM_PHYCONT], mempool_size[VGL_MEM_PHYCONT]);
+ #else
+diff --git a/source/utils/mem_utils.h b/source/utils/mem_utils.h
+index 80f3f86..8c49cf3 100644
+--- a/source/utils/mem_utils.h
++++ b/source/utils/mem_utils.h
+@@ -95,7 +95,7 @@ void __mark_rt_as_dirty(render_target *rt);
+ #endif
+ 
+ void vgl_mem_init(size_t size_ram, size_t size_cdram, size_t size_phycont, size_t size_cdlg);
+-void vgl_mem_term(void);
++int vgl_mem_term(void);
+ size_t vgl_mem_get_free_space(vglMemType type);
+ size_t vgl_mem_get_total_space(vglMemType type);
+ vglMemType vgl_mem_get_type_by_addr(void *addr);
+diff --git a/source/vitaGL.h b/source/vitaGL.h
+index bdc6350..25ea58f 100644
+--- a/source/vitaGL.h
++++ b/source/vitaGL.h
+@@ -780,6 +780,9 @@ void glEnd(void);
+ void glEndList(void);
+ void glEndQuery(GLenum target);
+ void glFinish(void);
++// Releases vitaGL's GXM state and owned pools. Call only after renderer work
++// has stopped; the caller retains ownership of the C runtime heap.
++int vglShutdown(void);
+ void glFlush(void);
+ void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
+ void glFlushMappedNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length);

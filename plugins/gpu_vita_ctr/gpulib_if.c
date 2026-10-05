@@ -290,6 +290,14 @@ static void backend_renderer_shutdown(void *arg)
 {
     (void)arg;
     NativeRenderer_Shutdown();
+    /* Destroy plugin GL objects, flush their GXM work, then release vitaGL's
+     * context and GXM resources before the guest CRT tears down its heap. */
+    glFinish();
+    int shutdown_result = vglShutdown();
+    if (shutdown_result < 0)
+        SysPrintf("pcsx-vita: vitaGL shutdown FAIL (%d)\n", shutdown_result);
+    else
+        SysPrintf("pcsx-vita: vitaGL shutdown PASS (%d)\n", shutdown_result);
 }
 
 static int init_context(void)
@@ -310,6 +318,7 @@ static int init_context(void)
     }
     if (!NativeGpu_InitBackend(960, 544)) {
         SysPrintf("pcsx-vita: High Octane GPU thread init failed\n");
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         return 0;
     }
 
@@ -317,7 +326,13 @@ static int init_context(void)
     NativeGpu_RunBackendTaskSync(backend_renderer_init, &task);
     if (!task.result) {
         SysPrintf("pcsx-vita: High Octane renderer init failed\n");
+        /* vitaGL was initialized by the backend thread before renderer setup.
+         * Even a partial renderer init must release that context before CRT
+         * teardown reclaims the guest heap. The renderer shutdown tolerates
+         * zero GL names and clears any objects created before the failure. */
+        NativeGpu_RunBackendTaskSync(backend_renderer_shutdown, NULL);
         NativeGpu_ShutdownBackend();
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         return 0;
     }
 
