@@ -61,9 +61,64 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         self.assertTrue(all(w * 4 >= FIXTURE.DISPLAY_W * 3 and
                             h * 4 >= FIXTURE.DISPLAY_H * 3 for w, h in clips))
         self.assertIn(0xe5000000 | (240 << 11), commands)
-        self.assertEqual(commands.count(0xc0000000), 8)
+        self.assertEqual(commands.count(0xc0000000), 18)
         self.assertIn(0xa0000000, commands)
         self.assertIn(0x80000000, commands)
+        polygons = []
+        c0_points = []
+        cursor = 0
+        current_clip = None
+        draw_area_start = None
+        while cursor < len(commands):
+            word = commands[cursor]
+            opcode = word >> 24
+            if opcode == 0xe3:
+                draw_area_start = (word & 0x3ff, (word >> 10) & 0x1ff)
+                cursor += 1
+            elif opcode == 0xe4 and draw_area_start is not None:
+                x2, y2 = word & 0x3ff, (word >> 10) & 0x1ff
+                current_clip = (draw_area_start[0], draw_area_start[1],
+                                x2 - draw_area_start[0] + 1,
+                                y2 - draw_area_start[1] + 1)
+                draw_area_start = None
+                cursor += 1
+            elif opcode == 0xa0:
+                pixel_count = ((commands[cursor + 2] & 0xffff) *
+                               (commands[cursor + 2] >> 16))
+                cursor += 3 + (pixel_count + 1) // 2
+            elif opcode in (0x24, 0x2c):
+                length = 7 if opcode == 0x24 else 9
+                clut = commands[cursor + 2] >> 16
+                tpage = commands[cursor + 4] >> 16
+                uv_offsets = (2, 4, 6) if opcode == 0x24 else (2, 4, 6, 8)
+                uvs = tuple(commands[cursor + offset] & 0xffff for offset in uv_offsets)
+                self.assertEqual(len(set(uvs)), len(uvs))
+                polygons.append((opcode, tpage, clut, current_clip, uvs))
+                cursor += length
+            elif opcode == 0x80:
+                cursor += 4
+            elif opcode == 0xc0:
+                xy = commands[cursor + 1]
+                c0_points.append((xy & 0xffff, xy >> 16))
+                cursor += 3
+            elif opcode == 0x70:
+                cursor += 2
+            else:
+                cursor += 1
+        expected_uv_tri = (0, 15, 7 << 8)
+        expected_uv_quad = (0, 15, 7 << 8, 15 | (7 << 8))
+        self.assertEqual(polygons, [
+            (0x24, 0x0800, (800 << 6) | 2, (0, 0, 320, 240), expected_uv_tri),
+            (0x24, 0x0800, (801 << 6) | 3, (0, 0, 320, 240), expected_uv_tri),
+            (0x2c, 0x0801, (801 << 6) | 3, (0, 0, 320, 240), expected_uv_quad),
+        ])
+        self.assertEqual(c0_points[-10:],
+                         [(176, 168), (208, 168), (168, 208),
+                          (176, 88), (208, 88), (168, 128),
+                          (248, 168), (296, 168), (248, 216), (296, 216)])
+        self.assertEqual(FIXTURE.EXPECTED_POLYGON_PIXELS,
+                         (0x001f, 0x03e0, 0x7c00, 0x7fe0, 0x7c1f,
+                          0x7fff, 0x7fe0, 0x7c1f, 0x7fff, 0x4210))
         self.assertEqual(FIXTURE.EXPECTED_PIXELS,
                          (0x001f, 0x03e0, 0x001f, 0x7c00,
                           0x7fff, 0x03e0, 0x7c1f, 0x7c1f))

@@ -14,10 +14,16 @@ TITLE_ID = "S12FB0001"
 EXPECTED = re.compile(
     r"pcsx-vita: system12-framebuffer PASS cpu=ari64 magic=53314642 "
     r"page0=001f page1=03e0 page0again=001f clip=7c00 upload=7fff "
-    r"postupload=03e0 move=7c1f source=7c1f runs=1\b")
+    r"postupload=03e0 move=7c1f source=7c1f "
+    r"ft3a_tl=001f ft3a_tr=03e0 ft3a_bl=7c00 "
+    r"ft3b_tl=7fe0 ft3b_tr=7c1f ft3b_bl=7fff "
+    r"ft4_tl=7fe0 ft4_tr=7c1f ft4_bl=7fff ft4_br=4210 runs=1\b")
 RESULT_MAGIC = 0x53314642  # S1FB
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
                    0x7fff, 0x03e0, 0x7c1f, 0x7c1f)
+EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
+                           0x7fe0, 0x7c1f, 0x7fff,
+                           0x7fe0, 0x7c1f, 0x7fff, 0x4210)
 DISPLAY_W, DISPLAY_H = 320, 240
 
 
@@ -85,11 +91,66 @@ def make_guest_code():
         # Image transfers consume words even for a one-pixel rectangle.
         gp0(pixel | (pixel << 16))
 
+    def upload_rect(x, y, width, height, pixels):
+        assert len(pixels) == width * height and len(pixels) % 2 == 0
+        gp0(0xa0000000)
+        gp0(x | (y << 16))
+        gp0(width | (height << 16))
+        for i in range(0, len(pixels), 2):
+            gp0(pixels[i] | (pixels[i + 1] << 16))
+
+    def upload_p4_test_page(word_x):
+        # Four broad index regions make interpolated UV samples unambiguous,
+        # with enough margin that edge fill and subpixel rules do not matter.
+        texels = []
+        for y in range(8):
+            for word_x_inner in range(4):
+                indices = []
+                for lane in range(4):
+                    x = word_x_inner * 4 + lane
+                    if y < 4:
+                        indices.append(1 if x < 8 else 2)
+                    else:
+                        indices.append(3 if x < 8 else 4)
+                texels.append(indices[0] | (indices[1] << 4) |
+                              (indices[2] << 8) | (indices[3] << 12))
+        upload_rect(word_x, 512, 4, 8, texels)
+
+    def upload_palette(x, y, entries):
+        assert len(entries) == 16
+        upload_rect(x, y, 16, 1, entries)
+
     def move_image(sx, sy, dx, dy, width, height):
         gp0(0x80000000)
         gp0(sx | (sy << 16))
         gp0(dx | (dy << 16))
         gp0(width | (height << 16))
+
+    def ft3(x, y, uv_points, tpage, clut, color=0x808080):
+        assert len(uv_points) == 3
+        gp0(0x24000000 | color)
+        for index, (px, py) in enumerate(((x, y), (x + 64, y), (x, y + 64))):
+            gp0(px | (py << 16))
+            u, v = uv_points[index]
+            word = u | (v << 8)
+            if index == 0:
+                word |= clut << 16
+            elif index == 1:
+                word |= tpage << 16
+            gp0(word)
+
+    def ft4(x, y, uv_points, tpage, clut, color=0x808080):
+        assert len(uv_points) == 4
+        gp0(0x2c000000 | color)
+        positions = ((x, y), (x + 64, y), (x, y + 64), (x + 64, y + 64))
+        for index, ((px, py), (u, v)) in enumerate(zip(positions, uv_points)):
+            gp0(px | (py << 16))
+            word = u | (v << 8)
+            if index == 0:
+                word |= clut << 16
+            elif index == 1:
+                word |= tpage << 16
+            gp0(word)
 
     code.append(drc.sw(0, 4, 8))  # GP1 reset
     gp1(0x05000000)               # display start at VRAM (0,0)
@@ -127,6 +188,29 @@ def make_guest_code():
     move_image(80, 80, 120, 120, 8, 8)
     c0_pixel(120, 120, 7)
     c0_pixel(80, 80, 8)
+
+    # Interpolated polygon probe: successive FT3/FT3/FT4 packets share one
+    # onscreen clip while changing CLUT and then TPAGE. Constant-index texture
+    # quadrants let interior C0 reads act as a stable oracle without modeling
+    # the rasterizer's exact edge and subpixel rules.
+    upload_p4_test_page(0)
+    upload_p4_test_page(64)
+    palette_a = [0, 0x001f, 0x03e0, 0x7c00, 0x03ff] + [0] * 11
+    palette_b = [0, 0x7fe0, 0x7c1f, 0x7fff, 0x4210] + [0] * 11
+    upload_palette(32, 800, palette_a)
+    upload_palette(48, 801, palette_b)
+    clut_a = (800 << 6) | (32 >> 4)
+    clut_b = (801 << 6) | (48 >> 4)
+    uv_tri = ((0, 0), (15, 0), (0, 7))
+    uv_quad = ((0, 0), (15, 0), (0, 7), (15, 7))
+    ft3(160, 160, uv_tri, 0x0800, clut_a)
+    ft3(160, 80, uv_tri, 0x0800, clut_b)
+    ft4(240, 160, uv_quad, 0x0801, clut_b)
+    for x, y, index in ((176, 168, 9), (208, 168, 10), (168, 208, 11),
+                        (176, 88, 12), (208, 88, 13), (168, 128, 14),
+                        (248, 168, 15), (296, 168, 16),
+                        (248, 216, 17), (296, 216, 18)):
+        c0_pixel(x, y, index)
 
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
@@ -206,6 +290,7 @@ def main():
             "System12 framebuffer coherence", EXPECTED, require_ari64=True)
         evidence = dict(passed=passed, expected=EXPECTED.pattern,
             colors_rgb555=list(EXPECTED_PIXELS),
+            polygon_colors_rgb555=list(EXPECTED_POLYGON_PIXELS),
             main_sha256=gameplay.sha256_file(region / "main.bin"),
             host_sha256=gameplay.sha256_file(emulator),
             vpk_sha256=gameplay.sha256_file(args.vpk),
