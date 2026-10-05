@@ -1,0 +1,15 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/psx-screen-clock-tests
+SOURCES := tests/test_psx_screen_clock.c libpcsxcore/arcade/psx_screen_clock.c
+TARGET := $(BUILD)/test-psx-screen-clock
+.PHONY: test sanitize clean
+$(TARGET): $(SOURCES) libpcsxcore/arcade/psx_screen_clock.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -Ilibpcsxcore/arcade $(SOURCES) -o $@
+test: $(TARGET)
+	$(TARGET)
+sanitize:
+	$(MAKE) -f tests/Makefile.psx-screen-clock BUILD=$(BUILD)/sanitize CFLAGS='-std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-omit-frame-pointer' test
+clean:
+	rm -rf $(BUILD)
