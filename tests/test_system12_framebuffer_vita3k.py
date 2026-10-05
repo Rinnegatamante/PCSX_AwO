@@ -53,8 +53,8 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         self.assertEqual(len(colors), 14)
         self.assertRegex(
             "pcsx-vita: system12-coord-span-cull PASS cpu=ari64 magic=53314642 "
-            "ft3_1024_before=001f ft3_1024_after=001f "
-            "ft3_1023_before=001f ft3_1023_after=03e0 "
+            "f3_1024_before=001f f3_1024_after=001f "
+            "f3_1023_before=001f f3_1023_after=03e0 "
             "f4_invalid_before=001f f4_valid_before=001f "
             "f4_invalid_after=001f f4_valid_after=03e0 "
             "ft4_invalid_before=001f ft4_valid_before=001f "

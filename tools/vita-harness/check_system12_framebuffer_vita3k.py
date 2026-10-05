@@ -38,8 +38,8 @@ EXPECTED_COORD_ALIAS = re.compile(
     r"sprite_control=001f sprite_upper=03e0 sprite_negative=03e0 runs=1\b")
 EXPECTED_COORD_SPAN_CULL = re.compile(
     r"pcsx-vita: system12-coord-span-cull PASS cpu=ari64 magic=53314642 "
-    r"ft3_1024_before=001f ft3_1024_after=001f "
-    r"ft3_1023_before=001f ft3_1023_after=03e0 "
+    r"f3_1024_before=001f f3_1024_after=001f "
+    r"f3_1023_before=001f f3_1023_after=03e0 "
     r"f4_invalid_before=001f f4_valid_before=001f "
     r"f4_invalid_after=001f f4_valid_after=03e0 "
     r"ft4_invalid_before=001f ft4_valid_before=001f "

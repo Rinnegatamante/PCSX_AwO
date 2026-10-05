@@ -1132,7 +1132,7 @@ int main(int argc, char **argv)
                 samples[5], samples[6], samples[7], samples[8], runs);
         } else if (coord_span_mode) {
             sceClibPrintf("pcsx-vita: system12-coord-span-cull %s cpu=%s magic=%08x "
-                "ft3_1024_before=%04x ft3_1024_after=%04x ft3_1023_before=%04x ft3_1023_after=%04x "
+                "f3_1024_before=%04x f3_1024_after=%04x f3_1023_before=%04x f3_1023_after=%04x "
                 "f4_invalid_before=%04x f4_valid_before=%04x f4_invalid_after=%04x f4_valid_after=%04x "
                 "ft4_invalid_before=%04x ft4_valid_before=%04x ft4_invalid_after=%04x ft4_valid_after=%04x "
                 "culled_ft3_tpage=%04x g4_valid_half=%04x runs=%u\n",
