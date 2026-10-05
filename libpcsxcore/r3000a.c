@@ -77,6 +77,9 @@ int psxInit() {
 void psxReset() {
 	boolean introBypassed = FALSE;
 	boolean oldhle = Config.HLE;
+#ifdef PCSX_SYSTEM12
+	if (system12_active()) system12_pre_reset();
+#endif
 	psxTimingRefresh();
 
 	psxMemReset();

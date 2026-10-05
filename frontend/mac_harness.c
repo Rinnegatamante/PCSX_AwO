@@ -232,6 +232,7 @@ static void usage(const char *name)
     "[--frames N] [--output FRAME.ppm] [--capture-gl] [--dump-vram FILE] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
+    "[--reset-at-cycle N] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
     "[--board-bus-trace FILE] "
@@ -448,6 +449,8 @@ int main(int argc, char **argv)
   int capture_gl = 0;
   int interactive = 0;
   int max_blocks_requested = 0;
+  uint64_t reset_at_cycle = 0;
+  int reset_performed = 0;
 #if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
   unsigned interactive_frame = 0;
   uint64_t interactive_started_ns = 0;
@@ -494,6 +497,12 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--audio") && i + 1 < argc) audio_path = argv[++i];
     else if (!strcmp(argv[i], "--nvram") && i + 1 < argc) nvram_path = argv[++i];
     else if (!strcmp(argv[i], "--audio-test-fixture")) audio_test_fixture = 1;
+    else if (!strcmp(argv[i], "--reset-at-cycle") && i + 1 < argc) {
+      char *tail; unsigned long long n;
+      errno = 0; n = strtoull(argv[++i], &tail, 10);
+      if (errno || *tail || !n || reset_at_cycle) { usage(argv[0]); return 2; }
+      reset_at_cycle = n;
+    }
     else if (!strcmp(argv[i], "--drc")) use_drc = 1;
     else if (!strcmp(argv[i], "--interactive")) interactive = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
@@ -567,6 +576,7 @@ int main(int argc, char **argv)
       ((inputs_path || audio_path || audio_test_fixture || nvram_path) && !board) ||
       (snapshot_path && (!board || board_family != 12)) ||
       (bus_trace_path && (!board || board_family != 12)) ||
+      (reset_at_cycle && (!board || board_family != 12 || board_test || interactive)) ||
       (inputs_path && !strcmp(inputs_path, output)) ||
       (trace_path && inputs_path && !strcmp(trace_path, inputs_path)) ||
       (nvram_path && ((!strcmp(nvram_path, output)) ||
@@ -934,6 +944,14 @@ int main(int argc, char **argv)
       bus_trace_finished = 1;
     }
     if (board) {
+      if (reset_at_cycle && !reset_performed && cycles >= reset_at_cycle) {
+        unsigned int elapsed_frames = frame_counter - start_frame;
+        fprintf(stderr, "System12 harness soft reset: cycle=%" PRIu64 "\n", cycles);
+        psxReset();
+        start_frame = frame_counter - elapsed_frames;
+        prev_cycle = psxRegs.cycle;
+        reset_performed = 1;
+      }
       int sync_result = selected_board->sync(psxRegs.cycle);
       if (sync_result < 0) {
         fprintf(stderr, "%s: device or bus fault during execution\n", selected_board->name);
@@ -985,6 +1003,10 @@ int main(int argc, char **argv)
     }
   }
   clock_gettime(CLOCK_MONOTONIC, &end);
+  if (!result && reset_at_cycle && !reset_performed) {
+    fprintf(stderr, "requested soft-reset cycle was not reached\n");
+    result = 1;
+  }
 #ifdef PCSX_SYSTEM12
   if (board && audio_path && selected_board->close_audio()) {
     fprintf(stderr, "failed to finalize WAV output: %s\n", audio_path);

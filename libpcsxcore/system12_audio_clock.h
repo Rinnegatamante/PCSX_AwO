@@ -10,7 +10,9 @@ typedef struct {
 /* MAME's accumulated H8 period is floor(1e18 / 16934400) attoseconds.
  * At 88200 Hz, reduced samples/cycle = 26041666666617 / 5000000000000000.
  * The stream includes the current sample, except at time zero. Reset this
- * cursor with its CPU epoch. A backwards timestamp is rejected unchanged. */
+ * cursor on machine creation, preserving it across CPU soft resets. A backwards
+ * timestamp (e.g. discarded instruction overshoot at reset) is rejected
+ * unchanged; the cursor resumes once the CPU reaches its prior access time. */
 static inline int system12_audio_clock_advance(System12AudioClock *clock,
     uint64_t cycle, uint64_t *target)
 {

@@ -20,6 +20,8 @@ int system12_active(void);
 void system12_profile_counters(uint64_t *cycles, uint64_t *samples);
 #endif
 void system12_mem_reset(void);
+/* Quiescent pre-reset catch-up, before psxRegs.cycle is cleared. */
+void system12_pre_reset(void);
 void system12_reset(void);
 void system12_sync(u32 psx_cycle);
 void system12_vblank(int level);
@@ -29,7 +31,8 @@ int system12_eeprom_export(unsigned char *image, size_t size);
 int system12_eeprom_import(const unsigned char *image, size_t size);
 int system12_open_audio(const char *path);
 int system12_close_audio(void);
-/* Optional 88.2 kHz stereo output; the WAV capture path can run at once. */
+/* Optional 88.2 kHz stereo output; the WAV capture path can run at once.
+ * Called synchronously from device advancement; must not re-enter/reset core. */
 void system12_set_audio_output(system12_audio_cb callback, void *opaque);
 void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque);
 unsigned char system12_jamma_read(unsigned offset);

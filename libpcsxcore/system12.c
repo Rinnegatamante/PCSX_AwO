@@ -50,7 +50,8 @@ static struct {
     u64 rtc_fraction, eeprom_time_us, eeprom_cycle_fraction;
     int eeprom_clock_error;
     u32 last_cycle;
-    u64 h8_fraction, pcm_fraction, pcm_due, pcm_frames, sub_reads, sub_writes;
+    u64 h8_fraction, h8_requested, pcm_fraction, pcm_due, pcm_frames;
+    u64 pcm_epoch_frames, sub_reads, sub_writes;
     System12AudioClock pcm_h8_clock;
     unsigned pcm_peak;
     FILE *audio_file;
@@ -71,7 +72,7 @@ static struct {
     u64 unknown_reads, unknown_writes, dma_truncations;
     u32 last_shared_address, last_shared_pc, last_shared_value;
     u32 last_unknown_address, last_unknown_pc;
-    int active;
+    int active, booted;
 } board;
 static void pcm_sync_h8(void);
 static system12_bus_trace_cb bus_trace_cb;
@@ -416,12 +417,12 @@ static void pcm_sync_h8(void)
         pcm_generate_to(target);
 }
 
-void system12_sync(u32 psx_cycle)
+static void sync_to(u32 psx_cycle, int force)
 {
     u32 elapsed;
     if (!board.active || !board.h8) return;
     elapsed = psx_cycle - board.last_cycle;
-    if (elapsed < 256) return;
+    if (!elapsed || (!force && elapsed < 256)) return;
     board.last_cycle = psx_cycle;
     if (eeprom_advance_cycles(elapsed) && !board.eeprom_clock_error) {
         board.eeprom_clock_error = 1;
@@ -433,8 +434,10 @@ void system12_sync(u32 psx_cycle)
         board.rtc_fraction %= PSXCLK;
     }
     board.h8_fraction += (u64)elapsed * 16934400;
+    u32 requested = board.h8_fraction / PSXCLK;
+    board.h8_requested += requested;
     uint64_t h8_started = pcsx_profile_begin(PCSX_PROF_H8, 1);
-    h8_run_cycles(board.h8, board.h8_fraction / PSXCLK);
+    h8_run_cycles(board.h8, requested);
     pcsx_profile_end(PCSX_PROF_H8, h8_started);
     board.h8_fraction %= PSXCLK;
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
@@ -444,13 +447,25 @@ void system12_sync(u32 psx_cycle)
     pcm_generate_to(board.pcm_due + 1);
 }
 
+void system12_sync(u32 psx_cycle)
+{
+    sync_to(psx_cycle, 0);
+}
+
+/* Before the main CPU counter is cleared, retain even a sub-quantum interval.
+ * This runs at the same quiescent CPU boundary as psxReset, never from a sink. */
+void system12_pre_reset(void)
+{
+    if (board.booted) sync_to(psxRegs.cycle, 1);
+}
+
 #ifdef PCSX_SYSTEM12_PROFILE
 void system12_profile_counters(uint64_t *cycles, uint64_t *samples)
 {
     H8Status state;
     h8_get_status(board.h8, &state);
     *cycles = state.cycles;
-    *samples = board.pcm_frames;
+    *samples = board.pcm_frames - board.pcm_epoch_frames;
 }
 #endif
 
@@ -669,38 +684,51 @@ static void map_bank(unsigned bank)
 void system12_mem_reset(void)
 {
     memcpy(psxRegs.ptrs.psxR, board.main, board.main_size);
-    memset(psxRegs.ptrs.psxM, 0, PSX_RAM_SIZE);
+    /* MAME allocates RAM at machine start; driver_reset only repeats the boot
+     * copy on the affected boards. A soft reset does not erase either CPU RAM. */
+    if (!board.booted) memset(psxRegs.ptrs.psxM, 0, PSX_RAM_SIZE);
     memset(psxRegs.ptrs.psxP, 0xff, 0x10000);
     if (board.boot_hack && board.main_size >= 0x2028c && board.ram_size >= 0x1000c)
         memcpy(psxRegs.ptrs.psxM + 0x10000, board.main + 0x20280, 12);
-    map_bank(0);
+    map_bank(board.booted ? board.bank : 0);
 }
 
 void system12_reset(void)
 {
     pcsx_profile_reset();
-    board.dma_offset = board.alt_bank_offset = board.tektagt_dma_offset = 0;
+    if (!board.booted) {
+        board.dma_offset = board.alt_bank_offset = board.tektagt_dma_offset = 0;
+        board.h8_fraction = board.h8_requested = 0;
+        board.pcm_fraction = board.pcm_due = board.pcm_frames = 0;
+        memset(&board.pcm_h8_clock, 0, sizeof(board.pcm_h8_clock));
+        board.port8 = board.porta = 0; board.portb = 0x50;
+        board.jvs_player[0] = board.jvs_player[1] = board.jvs_system = 0;
+        board.jvs_coin[0] = board.jvs_coin[1] = 0;
+        board.rtc_fraction = 0;
+        memset(board.shared, 0, sizeof(board.shared));
+        h8_reset(board.h8);
+    } else {
+        /* MAME clears instruction overshoot at reset, while retaining its
+         * budget-based local time. The port's executed-state counter can be
+         * ahead, so restart from the absolute requested clock, not that tail. */
+        if (h8_soft_reset(board.h8, board.h8_requested))
+            SysPrintf("System12: H8 soft reset outside a quiescent boundary\n");
+    }
     board.has_tektagt_dma = 0;
     board.last_cycle = psxRegs.cycle;
-    board.h8_fraction = board.pcm_fraction = board.pcm_due = board.pcm_frames = 0;
-    memset(&board.pcm_h8_clock, 0, sizeof(board.pcm_h8_clock));
+    board.pcm_epoch_frames = board.pcm_frames;
     board.pcm_peak = 0;
     board.sub_reads = board.sub_writes = 0;
-    board.port8 = board.porta = 0; board.portb = 0x50;
-    board.jvs_player[0] = board.jvs_player[1] = board.jvs_system = 0;
-    board.jvs_coin[0] = board.jvs_coin[1] = 0;
     c352_reset(board.pcm);
     rtc4543_reset(&board.rtc);
     namco_settings_reset(&board.settings);
-    board.rtc_fraction = 0;
-    h8_reset(board.h8);
-    memset(board.shared, 0, sizeof(board.shared));
     board.shared_reads = board.shared_writes = board.bank_writes = 0;
     board.dma_transfers = board.dma_bytes = board.dma_truncations = 0;
     board.unknown_reads = board.unknown_writes = 0;
     board.last_shared_address = board.last_shared_pc = board.last_shared_value = 0;
     board.last_unknown_address = board.last_unknown_pc = 0;
-    map_bank(0);
+    map_bank(board.bank);
+    board.booted = 1;
     psxRegs.pc = 0xbfc00000;
     psxRegs.CP0.n.SR = 0x10600000;
     psxRegs.CP0.n.PRid = 2;
@@ -1096,6 +1124,9 @@ int system12_selftest(void)
     board.eeprom_cycle_fraction = saved_eeprom_fraction;
     board.eeprom_clock_error = saved_eeprom_error;
     GPU_writeStatus(0);
+    /* Validation deliberately dirties RAM/banks: restore a cold boot here,
+     * rather than pretending that a normal hardware soft reset erases RAM. */
+    board.booted = 0;
     psxReset();
     return failures ? -1 : 0;
 #undef CHECK
