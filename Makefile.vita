@@ -25,6 +25,8 @@ LIBS := -lSDL3 -limgui $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -lt
 BUILD_DIR := build-vita
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
 ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
+SETTINGS_OBJ := $(BUILD_DIR)/settings.o
+SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
@@ -43,8 +45,14 @@ $(STANDALONE_OBJ): frontend/vita/standalone.c | $(BUILD_DIR)
 $(ROM_SELECTOR_OBJ): frontend/vita/rom_selector.cpp | $(BUILD_DIR)
 	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
 
-$(TARGET).elf: core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(CORE) $(LIBS) -o $@
+$(SETTINGS_OBJ): frontend/vita/settings.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(SAVESTATES_OBJ): frontend/vita/savestates.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(TARGET).elf: core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
@@ -58,4 +66,4 @@ clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d)

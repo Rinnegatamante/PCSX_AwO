@@ -1926,6 +1926,8 @@ static void retro_set_audio_buff_status_cb(void)
 
 static void update_variables(bool in_flight);
 static void load_memcards(void);
+static bool get_bios_config_hle(void);
+static void prepare_bios(bool use_hle);
 
 static int get_bool_variable(const char *key)
 {
@@ -2204,6 +2206,7 @@ bool retro_load_game(const struct retro_game_info *info)
 
    load_memcards();
    plugin_call_rearmed_cbs();
+   prepare_bios(get_bios_config_hle());
    SysReset();
 
    if (is_exe)
@@ -3527,9 +3530,6 @@ static void print_internal_fps(void)
       }
    }
 }
-
-static bool get_bios_config_hle(void);
-static void prepare_bios(bool use_hle);
 
 void retro_run(void)
 {

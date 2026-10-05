@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -19,6 +20,9 @@
 
 #include <imgui.h>
 #include <imgui_impl_vitagl.h>
+
+#include "settings.h"
+#include "savestates.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define ROMS_DIR APP_ROOT "/roms"
@@ -98,7 +102,60 @@ struct SelectorTask {
 };
 
 struct PauseMenuTask {
+    const char *game_path;
+    bool start_in_save_states;
     int result;
+};
+
+struct OptionChoice {
+    const char *value;
+    const char *label;
+};
+
+struct SelectorOption {
+    const char *category;
+    const char *label;
+    const char *description;
+    const char *key;
+    const OptionChoice *choices;
+    int choice_count;
+    bool psx_clock;
+};
+
+static const OptionChoice k_region_choices[] = {
+    { "auto", "Auto" }, { "NTSC", "NTSC" }, { "PAL", "PAL" }
+};
+static const OptionChoice k_bios_choices[] = {
+    { "auto", "Auto" }, { "HLE", "HLE" }
+};
+static const OptionChoice k_bios_logo_choices[] = {
+    { "disabled", "Off" }, { "enabled", "On" },
+    { "enabled_no_pcsx", "On, no PCSX logo" }
+};
+static const OptionChoice k_fractional_choices[] = {
+    { "auto", "Auto" }, { "disabled", "Off" }, { "enabled", "On" }
+};
+static const OptionChoice k_flip_choices[] = {
+    { "auto", "Auto" }, { "early", "Early" }, { "late", "Late" }
+};
+static const OptionChoice k_toggle_choices[] = {
+    { "disabled", "Off" }, { "enabled", "On" }
+};
+static const OptionChoice k_interp_choices[] = {
+    { "off", "Off" }, { "simple", "Simple" },
+    { "gaussian", "Gaussian" }, { "cubic", "Cubic" }
+};
+static const SelectorOption k_selector_options[] = {
+    { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
+    { "SYSTEM", "BIOS", "Choose automatic BIOS selection or the built-in HLE BIOS. Auto uses a real BIOS when available. Takes effect on the next game start/restart.", "pcsx_rearmed_bios", k_bios_choices, 2, false },
+    { "SYSTEM", "BIOS Boot Logo", "Controls whether the PlayStation BIOS boot animation is shown. Takes effect on the next game start/restart.", "pcsx_rearmed_show_bios_bootlogo", k_bios_logo_choices, 3, false },
+    { "SYSTEM", "PSX CPU Clock", "Changes the emulated PlayStation CPU clock. Leave on Auto unless a game needs different CPU timing.", "pcsx_rearmed_psxclock", NULL, 0, true },
+    { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
+    { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
+    { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },
+    { "AUDIO", "Interpolation", "Selects the SPU sample interpolation method. Higher-quality modes can slightly increase CPU cost.", "pcsx_rearmed_spu_interpolation", k_interp_choices, 4, false },
+    { "AUDIO", "CD Audio", "Enables CD-DA audio tracks used by games that stream music directly from the disc.", "pcsx_rearmed_nocdaudio", k_toggle_choices, 2, false },
+    { "AUDIO", "XA Decoding", "Enables XA audio decoding for streamed voices, music and sound effects stored on the disc.", "pcsx_rearmed_noxadecoding", k_toggle_choices, 2, false },
 };
 
 struct OverlayGLState {
@@ -176,7 +233,7 @@ static GLuint compile_shader(GLenum type, const char *source)
 static bool create_imgui_program()
 {
     static const char *vs =
-        "attribute vec3 in_pos;\n"
+        "attribute vec2 in_pos;\n"
         "attribute vec2 in_uv;\n"
         "attribute vec4 in_color;\n"
         "uniform vec4 u_screen;\n"
@@ -243,7 +300,7 @@ static bool create_imgui_program()
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert),
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert),
         (void *)offsetof(ImDrawVert, pos));
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(ImDrawVert),
         (void *)offsetof(ImDrawVert, uv));
@@ -1446,6 +1503,151 @@ static void restore_overlay_gl_state(const OverlayGLState &state)
     set_gl_enable(GL_ALPHA_TEST, state.alpha_test);
 }
 
+static std::string selector_option_value(const SelectorOption &option)
+{
+    const char *current = VitaSettings_GetOption(option.key);
+    if (!current)
+        return "?";
+
+    if (option.psx_clock) {
+        if (strcmp(current, "auto") == 0)
+            return "Auto";
+        return std::string(current) + "%";
+    }
+
+    for (int i = 0; i < option.choice_count; ++i)
+        if (strcmp(current, option.choices[i].value) == 0)
+            return option.choices[i].label;
+
+    return current;
+}
+
+static void adjust_selector_option(int option_index, int direction)
+{
+    if (option_index < 0 || option_index >= (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0])))
+        return;
+
+    const SelectorOption &option = k_selector_options[option_index];
+    const char *current = VitaSettings_GetOption(option.key);
+    if (!current)
+        return;
+
+    if (option.psx_clock) {
+        char value[16];
+        if (strcmp(current, "auto") == 0) {
+            snprintf(value, sizeof(value), "%d", direction > 0 ? 30 : 100);
+        } else {
+            int clock = atoi(current) + (direction > 0 ? 1 : -1);
+            if (clock > 100 || clock < 30)
+                snprintf(value, sizeof(value), "auto");
+            else
+                snprintf(value, sizeof(value), "%d", clock);
+        }
+        if (VitaSettings_SetOption(option.key, value))
+            VitaSettings_Save();
+        return;
+    }
+
+    int current_index = 0;
+    for (int i = 0; i < option.choice_count; ++i) {
+        if (strcmp(current, option.choices[i].value) == 0) {
+            current_index = i;
+            break;
+        }
+    }
+
+    current_index += direction > 0 ? 1 : -1;
+    if (current_index < 0)
+        current_index = option.choice_count - 1;
+    if (current_index >= option.choice_count)
+        current_index = 0;
+
+    if (VitaSettings_SetOption(option.key, option.choices[current_index].value))
+        VitaSettings_Save();
+}
+
+static void draw_selector_options(int selected)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.68f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.96f, 0.97f, 0.98f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
+    ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
+    ImGui::Begin("Selector Options", NULL,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    const float content_x = 120.0f;
+    const float content_w = (float)MENU_W - content_x * 2.0f;
+    const float row_h = 29.0f;
+    float y = 72.0f;
+    const char *last_category = NULL;
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::SetCursorPos(ImVec2(content_x, 48.0f));
+    ImGui::Text("OPTIONS");
+    ImGui::SetWindowFontScale(1.0f);
+    draw->AddLine(ImVec2(content_x, 88.0f),
+        ImVec2((float)MENU_W - content_x, 88.0f),
+        IM_COL32(220, 220, 220, 150), 1.0f);
+    y = 100.0f;
+
+    for (int i = 0; i < (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0])); ++i) {
+        const SelectorOption &option = k_selector_options[i];
+        if (!last_category || strcmp(last_category, option.category) != 0) {
+            ImGui::SetCursorPos(ImVec2(content_x, y));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.92f, 1.0f));
+            ImGui::Text("%s", option.category);
+            ImGui::PopStyleColor();
+            y += 22.0f;
+            last_category = option.category;
+        }
+
+        if (i == selected) {
+            draw->AddRectFilled(ImVec2(content_x, y),
+                ImVec2(content_x + content_w, y + row_h), IM_COL32(38, 42, 47, 220));
+            draw->AddRect(ImVec2(content_x, y),
+                ImVec2(content_x + content_w, y + row_h), IM_COL32(0, 190, 220, 255));
+        }
+
+        ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 7.0f));
+        ImGui::Text("%s", option.label);
+
+        const std::string value = selector_option_value(option);
+        const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
+        ImGui::SetCursorPos(ImVec2(content_x + content_w - value_size.x - 18.0f, y + 7.0f));
+        ImGui::Text("%s", value.c_str());
+        y += row_h;
+    }
+
+    if (selected >= 0 && selected < (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]))) {
+        const float description_y = 466.0f;
+        draw->AddLine(ImVec2(content_x, description_y - 8.0f),
+            ImVec2((float)MENU_W - content_x, description_y - 8.0f),
+            IM_COL32(180, 180, 180, 110), 1.0f);
+        ImGui::SetCursorPos(ImVec2(content_x, description_y));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.77f, 0.80f, 1.0f));
+        ImGui::PushTextWrapPos(content_x + content_w);
+        ImGui::TextWrapped("%s", k_selector_options[selected].description);
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+    }
+
+    const char *hint = "Up/Down: Select    Left/Right or X: Change    Square/Triangle: Back";
+    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
+    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 34.0f));
+    ImGui::Text("%s", hint);
+
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+}
+
 static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
 {
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
@@ -1472,7 +1674,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
         ImGui::SetCursorPos(ImVec2((MENU_W - title_size.x) * 0.5f, MENU_H - 72.0f));
         ImGui::Text("%s", title);
 
-        const char *hint = "Left/Right: Select    Right Stick: Rotate    X: Start    Triangle: Exit";
+        const char *hint = "Left/Right: Select    Right Stick: Rotate    X: Start    Square: Options    Triangle: Exit";
         const ImVec2 hint_size = ImGui::CalcTextSize(hint);
         ImGui::SetCursorPos(ImVec2((MENU_W - hint_size.x) * 0.5f, MENU_H - 40.0f));
         ImGui::Text("%s", hint);
@@ -1514,32 +1716,95 @@ static void draw_pause_menu(int selected)
         ImVec2((float)MENU_W - content_x, 126.0f),
         IM_COL32(220, 220, 220, 150), 1.0f);
 
-    const float row0_y = 154.0f;
-    const float row1_y = 210.0f;
+    static const char *items[] = { "Restart Game", "Save States", "Options", "Close Game" };
+    const float first_row_y = 154.0f;
     const float row_h = 46.0f;
-    if (selected == 0) {
-        draw->AddRectFilled(ImVec2(content_x, row0_y),
-            ImVec2(content_x + content_w, row0_y + row_h),
-            IM_COL32(42, 46, 50, 210));
-        draw->AddRect(ImVec2(content_x, row0_y),
-            ImVec2(content_x + content_w, row0_y + row_h),
-            IM_COL32(0, 190, 220, 255));
+    for (int i = 0; i < 4; ++i) {
+        const float row_y = first_row_y + i * 56.0f;
+        if (selected == i) {
+            draw->AddRectFilled(ImVec2(content_x, row_y),
+                ImVec2(content_x + content_w, row_y + row_h),
+                IM_COL32(42, 46, 50, 210));
+            draw->AddRect(ImVec2(content_x, row_y),
+                ImVec2(content_x + content_w, row_y + row_h),
+                IM_COL32(0, 190, 220, 255));
+        }
+        ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row_y + 14.0f));
+        ImGui::Text("%s", items[i]);
     }
-    if (selected == 1) {
-        draw->AddRectFilled(ImVec2(content_x, row1_y),
-            ImVec2(content_x + content_w, row1_y + row_h),
-            IM_COL32(42, 46, 50, 210));
-        draw->AddRect(ImVec2(content_x, row1_y),
-            ImVec2(content_x + content_w, row1_y + row_h),
-            IM_COL32(0, 190, 220, 255));
-    }
-
-    ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row0_y + 14.0f));
-    ImGui::Text("Restart Game");
-    ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row1_y + 14.0f));
-    ImGui::Text("Close Game");
 
     const char *hint = "Up/Down: Select    X: Confirm    Start+Select: Resume";
+    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
+    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
+    ImGui::Text("%s", hint);
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+}
+
+static void draw_save_states_menu(int selected, const char *game_path)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.42f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.96f, 0.97f, 0.98f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
+    ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
+    ImGui::Begin("Save States", NULL,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    const float content_x = 110.0f;
+    const float content_w = (float)MENU_W - content_x * 2.0f;
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::SetCursorPos(ImVec2(content_x, 82.0f));
+    ImGui::Text("SAVE STATES");
+    ImGui::SetWindowFontScale(1.0f);
+
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddLine(ImVec2(content_x, 126.0f),
+        ImVec2((float)MENU_W - content_x, 126.0f),
+        IM_COL32(220, 220, 220, 150), 1.0f);
+
+    static const char *items[] = { "Save State", "Load State", "State Slot" };
+    const int state_slot = VitaSaveStates_GetSlot();
+    const bool state_exists = VitaSaveStates_Exists(game_path, state_slot);
+    const float first_row_y = 154.0f;
+    const float row_h = 46.0f;
+
+    for (int i = 0; i < 3; ++i) {
+        const float row_y = first_row_y + i * 56.0f;
+        if (selected == i) {
+            draw->AddRectFilled(ImVec2(content_x, row_y),
+                ImVec2(content_x + content_w, row_y + row_h),
+                IM_COL32(42, 46, 50, 210));
+            draw->AddRect(ImVec2(content_x, row_y),
+                ImVec2(content_x + content_w, row_y + row_h),
+                IM_COL32(0, 190, 220, 255));
+        }
+
+        ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row_y + 14.0f));
+        if (i == 1 && !state_exists)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.48f, 0.50f, 0.53f, 1.0f));
+        ImGui::Text("%s", items[i]);
+        if (i == 1 && !state_exists)
+            ImGui::PopStyleColor();
+
+        if (i == 2) {
+            char slot_text[32];
+            snprintf(slot_text, sizeof(slot_text), "%d%s", state_slot,
+                state_exists ? "  Saved" : "  Empty");
+            const ImVec2 slot_size = ImGui::CalcTextSize(slot_text);
+            ImGui::SetCursorPos(ImVec2(content_x + content_w - slot_size.x - 24.0f,
+                row_y + 14.0f));
+            ImGui::Text("%s", slot_text);
+        }
+    }
+
+    const char *hint = "Up/Down: Select    Left/Right: Slot    X: Confirm    Square/Triangle: Back";
     const ImVec2 hint_size = ImGui::CalcTextSize(hint);
     ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
     ImGui::Text("%s", hint);
@@ -1583,6 +1848,10 @@ static void pause_menu_task(void *arg)
     }
 
     int selected = 0;
+    int options_selected = 0;
+    int save_states_selected = 0;
+    bool options_open = false;
+    bool save_states_open = task->start_in_save_states;
     uint32_t previous_buttons = 0;
     bool combo_released = false;
     const uint32_t combo = SCE_CTRL_START | SCE_CTRL_SELECT;
@@ -1605,13 +1874,69 @@ static void pause_menu_task(void *arg)
             break;
         }
 
-        if (pressed & SCE_CTRL_UP)
-            selected = selected > 0 ? selected - 1 : 1;
-        if (pressed & SCE_CTRL_DOWN)
-            selected = selected < 1 ? selected + 1 : 0;
-        if (pressed & SCE_CTRL_CROSS) {
-            task->result = selected == 0 ? 1 : 2;
-            break;
+        if (options_open) {
+            const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
+            if (pressed & SCE_CTRL_UP) {
+                options_selected--;
+                if (options_selected < 0)
+                    options_selected = option_count - 1;
+            }
+            if (pressed & SCE_CTRL_DOWN) {
+                options_selected++;
+                if (options_selected >= option_count)
+                    options_selected = 0;
+            }
+            if (pressed & SCE_CTRL_LEFT)
+                adjust_selector_option(options_selected, -1);
+            if ((pressed & SCE_CTRL_RIGHT) || (pressed & SCE_CTRL_CROSS))
+                adjust_selector_option(options_selected, 1);
+            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
+                options_open = false;
+        } else if (save_states_open) {
+            if (pressed & SCE_CTRL_UP)
+                save_states_selected = save_states_selected > 0 ? save_states_selected - 1 : 2;
+            if (pressed & SCE_CTRL_DOWN)
+                save_states_selected = save_states_selected < 2 ? save_states_selected + 1 : 0;
+            if (save_states_selected == 2) {
+                if (pressed & SCE_CTRL_LEFT)
+                    VitaSaveStates_SetSlot(VitaSaveStates_GetSlot() - 1);
+                if (pressed & SCE_CTRL_RIGHT)
+                    VitaSaveStates_SetSlot(VitaSaveStates_GetSlot() + 1);
+            }
+            if (pressed & SCE_CTRL_CROSS) {
+                if (save_states_selected == 0) {
+                    task->result = VITA_PAUSE_SAVE_STATE;
+                    break;
+                }
+                if (save_states_selected == 1) {
+                    if (VitaSaveStates_Exists(task->game_path, VitaSaveStates_GetSlot())) {
+                        task->result = VITA_PAUSE_LOAD_STATE;
+                        break;
+                    }
+                } else if (save_states_selected == 2) {
+                    VitaSaveStates_SetSlot(VitaSaveStates_GetSlot() + 1);
+                }
+            }
+            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
+                save_states_open = false;
+        } else {
+            if (pressed & SCE_CTRL_UP)
+                selected = selected > 0 ? selected - 1 : 3;
+            if (pressed & SCE_CTRL_DOWN)
+                selected = selected < 3 ? selected + 1 : 0;
+            if (pressed & SCE_CTRL_CROSS) {
+                if (selected == 0) {
+                    task->result = VITA_PAUSE_RESTART;
+                    break;
+                } else if (selected == 1) {
+                    save_states_open = true;
+                } else if (selected == 2) {
+                    options_open = true;
+                } else {
+                    task->result = VITA_PAUSE_CLOSE_GAME;
+                    break;
+                }
+            }
         }
         previous_buttons = pad.buttons;
 
@@ -1620,7 +1945,12 @@ static void pause_menu_task(void *arg)
         save_overlay_gl_state(overlay_state);
         restore_ui_state();
         ImGui_ImplVitaGL_NewFrame();
-        draw_pause_menu(selected);
+        if (options_open)
+            draw_selector_options(options_selected);
+        else if (save_states_open)
+            draw_save_states_menu(save_states_selected, task->game_path);
+        else
+            draw_pause_menu(selected);
         ImGui::Render();
         render_imgui_draw_data(ImGui::GetDrawData());
         restore_overlay_gl_state(overlay_state);
@@ -1691,6 +2021,8 @@ static void selector_task(void *arg)
     float repeat_hold = 0.0f;
     float repeat_time = 0.0f;
     int repeat_dir = 0;
+    bool options_open = false;
+    int options_selected = 0;
     uint32_t previous_buttons = 0;
     SceUInt64 previous_time = sceKernelGetProcessTimeWide();
 
@@ -1706,8 +2038,27 @@ static void selector_task(void *arg)
         sceCtrlPeekBufferPositiveExt2(0, &pad, 1);
         const uint32_t pressed = pad.buttons & ~previous_buttons;
         previous_buttons = pad.buttons;
+        const bool options_was_open = options_open;
 
-        if (!roms.empty()) {
+        if (options_open) {
+            const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
+            if (pressed & SCE_CTRL_UP) {
+                options_selected--;
+                if (options_selected < 0)
+                    options_selected = option_count - 1;
+            }
+            if (pressed & SCE_CTRL_DOWN) {
+                options_selected++;
+                if (options_selected >= option_count)
+                    options_selected = 0;
+            }
+            if (pressed & SCE_CTRL_LEFT)
+                adjust_selector_option(options_selected, -1);
+            if ((pressed & SCE_CTRL_RIGHT) || (pressed & SCE_CTRL_CROSS))
+                adjust_selector_option(options_selected, 1);
+            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
+                options_open = false;
+        } else if (!roms.empty()) {
             int held_dir = 0;
             if ((pad.buttons & SCE_CTRL_LEFT) && !(pad.buttons & SCE_CTRL_RIGHT))
                 held_dir = -1;
@@ -1770,8 +2121,12 @@ static void selector_task(void *arg)
             }
         }
 
-        if (pressed & SCE_CTRL_TRIANGLE)
-            break;
+        if (!options_was_open) {
+            if (pressed & SCE_CTRL_SQUARE)
+                options_open = true;
+            else if (pressed & SCE_CTRL_TRIANGLE)
+                break;
+        }
 
         const float target = (float)selected;
         const float blend = std::min(1.0f, dt * 10.0f);
@@ -1824,7 +2179,10 @@ static void selector_task(void *arg)
         }
 
         restore_ui_state();
-        draw_text_overlay(roms, selected);
+        if (options_open)
+            draw_selector_options(options_selected);
+        else
+            draw_text_overlay(roms, selected);
         ImGui::Render();
         render_imgui_draw_data(ImGui::GetDrawData());
         vglSwapBuffers(GL_FALSE);
@@ -1863,10 +2221,12 @@ extern "C" int VitaRomSelector_Run(char *out_path, size_t out_size)
     return task.result;
 }
 
-extern "C" int VitaPauseMenu_Run(void)
+extern "C" int VitaPauseMenu_Run(const char *game_path, int start_in_save_states)
 {
     PauseMenuTask task;
-    task.result = 0;
+    task.game_path = game_path;
+    task.start_in_save_states = start_in_save_states != 0;
+    task.result = VITA_PAUSE_RESUME;
     NativeGpu_RunBackendTaskSync(pause_menu_task, &task);
     return task.result;
 }

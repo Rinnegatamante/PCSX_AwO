@@ -19,6 +19,8 @@
 #include <libretro.h>
 
 #include "rom_selector.h"
+#include "savestates.h"
+#include "settings.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define BIOS_DIR APP_ROOT "/bios"
@@ -86,38 +88,7 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
 
 static const char *option_value(const char *key)
 {
-    static const struct {
-        const char *key;
-        const char *value;
-    } options[] = {
-        { "pcsx_rearmed_memcard1", "shared" },
-        { "pcsx_rearmed_memcard2", "none" },
-        { "pcsx_rearmed_bios", "auto" },
-        { "pcsx_rearmed_show_bios_bootlogo", "disabled" },
-        { "pcsx_rearmed_rgb32_output", "disabled" },
-        { "pcsx_rearmed_frameskip_type", "disabled" },
-        { "pcsx_rearmed_region", "auto" },
-        { "pcsx_rearmed_display_info", "disabled" },
-        { "pcsx_rearmed_vibration", "disabled" },
-        { "pcsx_rearmed_dithering", "enabled" },
-        { "pcsx_rearmed_neon_interlace_enable_v2", "auto" },
-        { "pcsx_rearmed_neon_enhancement_enable", "disabled" },
-        { "pcsx_rearmed_scale_hires", "disabled" },
-        { "pcsx_rearmed_gpu_thread_rendering", "disabled" },
-        { "pcsx_rearmed_spu_interpolation", "gaussian" },
-        { "pcsx_rearmed_spu_thread", "disabled" },
-        { "pcsx_rearmed_cd_readahead", "0" },
-        { "pcsx_rearmed_drc", "enabled" },
-        { "pcsx_rearmed_psxclock", "auto" },
-        { "pcsx_rearmed_fractional_framerate", "auto" },
-    };
-    size_t i;
-
-    for (i = 0; i < sizeof(options) / sizeof(options[0]); i++) {
-        if (strcmp(options[i].key, key) == 0)
-            return options[i].value;
-    }
-    return NULL;
+    return VitaSettings_GetOption(key);
 }
 
 static bool environment_cb(unsigned cmd, void *data)
@@ -141,7 +112,7 @@ static bool environment_cb(unsigned cmd, void *data)
         *(bool *)data = true;
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
-        *(bool *)data = false;
+        *(bool *)data = VitaSettings_ConsumeDirty();
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         struct retro_variable *var = (struct retro_variable *)data;
@@ -511,6 +482,8 @@ int main(int argc, char **argv)
 
     sceClibPrintf("PCSX AwO: main entered\n");
     make_dirs();
+    VitaSettings_Init();
+    VitaSaveStates_Init();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
 
     ret = display_init();
@@ -576,20 +549,48 @@ int main(int argc, char **argv)
 
             g_pause_requested = false;
             audio_set_paused(true);
-            ret = VitaPauseMenu_Run();
-            if (ret == 0) {
+            bool reopen_save_states = false;
+            for (;;) {
+                ret = VitaPauseMenu_Run(game_path, reopen_save_states ? 1 : 0);
+                reopen_save_states = false;
                 wait_for_menu_input_release();
+
+                if (ret == VITA_PAUSE_SAVE_STATE) {
+                    const int slot = VitaSaveStates_GetSlot();
+                    if (VitaSaveStates_Save(game_path, slot) == 0)
+                        sceClibPrintf("PCSX AwO: saved state slot %d\n", slot);
+                    else
+                        sceClibPrintf("PCSX AwO: failed to save state slot %d\n", slot);
+                    reopen_save_states = true;
+                    continue;
+                }
+
+                if (ret == VITA_PAUSE_LOAD_STATE) {
+                    const int slot = VitaSaveStates_GetSlot();
+                    if (VitaSaveStates_Load(game_path, slot) == 0) {
+                        sceClibPrintf("PCSX AwO: loaded state slot %d\n", slot);
+                        audio_clear();
+                        ret = VITA_PAUSE_RESUME;
+                        break;
+                    }
+                    sceClibPrintf("PCSX AwO: failed to load state slot %d\n", slot);
+                    reopen_save_states = true;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (ret == VITA_PAUSE_RESUME) {
                 audio_set_paused(false);
                 continue;
             }
-
-            wait_for_menu_input_release();
 
             retro_unload_game();
             game_loaded = false;
             audio_clear();
 
-            if (ret == 1) {
+            if (ret == VITA_PAUSE_RESTART) {
                 sceClibPrintf("PCSX AwO: restarting %s\n", game_path);
                 memset(&game, 0, sizeof(game));
                 game.path = game_path;
