@@ -13,9 +13,63 @@
 #include <new>
 #include <string>
 
-struct ata_storage final : public cf_device_base {
+struct ata_storage {
+  virtual ~ata_storage() = default;
+  virtual uint16_t command_r(uint32_t offset, uint16_t mem_mask,
+                             bool eight_bit) = 0;
+  virtual void command_w(uint32_t offset, uint16_t data, uint16_t mem_mask,
+                         bool eight_bit) = 0;
+  virtual uint16_t control_r(uint32_t offset, uint16_t mem_mask) = 0;
+  virtual void control_w(uint32_t offset, uint16_t data, uint16_t mem_mask) = 0;
+  virtual uint16_t dma_r() = 0;
+  virtual void dma_w(uint16_t data) = 0;
+  virtual void set_csel(int state) = 0;
+  virtual void set_dmack(int state) = 0;
+  virtual void set_dasp_input(int state) = 0;
+  virtual void set_pdiag_input(int state) = 0;
+  virtual int advance(uint64_t ns) = 0;
+  virtual uint64_t now() const = 0;
+  virtual uint8_t status() const = 0;
+  virtual uint8_t error() const = 0;
+  virtual uint16_t sector_count() const = 0;
+  virtual const uint16_t *identify() const = 0;
+  virtual int try_destroy() const = 0;
+  virtual int attach_card(gnet_pccard_t *card) = 0;
+  virtual void reset_adapter() = 0;
+  virtual const gnet_pccard_ata_ops_t *get_card_ops() = 0;
+};
+
+template <typename DeviceBase>
+struct ata_storage_device final : public DeviceBase, public ata_storage {
 public:
-  explicit ata_storage(const ata_storage_config_t &config) : config(config) {
+  using DeviceBase::ide_build_identify_device;
+  using DeviceBase::m_8bit_data_transfers;
+  using DeviceBase::m_buffer;
+  using DeviceBase::m_buffer_size;
+  using DeviceBase::m_can_identify_device;
+  using DeviceBase::m_command;
+  using DeviceBase::m_cylinder_high;
+  using DeviceBase::m_cylinder_low;
+  using DeviceBase::m_error;
+  using DeviceBase::m_feature;
+  using DeviceBase::m_identify_buffer;
+  using DeviceBase::m_num_cylinders;
+  using DeviceBase::m_num_heads;
+  using DeviceBase::m_num_sectors;
+  using DeviceBase::m_sector_count;
+  using DeviceBase::m_sector_number;
+  using DeviceBase::m_status;
+  using DeviceBase::set_csel_in;
+  using DeviceBase::set_dasp_in;
+  using DeviceBase::set_dmack_in;
+  using DeviceBase::set_dma_transfer_time;
+  using DeviceBase::set_irq;
+  using DeviceBase::set_master_password;
+  using DeviceBase::set_pdiag_in;
+  using DeviceBase::set_user_password;
+
+  explicit ata_storage_device(const ata_storage_config_t &config)
+      : config(config) {
     m_num_cylinders = config.cylinders;
     m_num_heads = config.heads;
     m_num_sectors = config.sectors_per_track;
@@ -29,7 +83,7 @@ public:
         std::min<uint64_t>(config.dma_transfer_time_ns,
                            uint64_t(std::numeric_limits<int64_t>::max())))));
 
-    device_start();
+    DeviceBase::device_start();
     m_can_identify_device = 1;
     if (config.identify_size == 512) {
       for (int word = 0; word < 256; ++word)
@@ -38,7 +92,7 @@ public:
       ide_build_identify_device();
       apply_identify_strings();
     }
-    device_reset();
+    DeviceBase::device_reset();
   }
 
   int read_sector(uint32_t lba, void *buffer) override {
@@ -83,54 +137,56 @@ public:
     ata_mass_storage_device_base::process_buffer();
   }
 
-  uint16_t command_r(uint32_t offset, uint16_t mem_mask, bool eight_bit) {
+  uint16_t command_r(uint32_t offset, uint16_t mem_mask,
+                     bool eight_bit) override {
     OperationGuard guard(*this);
     m_8bit_data_transfers = eight_bit;
     (void)mem_mask; // MAME's PC Card adapter converts this lane test to the flag.
     return ata_hle_device_base::command_r(offset);
   }
   void command_w(uint32_t offset, uint16_t data, uint16_t mem_mask,
-                 bool eight_bit) {
+                 bool eight_bit) override {
     OperationGuard guard(*this);
     m_8bit_data_transfers = eight_bit;
     (void)mem_mask;
     ata_hle_device_base::command_w(offset, data);
   }
-  uint16_t control_r(uint32_t offset, uint16_t mem_mask) {
+  uint16_t control_r(uint32_t offset, uint16_t mem_mask) override {
     OperationGuard guard(*this);
     (void)mem_mask;
     return ata_hle_device_base::control_r(offset);
   }
-  void control_w(uint32_t offset, uint16_t data, uint16_t mem_mask) {
+  void control_w(uint32_t offset, uint16_t data,
+                 uint16_t mem_mask) override {
     OperationGuard guard(*this);
     (void)mem_mask;
     ata_hle_device_base::control_w(offset, data);
   }
-  uint16_t dma_r() {
+  uint16_t dma_r() override {
     OperationGuard guard(*this);
     return ata_hle_device_base::dma_r();
   }
-  void dma_w(uint16_t data) {
+  void dma_w(uint16_t data) override {
     OperationGuard guard(*this);
     ata_hle_device_base::dma_w(data);
   }
-  void set_csel(int state) {
+  void set_csel(int state) override {
     OperationGuard guard(*this);
     set_csel_in(state);
   }
-  void set_dmack(int state) {
+  void set_dmack(int state) override {
     OperationGuard guard(*this);
     set_dmack_in(state);
   }
-  void set_dasp_input(int state) {
+  void set_dasp_input(int state) override {
     OperationGuard guard(*this);
     set_dasp_in(state);
   }
-  void set_pdiag_input(int state) {
+  void set_pdiag_input(int state) override {
     OperationGuard guard(*this);
     set_pdiag_in(state);
   }
-  int advance(uint64_t ns) {
+  int advance(uint64_t ns) override {
     // Advancing from a callback or from another public API call would run
     // timers halfway through the operation that caused that callback. The
     // scheduler itself is the only operation allowed to enter run_until.
@@ -142,24 +198,24 @@ public:
     running_timers = false;
     return valid ? ATA_STORAGE_OK : ATA_STORAGE_ARGUMENT;
   }
-  uint64_t now() const { return device_t::now(); }
-  uint8_t status() const { return m_status; }
-  uint8_t error() const { return m_error; }
-  uint16_t sector_count() const { return m_sector_count; }
-  const uint16_t *identify() const { return m_identify_buffer; }
-  int try_destroy() const {
+  uint64_t now() const override { return device_t::now(); }
+  uint8_t status() const override { return m_status; }
+  uint8_t error() const override { return m_error; }
+  uint16_t sector_count() const override { return m_sector_count; }
+  const uint16_t *identify() const override { return m_identify_buffer; }
+  int try_destroy() const override {
     return callback_depth || operation_depth ? ATA_STORAGE_BUSY : ATA_STORAGE_OK;
   }
-  int attach_card(gnet_pccard_t *new_card) {
+  int attach_card(gnet_pccard_t *new_card) override {
     card = new_card;
     return ATA_STORAGE_OK;
   }
 
-  void reset_adapter() {
+  void reset_adapter() override {
     OperationGuard guard(*this);
-    device_reset();
+    DeviceBase::device_reset();
   }
-  const gnet_pccard_ata_ops_t *get_card_ops() {
+  const gnet_pccard_ata_ops_t *get_card_ops() override {
     card_ops = {this, bridge_reset, bridge_command_r, bridge_command_w,
                 bridge_control_r, bridge_control_w};
     return &card_ops;
@@ -167,18 +223,18 @@ public:
 
 private:
   struct OperationGuard {
-    explicit OperationGuard(ata_storage &owner) : owner(owner) {
+    explicit OperationGuard(ata_storage_device &owner) : owner(owner) {
       ++owner.operation_depth;
     }
     ~OperationGuard() { --owner.operation_depth; }
-    ata_storage &owner;
+    ata_storage_device &owner;
   };
   struct CallbackGuard {
-    explicit CallbackGuard(ata_storage &owner) : owner(owner) {
+    explicit CallbackGuard(ata_storage_device &owner) : owner(owner) {
       ++owner.callback_depth;
     }
     ~CallbackGuard() { --owner.callback_depth; }
-    ata_storage &owner;
+    ata_storage_device &owner;
   };
 
   void apply_identify_strings() {
@@ -305,6 +361,8 @@ extern "C" int ata_storage_create(const ata_storage_config_t *config,
       (!config->master_password && config->master_password_size) ||
       (config->identify_size &&
        (!config->identify_data || config->identify_size != 512)) ||
+      (config->device_kind != ATA_STORAGE_DEVICE_COMPACTFLASH &&
+       config->device_kind != ATA_STORAGE_DEVICE_IDE_HDD) ||
       config->dma_transfer_time_ns >
           uint64_t(std::numeric_limits<int64_t>::max()))
     return ATA_STORAGE_ARGUMENT;
@@ -325,7 +383,11 @@ extern "C" int ata_storage_create(const ata_storage_config_t *config,
 
   ata_storage *ata = nullptr;
   try {
-    ata = new (std::nothrow) ata_storage(*config);
+    if (config->device_kind == ATA_STORAGE_DEVICE_IDE_HDD)
+      ata = new (std::nothrow)
+          ata_storage_device<ide_hdd_device_base>(*config);
+    else
+      ata = new (std::nothrow) ata_storage_device<cf_device_base>(*config);
   } catch (const std::bad_alloc &) {
     return ATA_STORAGE_NOMEM;
   }

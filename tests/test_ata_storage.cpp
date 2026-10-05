@@ -14,7 +14,11 @@ constexpr uint8_t kBsy = 0x80;
 constexpr uint8_t kDrq = 0x08;
 constexpr uint8_t kDrdy = 0x40;
 constexpr uint8_t kErr = 0x01;
-void finish_power_on_reset(ata_storage_t *ata, bool expect_ready);
+void finish_power_on_reset(ata_storage_t *ata, bool expect_ready = true);
+void write_register(ata_storage_t *ata, uint32_t reg, uint16_t value);
+void set_lba(ata_storage_t *ata, uint16_t count, uint8_t lba);
+void read_sector_words(ata_storage_t *ata, uint8_t *out);
+void write_sector_words(ata_storage_t *ata, const uint8_t *in);
 
 class HddStatusProbe final : public ide_hdd_device_base {
 public:
@@ -97,7 +101,8 @@ void dasp_line(void *opaque, int state) { static_cast<Lines *>(opaque)->dasp = s
 
 ata_storage_t *make_ata(Disk &disk, Lines &lines,
                         const uint8_t *identify = nullptr,
-                        size_t identify_size = 0) {
+                        size_t identify_size = 0,
+                        int device_kind = ATA_STORAGE_DEVICE_COMPACTFLASH) {
   ata_storage_config_t config{};
   config.sector_count = 16;
   config.cylinders = 1;
@@ -106,6 +111,7 @@ ata_storage_t *make_ata(Disk &disk, Lines &lines,
   config.model = "Port fidelity disk";
   config.identify_data = identify;
   config.identify_size = identify_size;
+  config.device_kind = device_kind;
   config.media_opaque = &disk;
   config.read_sector = read_sector;
   config.write_sector = write_sector;
@@ -173,6 +179,7 @@ void test_cf_keeps_source_status_override() {
   Disk disk;
   Lines lines;
   ata_storage_t *ata = make_ata(disk, lines);
+  assert(ata_storage_identify(ata)[0] == 0x848a);
   finish_power_on_reset(ata, true);
   constexpr uint64_t rotation_ns = 1'000'000'000 / 90;
   assert(ata_storage_run_until(ata, ata_storage_now(ata) + rotation_ns + 1) ==
@@ -186,7 +193,76 @@ void test_cf_keeps_source_status_override() {
   ata_storage_destroy(ata);
 }
 
-void finish_power_on_reset(ata_storage_t *ata, bool expect_ready = true) {
+void test_ide_hdd_source_profile_and_pio_callbacks() {
+  Disk disk;
+  Lines lines;
+  for (size_t i = 0; i < disk.bytes.size(); ++i)
+    disk.bytes[i] = static_cast<uint8_t>(i * 17 + 3);
+  ata_storage_t *ata = make_ata(disk, lines, nullptr, 0,
+                                ATA_STORAGE_DEVICE_IDE_HDD);
+  const uint16_t *words = ata_storage_identify(ata);
+  assert(words[0] == 0x045a); // Pinned MAME IDE HDD, not CompactFlash.
+  assert(words[1] == 1 && words[3] == 1 && words[6] == 16);
+  assert(words[47] == 0x8010);
+  assert(words[49] == 0x0f03);
+  assert(words[54] == 1 && words[55] == 1 && words[56] == 16);
+  assert(words[57] == 16 && words[58] == 0);
+  assert(words[60] == 16 && words[61] == 0);
+  assert(words[62] == 0x0007 && words[63] == 0x0407 && words[64] == 3);
+  assert(words[27] == 0x506f); // Configured model string: "Port fidelity disk".
+
+  finish_power_on_reset(ata);
+  write_register(ata, 7, 0xec);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  assert(ata_storage_command_r(ata, 0, 0xffff, 0) == 0x045a);
+  for (unsigned word = 1; word < 256; ++word)
+    (void)ata_storage_command_r(ata, 0, 0xffff, 0);
+
+  set_lba(ata, 1, 3);
+  write_register(ata, 7, 0x20);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 400) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  std::array<uint8_t, 512> readback{};
+  read_sector_words(ata, readback.data());
+  assert(readback[0] == disk.bytes[3 * 512]);
+  assert(readback[511] == disk.bytes[4 * 512 - 1]);
+
+  disk.fail_write = true;
+  set_lba(ata, 1, 5);
+  write_register(ata, 7, 0x30);
+  std::array<uint8_t, 512> payload{};
+  payload.fill(0x6d);
+  write_sector_words(ata, payload.data());
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 3'000'000) ==
+         ATA_STORAGE_OK);
+  assert((ata_storage_status(ata) & (kErr | kDrq)) == kErr);
+  assert(ata_storage_error(ata) == 0x80); // Source BAD_SECTOR write failure.
+  disk.fail_write = false;
+  ata_storage_destroy(ata);
+}
+
+void test_ide_hdd_rotation_index_via_public_api() {
+  Disk disk;
+  Lines lines;
+  ata_storage_t *ata = make_ata(disk, lines, nullptr, 0,
+                                ATA_STORAGE_DEVICE_IDE_HDD);
+  finish_power_on_reset(ata);
+  constexpr uint64_t rotation_ns = 1'000'000'000 / 90;
+  assert(ata_storage_run_until(ata, rotation_ns + 1) == ATA_STORAGE_OK);
+  assert(ata_storage_control_r(ata, 6, 0xffff) & 0x02);
+  assert(!(ata_storage_command_r(ata, 7, 0xffff, 0) & 0x02));
+  ata_storage_reset(ata);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + rotation_ns + 1) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_control_r(ata, 6, 0xffff) & 0x02);
+  ata_storage_destroy(ata);
+}
+
+void finish_power_on_reset(ata_storage_t *ata, bool expect_ready) {
   assert(ata_storage_status(ata) & kBsy);
   assert(ata_storage_run_until(ata, 2'000'000) == ATA_STORAGE_OK);
   assert(ata_storage_status(ata) & kBsy); // device detection starts diagnostics.
@@ -501,6 +577,8 @@ int main() {
   test_geometry_signed_capacity_limit();
   test_hdd_rotational_index_status();
   test_cf_keeps_source_status_override();
+  test_ide_hdd_source_profile_and_pio_callbacks();
+  test_ide_hdd_rotation_index_via_public_api();
   test_pio_read_write_and_multiple();
   test_identify_error_feature_and_reset();
   test_dma_read_write_and_dma_mode_selection();

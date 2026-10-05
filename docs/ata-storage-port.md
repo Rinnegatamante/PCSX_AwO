@@ -25,21 +25,27 @@ no-op save/log hooks. The caller advances the deterministic scheduler with
 deadlines and process equal deadlines in timer-allocation order. Deadline
 addition clamps at `INT64_MAX`; it never wraps.
 
-The C ABI in `ata_storage.h` wraps the original CompactFlash mass-storage
-class. Sector callbacks receive exactly 512 bytes and follow MAME's return
-convention, where nonzero is success. A failed read or write therefore flows
-through MAME's original `BAD_SECTOR` error path. Callback contexts, line
-contexts, passwords, and the attached G-Net card are borrowed; callers keep
-them alive until ATA destruction. `ata_storage_try_destroy` reports `BUSY`
-while an operation or external callback is active.
+The C ABI in `ata_storage.h` selects the original CompactFlash device by
+default (`ATA_STORAGE_DEVICE_COMPACTFLASH`) and can instead instantiate
+MAME's `ide_hdd_device_base` with `ATA_STORAGE_DEVICE_IDE_HDD`. This selects
+the HDD's source IDENTIFY builder and rotational-status override. CHS and raw
+IDENTIFY bytes replace the harddisk-image lookup during initial device setup;
+the source mass-storage reset body still initializes taskfile state. The G-Net
+configuration remains CompactFlash because its zero-initialized configuration
+keeps the default. Sector callbacks receive exactly 512 bytes and follow
+MAME's return convention, where nonzero is success. A failed read
+or write therefore flows through MAME's original `BAD_SECTOR` error path.
+Media and line contexts, passwords, and the attached G-Net card are borrowed;
+callers keep them alive until ATA destruction. `ata_storage_try_destroy`
+reports `BUSY` while an operation or external callback is active.
 Callbacks may inspect the ATA object and try destruction, but must not issue
 ATA register writes or reset the same object while a command is in progress;
 nested `run_until` is rejected with `BUSY`.
 
-ATA IDENTIFY input may be omitted to use MAME's CompactFlash identify builder,
-configured with the provided serial, firmware, and model strings, or supplied
-as the raw 512-byte `IDNT` metadata payload. Raw bytes are decoded as ATA
-little-endian words, matching MAME's image inquiry path. The CompactFlash
+ATA IDENTIFY input may be omitted to use the selected MAME device's IDENTIFY
+builder, configured with the provided serial, firmware, and model strings, or
+supplied as the raw 512-byte `IDNT` metadata payload. Raw bytes are decoded as
+ATA little-endian words, matching MAME's image inquiry path. The CompactFlash
 IDENTIFY builder fills words 7-8, 57-58, and 60-61 from the source's
 `cylinders * heads * sectors_per_track` calculation, and READ NATIVE MAX uses
 the same geometry product; a supplied raw `IDNT` payload is preserved as-is.
@@ -56,20 +62,24 @@ its taskfile snapshot carries the expanded sector count (`0` from the ATA
 register is represented internally as `256`).
 
 The source `ide_hdd_device_base` class boundary, status timer, and
-`calculate_status()` body are retained. Its image-backed geometry, reset
-metadata, and sector access are replaced by the callback-backed adapter.
-That HDD class reports rotational IDX after the source's 90 Hz rotation
-interval when status is read. The pinned CompactFlash class explicitly
+`calculate_status()` body are retained. HDD geometry and sector access use the
+callback-backed adapter; the wrapper initializes IDENTIFY bytes from supplied
+raw metadata or the pinned source builder rather than requiring MAME's image
+device. The HDD class reports rotational IDX after the source's 90 Hz
+rotation interval when status is read. The pinned CompactFlash class explicitly
 overrides `calculate_status()` to call the ATA base implementation, so CF
 continues to suppress IDX; the separate HDD and CF tests preserve both source
-behaviors. MAME save-state registration is not modeled in this standalone
-port. DMA timing is supplied by `dma_transfer_time_ns`, while CF seek timing
-and the source's write/sector delays remain in the copied command bodies.
+behaviors. The HDD class models ATA hard-disk HLE and does not add ATAPI packet
+commands or CD-ROM media; those remain separate work before claiming a full
+Twinkle storage stack. MAME save-state registration is not modeled in this
+standalone port. DMA timing is supplied by `dma_transfer_time_ns`, while CF
+seek timing and the source's write/sector delays remain in the copied command
+bodies.
 
 The isolated suite covers power-on and software reset timing, pending IRQ
-gating, raw IDENTIFY and 8-bit transfer mode, PIO and DMA multi-sector reads
-and writes, failed media callbacks, and the Taito Type-2 unlock through the
-real ATA engine:
+gating, source IDENTIFY profiles and HDD rotational IDX, raw IDENTIFY and
+8-bit transfer mode, PIO and DMA multi-sector reads and writes, failed media
+callbacks, and the Taito Type-2 unlock through the real ATA engine:
 
 ```sh
 make -f tests/Makefile.ata-storage test

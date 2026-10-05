@@ -49,7 +49,15 @@ typedef struct ata_storage_config {
   ata_storage_line_fn dmarq;
   ata_storage_line_fn dasp;
   ata_storage_line_fn pdiag;
+  /* Zero keeps the historic CompactFlash implementation. Set this to IDE_HDD
+   * for the pinned MAME hard-disk device behavior and IDENTIFY profile. */
+  int device_kind;
 } ata_storage_config_t;
+
+enum {
+  ATA_STORAGE_DEVICE_COMPACTFLASH = 0,
+  ATA_STORAGE_DEVICE_IDE_HDD = 1
+};
 
 enum {
   ATA_STORAGE_OK = 0,
