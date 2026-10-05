@@ -101,7 +101,11 @@ byte. CHDs and undumped regions remain explicit requirements. Parsing a
 machine's assets does not imply that it boots.
 
 - Namco System 12: H8/3002, C352, ADC/vblank, RTC/settings, JAMMA, ROM DMA and
-  2 MiB type-2 GPU bring-up; [runtime evidence](system12.md).
+  2 MiB type-2 GPU bring-up; [runtime evidence](system12.md). Native COH-700/716
+  reset guests verify RAM/bank/input retention and absolute PCM phase with
+  interpreter/DRC. Actual MAME C352 hooks confirm timed key-on/off and continuous
+  reset sample phase; [fidelity evidence](system12-performance.md). These
+  component gates do not establish complete family compatibility.
 - GPU: type-1 command fields, interleaved 4/8-bit textures and linear 16-bit
   textures pass fixed MAME-derived vectors with both 1 MiB and 2 MiB VRAM;
   type-2 upper VRAM also passes a live MAME oracle.

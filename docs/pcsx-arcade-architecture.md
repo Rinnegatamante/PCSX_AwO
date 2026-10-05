@@ -134,6 +134,7 @@ This is a source comparison, not a measured MAME scheduler trace.
 | Timer state | `h8_timer16.cpp` advances counters arithmetically, recomputes IRQ deadlines and catches up on register accesses. It explicitly accounts for polling status with interrupts disabled. | The current per-tick loop is a performance candidate, but skipping updates simply because no IRQ is enabled would lose observable flags/counter state. Deadline conversion must retain lazy-read/write catch-up as well as IRQ timing. |
 | C352 register access | `src/devices/sound/c352.cpp::read/write` calls `m_stream->update()` before inspecting or changing voice registers. | The System12 adapter now catches up the stream using `h8_current_cycle()` before byte/word reads and writes. Timed key-on/off and BUSY reads pass with interpreter/DRC and fine/coarse main CPU blocks. This covers the register boundary, not complete scheduler equivalence. |
 | Vblank | `namcos12.cpp::namcos12_sub_irq` drives IRQ1, ADTRG and the port-B vblank bit from the screen callback. | The port preserves these signals and catches up before delivering its edge. Edge phase/order still needs a common trace across frontends and MAME. |
+| Soft reset | `namcos12.cpp::driver_start` initializes banks/offsets; `driver_reset` only repeats the optional 12-byte boot copy. RAM, CPU local time and sound stream phase survive. H8 reset retains ER/CCR/RAM/GPIO, resets execution/peripherals and discards instruction debt. | The adapter now distinguishes creation from soft reset, catches up before the main counter is cleared, retains board storage/banks/inputs and audio phase, and uses an explicit H8 budget timeline. Generated COH-700/716 guests and a real MAME reset sound capture cover these boundaries. Other adapters still need their own source/lifetime audit. |
 
 In particular, audio synchronization cannot be repaired by running all H8 work
 first and merely splitting the subsequent C352 output into smaller buffers.
@@ -160,9 +161,13 @@ The adapter also catches up at the main CPU slice endpoint. With source timing,
 both executing-CPU local time and a global sound timer; these targets need not
 match at a sample edge. The remaining question is their causal scheduling and
 cadence: MAME's sound timer runs at 50 Hz, whereas the Mac adapter flushes on
-each accepted sync. Soft reset also remains different: this adapter establishes
-a new H8/audio epoch, while MAME preserves CPU local time and the absolute stream
-phase. Neither point is established as equivalent by the register-edge tests.
+each accepted sync. Soft reset now preserves the board's absolute audio timeline
+while diagnostics begin a new epoch. `h8_soft_reset()` preserves modeled storage
+and GPIO and restarts from the caller's accumulated budget time, discarding prior
+instruction overshoot. A pre-reset catch-up includes the sub-256 main-cycle tail
+before clearing the CPU counter. The new reset tests cover fractional PCM phase,
+RAM, banks, held controls and the optional 12-byte boot copy. They do not prove
+all partial-state, peripheral deadline or scheduler boundaries equivalent.
 
 A scheduler proposal must specify the same-time ordering of CPU advancement,
 device deadlines, register accesses, DMA and external edges; carry overshoot
@@ -252,3 +257,29 @@ worker can overlap it. If timers or bus handling dominate, improve those paths
 before expecting either candidate to remove their cost. Keep a synchronous
 reference for deterministic event/audio comparison. No worker or DRC is
 implemented by this proposal, and neither has a measured speedup yet.
+
+## Remaining reset gaps across integrated families
+
+A read-only source audit on 2026-10-05 compared the other native adapters with
+the same pinned MAME tree. The following are identified source discrepancies,
+not completed fixes or authentic-game validation. MAME's `ram_device` allocates
+and initializes storage at `device_start`, with no reset override that clears it.
+The corresponding driver and child-device reset contracts determine the state
+that changes during a soft reset.
+
+| Family / current boundary | Source discrepancy and next executable gate |
+| --- | --- |
+| System11: `system11_mem_reset`, `namcos11_reset` | Main RAM is always erased; resetting the entire board status also clears eight bank selectors and the upper bank offset. MAME initializes those selectors in `driver_start`, with no System11 reset override clearing them. Verify cold-zero/warm-retained RAM and banked fetches, while KEYCUS and the sound CPU receive their required resets. C352 stream phase and the adapter's sample/clock remainders need separate checks. |
+| System10: `system10_mem_reset`, `ns10_board_reset` | Main RAM and the mapped 1 MiB `share3` backing are always cleared. Source machine/MEMM/MEMN resets change controllers and selected registers but do not erase that mapped share. Execute guest sentinels across reset, preserve NAND contents, and independently verify controller/crypto/bank reset values. |
+| Capcom ZN and Taito FX1: `systemzn_mem_reset`, `systemtaito_mem_reset` | Main RAM is always erased. Their existing common I/O/serial state retention and source sound-bank resets should remain subject to their own contracts. Execute RAM retention and in-flight serial/EEPROM tests; preserve QSound/YM sample phase and bridge conversion fractions while resetting the required sound CPU/controller state. |
+| G-Net: `systemgnet_reset` | Main RAM already survives, but the reset only covers storage/rebasing. MAME `taitogn_state::driver_reset` asserts MN10200 RESET, sets control to `0x10` and selects the JP1 boot flash bank; sound device resets also stop ZSG-2 voices. Add an explicit composition reset and test a released sound CPU, nondefault control/bank and active voices. Flash contents and control2/control3/PC Card register retention need their individual source contracts. |
+| Konami GV: `systemgv_reset` | RAM and the absolute device clock already survive; the adapter drops its fractional clock remainder. Verify continuity of an EEPROM/deadline across a reset between sync points, with source-correct DMA cancellation and retained memory. |
+
+Only System12 currently catches up before the main CPU counter is cleared in
+`r3000a.c::psxReset`. The other six adapters reanchor their last counter and may
+lose a pending interval. System11 additionally defers deltas below 256 cycles,
+so its eventual pre-reset path must include that tail. A common call site can
+dispatch board-specific pre-reset advancement, but each board must preserve or
+clear its own clock fractions and child-device state according to MAME. These
+gates keep the broader ten-family objective active alongside the System12
+vertical work; none establishes completion of a family.

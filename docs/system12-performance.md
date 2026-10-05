@@ -34,8 +34,11 @@ reported frequencies for the source-timing Soul Calibur profile are:
 
 Compare each device's counter delta divided by its frequency with main CPU cycle
 deltas divided by `main_cycle_hz`. Main cycles accumulate with unsigned 32-bit
-subtraction so normal rollover is included. Board resets discard the interval
-that crosses the reset and start a new `epoch` with cleared totals. This checks
+subtraction so normal rollover is included. The profiler starts a new `epoch`
+with cleared totals at reset. The newer System12 reset implementation catches
+up before clearing the CPU counter and preserves emulated absolute device time;
+its exported profile counts remain relative to the new epoch. The frozen Vita
+measurements below predate that change. This checks
 frequency consistency, not exact MAME instruction costs or bus-event ordering.
 GPU `modes` counts the endpoint status bits 19 and 20 of each frame; it is not a
 trace of mode changes within a frame.
@@ -412,10 +415,116 @@ comparisons must account for that nesting. Frozen evidence is under
 framebuffer, VRAM and `evidence.json`. Binary SHA-256:
 `cd3377f6597b71e25a3586e8224fd78baf746956e0c8b39dadda444cf4123580`.
 
-Next fidelity gates are actual scheduler/shared-mailbox and vblank traces,
-H8 peripheral deadlines/partial execution, and soft-reset phase. The current
-reset starts a new H8/audio epoch; MAME preserves CPU local time and absolute
-stream phase. Register-edge tests do not cover that difference. No new Vita,
+At the C352-access milestone, the next fidelity gates were actual
+scheduler/shared-mailbox and vblank traces, H8 peripheral deadlines/partial
+execution, and soft-reset phase. The reset mismatch is addressed in the next
+section; register-edge tests alone did not cover it. No new Vita,
 vitaGL, worker or H8 DRC validation is claimed for these commits. Optimization
 should preserve the established bus/state/sample traces and then demonstrate a
 measured reduction in cost; a worker or DRC is still an architectural candidate.
+
+## Soft-reset retention and phase, 2026-10-05
+
+Commits `056f7832`, `eca1460d` and `2dcecc79` separate initial machine creation
+from soft reset. Source review found that `namcos12_state::driver_start` sets
+banks and DMA offsets, whereas `driver_reset` only repeats the optional boot
+copy. CPU main RAM and shared RAM are not erased by reset. H8 reset preserves
+ER/CCR, internal RAM and the mapped GPIO registers. MAME preserves CPU local
+time and the sound stream cursor while resetting the C352 voices/control.
+
+The former adapter cleared all those storage/phase domains. It now retains main
+and shared RAM, the bank selector and offsets, held input levels, modeled H8
+storage/GPIO, clock conversion remainders and the absolute PCM cursor. COH-716
+still repeats its source boot copy of exactly 12 bytes. `system12_pre_reset`
+catches up even a pending interval shorter than 256 main cycles before
+`psxReset` clears the main counter.
+
+H8 reset is explicit about instruction debt: MAME's H8 engine clears its carried
+overshoot at reset, and its scheduler preserves budget-based local time rather
+than advancing by the overshot instruction tail. The board accumulates requested
+H8 clocks separately from its executed-state diagnostic count and supplies that
+absolute budget to `h8_soft_reset`. The CPU resets execution/peripheral state,
+retains ER/CCR/RAM/GPIO, and starts a new diagnostic epoch. Old SCI/ADC deadlines
+are cancelled; future deadlines use the new absolute domain. The stream clock
+rejects a temporary backwards access timestamp without modifying its cursor,
+then resumes once the CPU reaches the last rendered access time. Audio callbacks
+are synchronous and must not reset or re-enter the core.
+
+The independent real MAME reset oracle requests reset at
+`0:16715113233669674` attoseconds from `frame_done`. The reset notifier observes
+the same time. The raw C352 capture contains a first burst at sample 1
+(`8,16,24,0,0`) and a second at absolute sample **1476** (`8,16,0,0,0`), proving
+that the output timeline does not restart at zero. The second onset and key-off
+phase match the timestamp prediction exactly, without a one-sample tolerance.
+Both status reads are `0006`. As before, this installed MAME reports 0.287 with
+unknown build commit; pinned-source reasoning and runtime evidence are distinct.
+
+Native integration tests execute a MIPS boot counter and initialize RAM/shared
+markers and bank 2 only on the first boot. After the harness invokes `psxReset`,
+the guest reads and stores the retained state rather than recreating it. Five
+cases per backend cover four COH-700 reset times, including the same PCM phase
+bin as the MAME capture, and a COH-716/altbank reset. They verify two boots, main
+and shared RAM, banked reads, held coin/start, timed H8 audio, the 12-byte boot
+copy, its untouched neighboring word and retained RAM near the top of the 16 MiB
+configuration. Interpreter
+and DRC produce identical observed reset times/onsets for these cases.
+
+The previous System12 reset implementation was separately compiled with the
+new harness diagnostic switch and a no-op pre-reset shim. The same test fails:
+the second burst includes an extra nonzero sample at index 7 rather than going
+silent there. This baseline binary/source/build log is retained under
+`/tmp/pcsx-system12-pre-reset-baseline-20261005/`; its failure is logged in
+`/tmp/pcsx-system12-reset-old-regression-20261005.log`.
+
+Reproduction after building the source-timing Mac DRC harness:
+
+```sh
+make -f tests/Makefile.h8 test irq-test
+python3 tests/check_system12_reset.py --harness build/mac-system12-audio-time-20261005/pcsx-harness
+python3 tests/check_system12_reset.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --drc
+python3 tests/check_mame_c352_reset.py
+```
+
+H8 retention/debt tests pass at O2 and with UBSan, including 64-bit/zero epochs,
+repeated reset, prefix/illegal-state disposal, and rejection during bus/SCI/ADC
+callbacks. Existing H8, IRQ, C352-access, board/profile and native DRC bank/RAM/SMC
+fixtures also pass. The new harness switch `--reset-at-cycle N` requests one
+System12 reset at the first safe block endpoint reaching that cumulative main
+cycle; it preserves replay frame progress and fails if the request is not reached.
+It is a validation control, not an exact-instruction scheduling guarantee.
+
+Evidence logs:
+`/tmp/pcsx-h8-soft-reset-root-20261005.log`,
+`/tmp/pcsx-h8-soft-reset-ubsan-root-20261005.log`,
+`/tmp/pcsx-system12-reset-{interpreter,drc,board,existing-drc}-20261005.log`,
+`/tmp/pcsx-system12-reset-existing-audio-{interpreter,drc}-20261005.log`,
+`/tmp/pcsx-mame-c352-reset-oracle-20261005.log` and
+`/tmp/pcsx-mame-c352-oracle-busy-20261005.log`.
+
+A second isolated **12000-frame no-reset** Soul Calibur replay verifies creation
+and normal execution after this lifetime change: final framebuffer, VRAM, main
+cycles `10029060040`, H8 cycles `3396722206`, H8 instructions `597909593` and PCM
+frames `17691262` match the preceding C352-timing replay. It completes without
+illegal/unsupported H8 instructions or unmapped board access. This does not
+itself validate a real-game reset. Frozen binary/log/evidence are under
+`/tmp/pcsx-mac-reset-fidelity-soul-12000-20261005/`; binary SHA-256 is
+`d39c2e233c911d419f335537f0b5e735500d1a9cdfce1a24cf145f468b0a2a33`.
+
+An authentic **3600-frame warm-reset** replay also completes: the harness
+resets at the safe block endpoint reaching main cycle `835756`, then continues
+the existing input script. The captured image shows Stage 1, Ivy versus Kilik,
+with timer 24 and credit 0. It reports no illegal/unsupported H8 instruction or
+unmapped board access. Frozen output and the PNG preview are under
+`/tmp/pcsx-mac-reset-fidelity-soul-warm-3600-20261005/`. This demonstrates resumed
+game execution; no identical real-game MAME reset replay was captured, so it
+does not establish gameplay-state or pixel equivalence across that reset.
+
+MAME's immediate H8 debug PC/IR/temporary snapshots before reset prefetch also
+retain old values that this standalone API reconstructs. Source reset execution
+overwrites its active vector/prefetch fields before executing guest instructions;
+the current gates make no claim of identical prefetch-time debug snapshots.
+
+Full scheduler/shared-mailbox/vblank and H8 partial-state/peripheral equivalence
+remain open. No new Vita or vitaGL execution is claimed, and no worker or H8 DRC
+has been introduced. The scope remains all ten PSX-derived driver families;
+these are System12 fidelity gates, not completion of a whole family.
