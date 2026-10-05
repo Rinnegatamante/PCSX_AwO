@@ -31,8 +31,9 @@ The **H8** is the emulated Hitachi H8/3002 auxiliary CPU of System12, not a host
 thread or another PSX CPU. It runs its own ROM at 16.9344 MHz, handles board I/O
 and sound register accesses, and communicates with the MIPS through shared RAM.
 `libpcsxcore/system12.c` owns its interpreter, shared backing, C352, EEPROM and
-RTC. `system12_sync()` advances H8, then generates the C352 samples due for the
-interval. The PSX bus exposes the mapped shared window; H8 bus callbacks handle
+RTC. `system12_sync()` advances H8, catching up C352 before each sound-register
+access, then generates any remaining samples due for the interval. The PSX bus
+exposes the mapped shared window; H8 bus callbacks handle
 the different byte order.
 
 H8 is not equivalent to the PSX SPU. The SPU is a sound synthesis chip;
@@ -90,10 +91,11 @@ call. This leaves different device slice sizes and shared-memory observation
 points between hosts. System12 shared reads/writes currently do not themselves
 force H8 synchronization.
 
-H8 executes its entire slice before C352 generates the interval's samples.
-Register writes during that slice therefore precede all samples generated for
-it. Coherent aggregate cycle/sample totals do not prove correct write/sample
-ordering. A scheduler change must establish the intended causal order before
+H8 now catches up C352 at each timed sound-register access, before reading or
+changing its state. The end-of-slice update shares that monotonic sample cursor.
+Samples preceding a write retain the earlier register state. Coherent aggregate
+cycle/sample totals alone do not prove this ordering or complete scheduler
+equivalence. A scheduler change must establish the intended causal order before
 changing these boundaries; blindly adding synchronization to recursive bus
 callbacks is not sufficient.
 
@@ -130,17 +132,19 @@ This is a source comparison, not a measured MAME scheduler trace.
 | Shared RAM | `namcos12.cpp::sharedram_r/w` directly access shared words; the handlers contain no explicit scheduler synchronization. | Both ports already have source-derived lane/endian coverage. Adding a catch-up before every shared access would introduce a different scheduling policy; it needs an event-order justification, not just a map test. |
 | H8 internal events | `h83002.cpp::internal_update` selects the earliest ADC, SCI, timer and watchdog event. `h8.cpp::execute_run` uses that boundary, partial execution states and carried cycle debt. | Our interpreter calls `tick` between full execution states, including prefix states. Matching aggregate H8 cycles does not validate where a device event falls relative to an instruction's bus accesses. Deadline and partial-state semantics are a separate fidelity requirement. |
 | Timer state | `h8_timer16.cpp` advances counters arithmetically, recomputes IRQ deadlines and catches up on register accesses. It explicitly accounts for polling status with interrupts disabled. | The current per-tick loop is a performance candidate, but skipping updates simply because no IRQ is enabled would lose observable flags/counter state. Deadline conversion must retain lazy-read/write catch-up as well as IRQ timing. |
-| C352 register access | `src/devices/sound/c352.cpp::read/write` calls `m_stream->update()` before inspecting or changing voice registers. | Our `c352_read/write` has no timestamp or stream catch-up; the board generates samples after the whole H8 slice. The source gives a concrete requirement: render prior samples using prior register state before applying each timed access. Reads matter too, because they observe sample-dependent flags. |
+| C352 register access | `src/devices/sound/c352.cpp::read/write` calls `m_stream->update()` before inspecting or changing voice registers. | The System12 adapter now catches up the stream using `h8_current_cycle()` before byte/word reads and writes. Timed key-on/off and BUSY reads pass with interpreter/DRC and fine/coarse main CPU blocks. This covers the register boundary, not complete scheduler equivalence. |
 | Vblank | `namcos12.cpp::namcos12_sub_irq` drives IRQ1, ADTRG and the port-B vblank bit from the screen callback. | The port preserves these signals and catches up before delivering its edge. Edge phase/order still needs a common trace across frontends and MAME. |
 
 In particular, audio synchronization cannot be repaired by running all H8 work
 first and merely splitting the subsequent C352 output into smaller buffers.
 The new register state would still be applied to samples preceding the write.
-The board needs a timestamped register-access boundary, with an audio cursor and
-fractional sample phase. Its time source must describe the access within H8
-execution, not only the main CPU's end-of-slice counter. The current H8 callback
-API carries addresses/data but no explicit access timestamp; adding such a
-contract is future design work, including instruction bus-cycle accounting.
+The implemented register-access boundary has a monotonic audio cursor and
+fractional sample phase. `h8_current_cycle()` includes costs already charged
+within H8 execution; the older status counter only reports committed states.
+The clock conversion preserves MAME's truncated H8 attosecond period across
+normal subsecond slices and includes the current sample at nonzero time.
+An independent wide-integer test checks sample edges, split updates, rewind
+rejection and a 24-hour accumulated timeline.
 
 MAME makes that access time explicit through its execution context:
 `schedule.cpp::time` uses the currently executing CPU's `local_time`, and
@@ -148,7 +152,17 @@ MAME makes that access time explicit through its execution context:
 The H8 read/write helpers charge bus cycles before calling the memory handler.
 In our interpreter, the public `H8Status.cycles` advances at `tick`; querying
 that counter during a bus callback would omit costs already charged inside the
-current execution state. A timestamp contract must cover that difference too.
+current execution state. The new API covers that difference and avoids charging
+SCI/ADC callbacks from `tick` twice.
+
+The adapter also catches up at the main CPU slice endpoint. With source timing,
+50 MHz has an exact integer attosecond period. MAME likewise updates sound from
+both executing-CPU local time and a global sound timer; these targets need not
+match at a sample edge. The remaining question is their causal scheduling and
+cadence: MAME's sound timer runs at 50 Hz, whereas the Mac adapter flushes on
+each accepted sync. Soft reset also remains different: this adapter establishes
+a new H8/audio epoch, while MAME preserves CPU local time and the absolute stream
+phase. Neither point is established as equivalent by the register-edge tests.
 
 A scheduler proposal must specify the same-time ordering of CPU advancement,
 device deadlines, register accesses, DMA and external edges; carry overshoot

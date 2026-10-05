@@ -90,9 +90,10 @@ The Mac headless harness additionally calls `system12_sync` after every PSX
 libretro/Vita path calls it at both vblank edges, about twice per frame. The two
 paths therefore have different H8/shared-RAM event order and C352 chunk sizes.
 Matching aggregate clocks does not establish frontend equivalence. Neither bus
-handler currently forces H8 synchronization on shared-RAM reads/writes. H8
-register writes are also applied before generating the entire audio interval for
-that slice; precise C352 write/sample ordering remains unverified.
+handler currently forces H8 synchronization on shared-RAM reads/writes. The new
+timestamped C352 boundary catches up before H8 sound-register reads/writes;
+key-on/off and BUSY-read fixtures now pass independently of fine/coarse MIPS
+blocks. Complete MAME scheduler and frontend equivalence remain unverified.
 
 Parallelizing H8 freely with PSX would introduce observable RAM and IRQ races.
 Keep board time and IRQ delivery on an ordered emulation schedule. GPU async can
@@ -329,3 +330,92 @@ then choose between a faithful interpreter improvement and a larger H8 backend
 change from measurements. A worker would relocate the same interpreter cost and
 introduce shared-memory ordering requirements. Presentation changes, H8 backend
 work and parallel execution remain proposals for review, not runtime changes.
+
+## Mac C352 timing fidelity, 2026-10-05
+
+The priority is a faithful Mac reference before selecting further speedups.
+The first concrete mismatch was C352 register/sample ordering: the old adapter
+executed the whole H8 interval, then generated all its audio using the resulting
+register state. A key-on could affect a sample preceding its bus access; a read
+could inspect BUSY before the samples that should clear it had been generated.
+
+Commits `3124e90a` and `b5a670d4` expose the H8 access cycle and catch up C352
+before each byte/word read or write. The timestamp includes costs charged inside
+the current execution state. SCI/ADC callbacks after `tick` use committed cycles
+without charging that state again. Word writes remain atomic. One monotonic
+stream cursor combines register catch-up and the existing board catch-up.
+
+The H8 phase uses `floor(1e18 / 16934400)` attoseconds per cycle, matching the
+pinned MAME scheduler's accumulated normal subsecond slices. At 88200 Hz the
+reduced conversion is `26041666666617 / 5000000000000000`. Bounded 64-bit chunks
+preserve that phase without requiring 128-bit arithmetic in the Vita core.
+Host tests compare it with an independent wide-integer reference over sample
+edges, split updates, rewind rejection and 24 hours. Time zero emits nothing;
+at positive time the stream includes its current sample as MAME does.
+
+`c2e1f5f7` adds a real MAME oracle. The installed executable reports **0.287
+(unknown)**; its precise source commit is unavailable. Source reasoning remains
+against pinned `deb2f54fe7300e7a192690318beb860159bfd52a`. The oracle transiently
+replaces H8 instructions and the first wave bytes in memory after loading
+`soulclbrac` from the local `soulclbr.zip` archive. It captures the C352 sound
+hook before speaker resampling, uses private config/NVRAM directories, and
+leaves the archive unchanged. Every run has a 45-second kill timeout.
+
+The actual MAME capture and native adapter produce these identical front-channel
+raw sample prefixes (left and right are equal):
+
+| Key-on H8 cycle | Samples 0..4 | First nonzero | First silent after key-off |
+| --- | --- | --- | --- |
+| 190 | 0, 8, 16, 24, 0 | 1 | 4 |
+| 192 | 0, 8, 16, 24, 0 | 1 | 4 |
+| 194 | 0, 0, 8, 16, 0 | 2 | 4 |
+
+MAME exposes normalized floats; multiplication by 32768 yields these integers
+exactly. Native integration tests run the actual H8 firmware through the board
+with both MIPS interpreter and DRC, fine and coarse main CPU blocks, and an
+additional one-shot BUSY/key-off read fixture. All pass. The prior binary fails
+the 190-cycle test by starting at sample zero, so the test detects the original
+regression rather than merely accepting both implementations.
+
+Reproduction:
+
+```sh
+make -f Makefile.mac-harness BUILD=build/mac-system12-audio-time-20261005 DRC=1 SYSTEM12_TIMING=1 -j4
+make -f tests/Makefile.h8 test irq-test
+make -f tests/Makefile.c352-timing test
+python3 tests/check_system12_audio_timing.py --harness build/mac-system12-audio-time-20261005/pcsx-harness
+python3 tests/check_system12_audio_timing.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --drc
+python3 tests/check_mame_c352_timing.py
+```
+
+Normal and UBSan C352/clock tests pass; existing synthetic board and native DRC
+bank/RAM/SMC checks pass. Evidence logs are
+`/tmp/pcsx-mac-audio-time-{interpreter,drc,board-test,drc-test}-20261005.log`,
+`/tmp/pcsx-c352-timing-{root,ubsan}-20261005.log` and
+`/tmp/pcsx-mame-c352-oracle-20261005.log`. The older failing run is retained at
+`/tmp/pcsx-audio-timing-old-regression-20261005.log`.
+
+An isolated native NEON/ARI64 Soul Calibur replay of **12000 frames** completed
+with the same input script as the earlier IRQ-optimization replay. Main cycles
+remain `10029060040`; H8 cycles remain `3396722206`, with `597909593`
+instructions, no illegal/unsupported instruction and no unmapped board access.
+PCM frames are now `17691262`, one more than the old stream, consistent with
+including the current sample. The final framebuffer and synchronized VRAM are
+byte-identical to the earlier replay. This is regression evidence, not a claim
+of pixel equivalence to MAME or of complete game compatibility.
+
+The harness reported 65.965 seconds (66.516 seconds including startup/teardown).
+One replay does not establish a speed improvement. Audio generation from H8 bus
+callbacks now falls inside the inclusive H8 profiling scope, so future scope
+comparisons must account for that nesting. Frozen evidence is under
+`/tmp/pcsx-mac-c352-timed-soul-12000-20261005/`, including the binary, log,
+framebuffer, VRAM and `evidence.json`. Binary SHA-256:
+`cd3377f6597b71e25a3586e8224fd78baf746956e0c8b39dadda444cf4123580`.
+
+Next fidelity gates are actual scheduler/shared-mailbox and vblank traces,
+H8 peripheral deadlines/partial execution, and soft-reset phase. The current
+reset starts a new H8/audio epoch; MAME preserves CPU local time and absolute
+stream phase. Register-edge tests do not cover that difference. No new Vita,
+vitaGL, worker or H8 DRC validation is claimed for these commits. Optimization
+should preserve the established bus/state/sample traces and then demonstrate a
+measured reduction in cost; a worker or DRC is still an architectural candidate.
