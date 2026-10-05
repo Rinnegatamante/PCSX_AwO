@@ -116,6 +116,48 @@ wait, plus audio queue backpressure, block the emulation producer. The headless
 Mac path does not perform the same presentation work. Neither should determine
 the emulated oscillator rates.
 
+## Comparison with the pinned MAME execution model
+
+The relevant local sources were checked at
+`deb2f54fe7300e7a192690318beb860159bfd52a`, with no working-tree differences in
+`namcos12.cpp`, `h8.cpp`, `h83002.cpp`, `h8_timer16.cpp`, `c352.cpp`,
+`diexec.cpp` or `schedule.cpp`.
+This is a source comparison, not a measured MAME scheduler trace.
+
+| Boundary | Pinned MAME behavior | Current port / implication |
+| --- | --- | --- |
+| CPU scheduling | `src/emu/schedule.cpp::rebuild_execute_list` defaults to a maximum 1/60 s quantum; `timeslice` caps the target at the next global timer and advances each CPU's local time. No explicit maximum/perfect-quantum override was found in the System12 driver or reviewed PSX/H8 configuration. | The default quantum does not establish the actual CPU slice length. Neither Mac block boundaries nor two libretro vblank syncs can be justified as equivalent solely from this value. Measure actual slice targets before choosing a common policy. |
+| Shared RAM | `namcos12.cpp::sharedram_r/w` directly access shared words; the handlers contain no explicit scheduler synchronization. | Both ports already have source-derived lane/endian coverage. Adding a catch-up before every shared access would introduce a different scheduling policy; it needs an event-order justification, not just a map test. |
+| H8 internal events | `h83002.cpp::internal_update` selects the earliest ADC, SCI, timer and watchdog event. `h8.cpp::execute_run` uses that boundary, partial execution states and carried cycle debt. | Our interpreter calls `tick` between full execution states, including prefix states. Matching aggregate H8 cycles does not validate where a device event falls relative to an instruction's bus accesses. Deadline and partial-state semantics are a separate fidelity requirement. |
+| Timer state | `h8_timer16.cpp` advances counters arithmetically, recomputes IRQ deadlines and catches up on register accesses. It explicitly accounts for polling status with interrupts disabled. | The current per-tick loop is a performance candidate, but skipping updates simply because no IRQ is enabled would lose observable flags/counter state. Deadline conversion must retain lazy-read/write catch-up as well as IRQ timing. |
+| C352 register access | `src/devices/sound/c352.cpp::read/write` calls `m_stream->update()` before inspecting or changing voice registers. | Our `c352_read/write` has no timestamp or stream catch-up; the board generates samples after the whole H8 slice. The source gives a concrete requirement: render prior samples using prior register state before applying each timed access. Reads matter too, because they observe sample-dependent flags. |
+| Vblank | `namcos12.cpp::namcos12_sub_irq` drives IRQ1, ADTRG and the port-B vblank bit from the screen callback. | The port preserves these signals and catches up before delivering its edge. Edge phase/order still needs a common trace across frontends and MAME. |
+
+In particular, audio synchronization cannot be repaired by running all H8 work
+first and merely splitting the subsequent C352 output into smaller buffers.
+The new register state would still be applied to samples preceding the write.
+The board needs a timestamped register-access boundary, with an audio cursor and
+fractional sample phase. Its time source must describe the access within H8
+execution, not only the main CPU's end-of-slice counter. The current H8 callback
+API carries addresses/data but no explicit access timestamp; adding such a
+contract is future design work, including instruction bus-cycle accounting.
+
+MAME makes that access time explicit through its execution context:
+`schedule.cpp::time` uses the currently executing CPU's `local_time`, and
+`diexec.cpp::local_time` includes the cycles consumed within its current slice.
+The H8 read/write helpers charge bus cycles before calling the memory handler.
+In our interpreter, the public `H8Status.cycles` advances at `tick`; querying
+that counter during a bus callback would omit costs already charged inside the
+current execution state. A timestamp contract must cover that difference too.
+
+A scheduler proposal must specify the same-time ordering of CPU advancement,
+device deadlines, register accesses, DMA and external edges; carry overshoot
+without advancing a device twice; and separate emulated audio generation from
+frontend playback backpressure. A finer interval alone is not evidence of better
+fidelity. First compare timed shared-mailbox exchanges, C352 register/state and
+sample boundaries, H8 IRQ/ADC edges and PSX DMA/interrupt traces. Existing boot
+state samples and final framebuffer hashes do not cover those temporal claims.
+
 ## Recommendation and review gates
 
 Keep one causal board timeline for the current study. Before considering host
