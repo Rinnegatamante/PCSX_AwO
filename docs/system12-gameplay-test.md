@@ -115,3 +115,11 @@ zero-reported H8 unsupported instructions and board-unmapped accesses, and
 visible gameplay in manually reviewed captures. It does not validate every
 game state, all controls, timing-sensitive software, or the complete System 12
 library.
+
+The Mac GL compatibility interactive session built with the Apple ARM64 x18
+fix and without the default interactive block limit reached 91273 frames in
+1521.395 seconds (59.993 average paced FPS), then performed a clean renderer
+shutdown. Its log contains no execution-limit message; the shutdown trigger
+was not established. This was an attract-mode observation, not the scripted
+gameplay replay or a guarantee of 60 FPS in every scene. Evidence:
+`/tmp/pcsx-mac-interactive-unlimited-20261005/session-review.json`.

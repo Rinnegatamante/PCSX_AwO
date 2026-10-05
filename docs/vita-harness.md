@@ -727,3 +727,23 @@ exhaustion, pointer bounds, sentinels, and reuse) and the optional Vita guest
 ABI replay prepared by `tools/vita-harness/check_mspace_guest.py`. A compiled
 host or passing guest API test does not establish that the reported peak matches
 physical Vita hardware.
+
+The ARM guest ABI test passed on the full-feature private host with SHA-256
+`1f8f370352c0d344f0c9c0ada9551d0739c92ae693d87fc149ea3ded34d4120d`.
+It exhausted a 512 KiB arena after 125 block allocations, preserved the
+boundary sentinels, reported peak usage 520176 bytes, and returned current
+usage to zero after freeing. Both statistics entry points agreed. Evidence:
+`/tmp/pcsx-vita-mspace-guest-fix2-20261005/evidence.json` and its guest log.
+
+A subsequent Soul Calibur run used that host and the frozen allocator-probe
+VPK `d50f9f1a0a991877b4ac2486708ecd67163f020559a35602ebcf9dac67751c27`.
+Its first 8400 frames took 358804 ms. The bounded probe then recorded four
+1835008-byte, 16-byte-aligned GPU allocation failures, each followed by a
+successful retry approximately one second later. Corrected logical statistics
+showed aggregate free space larger than the requested block in each internal
+pool; they do not measure the largest contiguous free block. Fragmentation,
+pending GPU resource lifetimes, and host allocator behavior remain candidates.
+This observation does not identify the cause of graphical artifacts or prove
+completed gameplay. The observation was recorded while the guarded run was
+still active in
+`/tmp/pcsx-vitagl-mspace-fixed-native-12000-20261005/allocator-live-review.json`.
