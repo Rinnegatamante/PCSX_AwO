@@ -1,0 +1,436 @@
+diff --git a/vita3k/kernel/include/kernel/sync_primitives.h b/vita3k/kernel/include/kernel/sync_primitives.h
+index 374667a..4f6a7ea 100644
+--- a/vita3k/kernel/include/kernel/sync_primitives.h
++++ b/vita3k/kernel/include/kernel/sync_primitives.h
+@@ -246,8 +246,8 @@ int semaphore_cancel(KernelState &kernel, const char *export_name, SceUID thread
+ 
+ // Condition Variable
+ SceUID condvar_create(SceUID *uid_out, KernelState &kernel, const char *export_name, const char *name, SceUID thread_id, SceUInt attr, SceUID assoc_mutexid, SyncWeight weight);
+-int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, SceUID thread_id, SceUID condid, SceUInt *timeout, SyncWeight weight);
+-int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_id, SceUID condid, Condvar::SignalTarget signal_target, SyncWeight weight);
++int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, SceUID thread_id, SceUID condid, SceUInt *timeout, SyncWeight weight, Address workarea = 0);
++int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_id, SceUID condid, Condvar::SignalTarget signal_target, SyncWeight weight, Address workarea = 0);
+ int condvar_delete(KernelState &kernel, const char *export_name, SceUID thread_id, SceUID condid, SyncWeight weight);
+ 
+ // Event Flag
+diff --git a/vita3k/kernel/src/sync_primitives.cpp b/vita3k/kernel/src/sync_primitives.cpp
+index e8c48e6..60dee21 100644
+--- a/vita3k/kernel/src/sync_primitives.cpp
++++ b/vita3k/kernel/src/sync_primitives.cpp
+@@ -23,6 +23,202 @@
+ #include <util/lock_and_find.h>
+ #include <util/log.h>
+ 
++#ifdef VITA3K_TRACE_LWCOND
++#include <algorithm>
++#include <array>
++#include <cstdio>
++#include <cstdlib>
++#include <condition_variable>
++#include <mutex>
++#include <thread>
++
++namespace {
++enum class LwCondTraceEvent : uint8_t { WaitBegin, WaitQueued, WaitReturn, SignalCandidate, Signal, ApiError };
++enum class LwCondTraceThread : uint8_t { Other, System12Game, CtrRenderer };
++
++struct LwCondTraceRecord {
++    uint64_t sequence{};
++    uint64_t time_us{};
++    LwCondTraceEvent event{};
++    LwCondTraceThread thread_kind{};
++    LwCondTraceThread related_kind{};
++    SceUID thread_id{};
++    SceUID cond_id{};
++    Address workarea{};
++    uint32_t timeout_present{};
++    uint32_t timeout_us{};
++    uint32_t result{};
++    uint32_t depth_before{};
++    uint32_t depth_after{};
++    uint32_t target_type{};
++    SceUID target_id{};
++    SceUID related_thread_id{};
++    uint32_t guest_pc{};
++    uint32_t related_guest_pc{};
++};
++
++struct LwCondTraceState {
++    std::mutex mutex;
++    std::condition_variable ready;
++    std::array<LwCondTraceRecord, 2048> records{};
++    uint64_t next_sequence{};
++    uint64_t last_snapshot_sequence{};
++    uint64_t snapshot_count{};
++    bool stopping{};
++    std::thread worker;
++};
++
++LwCondTraceState &lwcond_trace_state() {
++    static LwCondTraceState state;
++    return state;
++}
++
++const char *lwcond_trace_event_name(LwCondTraceEvent event) {
++    switch (event) {
++    case LwCondTraceEvent::WaitBegin: return "wait-begin";
++    case LwCondTraceEvent::WaitQueued: return "wait-queued";
++    case LwCondTraceEvent::WaitReturn: return "wait-return";
++    case LwCondTraceEvent::SignalCandidate: return "signal-candidate";
++    case LwCondTraceEvent::Signal: return "signal";
++    case LwCondTraceEvent::ApiError: return "api-error";
++    }
++    return "unknown";
++}
++
++const char *lwcond_trace_thread_name(LwCondTraceThread kind) {
++    switch (kind) {
++    case LwCondTraceThread::System12Game: return "S12GAME01";
++    case LwCondTraceThread::CtrRenderer: return "CTR Renderer";
++    case LwCondTraceThread::Other: return "other";
++    }
++    return "other";
++}
++
++LwCondTraceThread lwcond_trace_classify(const ThreadStatePtr &thread) {
++    if (!thread)
++        return LwCondTraceThread::Other;
++    if (thread->name == "S12GAME01")
++        return LwCondTraceThread::System12Game;
++    if (thread->name == "CTR Renderer")
++        return LwCondTraceThread::CtrRenderer;
++    return LwCondTraceThread::Other;
++}
++
++uint32_t lwcond_trace_pc(const ThreadStatePtr &thread) {
++    return thread && thread->cpu ? read_pc(*thread->cpu) : 0;
++}
++
++void lwcond_trace_emit(const LwCondTraceRecord &record) {
++    std::fprintf(stderr,
++        "Vita3K lwcond trace seq=%llu t_us=%llu event=%s thread=%s tid=%d cond=%d workarea=0x%08x timeout_present=%u timeout_us=%u depth=%u->%u target_type=%u target=%d related=%s:%d related_pc=0x%08x guest_pc=0x%08x result=0x%08x\n",
++        static_cast<unsigned long long>(record.sequence), static_cast<unsigned long long>(record.time_us),
++        lwcond_trace_event_name(record.event), lwcond_trace_thread_name(record.thread_kind), record.thread_id,
++        record.cond_id, record.workarea, record.timeout_present, record.timeout_us,
++        record.depth_before, record.depth_after, record.target_type, record.target_id,
++        lwcond_trace_thread_name(record.related_kind), record.related_thread_id,
++        record.related_guest_pc, record.guest_pc, record.result);
++}
++
++size_t lwcond_trace_copy_recent(LwCondTraceState &state, std::array<LwCondTraceRecord, 32> &batch) {
++    const uint64_t first = state.next_sequence > batch.size() ? state.next_sequence - batch.size() : uint64_t{0};
++    size_t copied = 0;
++    for (uint64_t sequence = first; sequence < state.next_sequence; ++sequence)
++        batch[copied++] = state.records[sequence % state.records.size()];
++    return copied;
++}
++
++void lwcond_trace_worker(LwCondTraceState *state_pointer) {
++    auto &state = *state_pointer;
++    std::array<LwCondTraceRecord, 32> batch{};
++    for (;;) {
++        size_t copied = 0;
++        uint64_t newest_sequence = 0;
++        uint64_t snapshot_number = 0;
++        bool stopping = false;
++        {
++            std::unique_lock<std::mutex> lock(state.mutex);
++            state.ready.wait_for(lock, std::chrono::seconds(5), [&] { return state.stopping; });
++            stopping = state.stopping;
++            if (state.next_sequence != state.last_snapshot_sequence) {
++                copied = lwcond_trace_copy_recent(state, batch);
++                newest_sequence = state.next_sequence;
++                state.last_snapshot_sequence = newest_sequence;
++                snapshot_number = ++state.snapshot_count;
++            }
++        }
++        if (copied != 0) {
++            std::fprintf(stderr, "Vita3K lwcond trace snapshot=%llu newest_seq=%llu records=%zu\n",
++                static_cast<unsigned long long>(snapshot_number),
++                static_cast<unsigned long long>(newest_sequence), copied);
++            for (size_t i = 0; i < copied; ++i)
++                lwcond_trace_emit(batch[i]);
++            std::fflush(stderr);
++        }
++        if (stopping)
++            return;
++    }
++}
++
++void lwcond_trace_stop() {
++    auto &state = lwcond_trace_state();
++    {
++        const std::lock_guard<std::mutex> lock(state.mutex);
++        state.stopping = true;
++    }
++    state.ready.notify_one();
++    if (state.worker.joinable())
++        state.worker.join();
++}
++
++void lwcond_trace_register_exit_flush() {
++    auto &state = lwcond_trace_state();
++    static std::once_flag start_once;
++    std::call_once(start_once, [&state] {
++        try {
++            state.worker = std::thread(lwcond_trace_worker, &state);
++        } catch (...) {
++            // A trace-worker startup failure should disable asynchronous output, not affect emulation.
++        }
++        std::atexit(lwcond_trace_stop);
++    });
++}
++
++void lwcond_trace_record(LwCondTraceEvent event, const ThreadStatePtr &thread, SceUID cond_id,
++    Address workarea, const SceUInt *timeout, uint32_t timeout_value, size_t depth_before,
++    size_t depth_after, uint32_t target_type, SceUID target_id, const ThreadStatePtr &related,
++    int result = SCE_KERNEL_OK) {
++    LwCondTraceRecord record{};
++    record.time_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
++        std::chrono::steady_clock::now().time_since_epoch()).count());
++    record.event = event;
++    record.thread_kind = lwcond_trace_classify(thread);
++    record.related_kind = lwcond_trace_classify(related);
++    record.thread_id = thread ? thread->id : 0;
++    record.cond_id = cond_id;
++    record.workarea = workarea;
++    record.timeout_present = timeout != nullptr;
++    record.timeout_us = timeout_value;
++    record.result = static_cast<uint32_t>(result);
++    record.depth_before = static_cast<uint32_t>(depth_before);
++    record.depth_after = static_cast<uint32_t>(depth_after);
++    record.target_type = target_type;
++    record.target_id = target_id;
++    record.related_thread_id = related ? related->id : 0;
++    record.guest_pc = lwcond_trace_pc(thread);
++    record.related_guest_pc = lwcond_trace_pc(related);
++
++    auto &state = lwcond_trace_state();
++    {
++        const std::lock_guard<std::mutex> lock(state.mutex);
++        record.sequence = state.next_sequence;
++        state.records[state.next_sequence % state.records.size()] = record;
++        ++state.next_sequence;
++    }
++    state.ready.notify_one();
++}
++} // namespace
++#endif
++
+ static constexpr bool LOG_SYNC_PRIMITIVES = false;
+ 
+ // ***********
+@@ -1228,13 +1424,22 @@ SceUID condvar_create(SceUID *uid_out, KernelState &kernel, const char *export_n
+     return SCE_KERNEL_OK;
+ }
+ 
+-int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, SceUID thread_id, SceUID condid, SceUInt *timeout, SyncWeight weight) {
++int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, SceUID thread_id, SceUID condid, SceUInt *timeout, SyncWeight weight, Address workarea) {
+     assert(condid >= 0);
+ 
+     CondvarPtr condvar;
+     CondvarPtrs *condvars;
+-    if (auto error = find_condvar(condvar, &condvars, kernel, export_name, condid, weight))
++    const ThreadStatePtr thread = kernel.get_thread(thread_id);
++    if (auto error = find_condvar(condvar, &condvars, kernel, export_name, condid, weight)) {
++#ifdef VITA3K_TRACE_LWCOND
++        if (weight == SyncWeight::Light && lwcond_trace_classify(thread) != LwCondTraceThread::Other) {
++            lwcond_trace_register_exit_flush();
++            lwcond_trace_record(LwCondTraceEvent::ApiError, thread, condid, workarea, timeout,
++                timeout ? *timeout : 0, 0, 0, 0, 0, {}, error);
++        }
++#endif
+         return error;
++    }
+ 
+     if (LOG_SYNC_PRIMITIVES) {
+         LOG_DEBUG("{}: uid: {} name: \"{}\" attr: {} assoc_mutexid: {} timeout: {} waiting_threads: {}",
+@@ -1242,8 +1447,11 @@ int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, Sc
+             timeout ? *timeout : 0, condvar->waiting_threads->size());
+     }
+ 
+-    const ThreadStatePtr thread = kernel.get_thread(thread_id);
+-
++#ifdef VITA3K_TRACE_LWCOND
++    const bool trace_wait = weight == SyncWeight::Light && lwcond_trace_classify(thread) != LwCondTraceThread::Other;
++    if (trace_wait)
++        lwcond_trace_register_exit_flush();
++#endif
+     std::unique_lock<std::mutex> condition_variable_lock(condvar->mutex);
+ 
+     if (auto error = mutex_unlock_impl(kernel, export_name, thread_id, 1, condvar->associated_mutex))
+@@ -1256,23 +1464,50 @@ int condvar_wait(KernelState &kernel, MemState &mem, const char *export_name, Sc
+     data.thread = thread;
+     data.priority = thread->priority;
+ 
++#ifdef VITA3K_TRACE_LWCOND
++    const size_t wait_depth_before = condvar->waiting_threads->size();
++    if (trace_wait)
++        lwcond_trace_record(LwCondTraceEvent::WaitBegin, thread, condid, workarea, timeout,
++            timeout ? *timeout : 0, wait_depth_before, wait_depth_before, 0, 0, {});
++#endif
+     const auto data_it = condvar->waiting_threads->push(data);
+     thread_lock.unlock();
+-
+-    if (auto error = handle_timeout(kernel, thread, thread_lock, condition_variable_lock, condvar->waiting_threads, data_it, export_name, timeout))
+-        return error;
++#ifdef VITA3K_TRACE_LWCOND
++    if (trace_wait)
++        lwcond_trace_record(LwCondTraceEvent::WaitQueued, thread, condid, workarea, timeout,
++            timeout ? *timeout : 0, wait_depth_before, condvar->waiting_threads->size(), 0, 0, {});
++#endif
++
++    const int wait_error = handle_timeout(kernel, thread, thread_lock, condition_variable_lock,
++        condvar->waiting_threads, data_it, export_name, timeout);
++#ifdef VITA3K_TRACE_LWCOND
++    if (trace_wait)
++        lwcond_trace_record(LwCondTraceEvent::WaitReturn, thread, condid, workarea, timeout,
++            timeout ? *timeout : 0, wait_depth_before, condvar->waiting_threads->size(), 0, 0, {}, wait_error);
++#endif
++    if (wait_error)
++        return wait_error;
+ 
+     condition_variable_lock.unlock();
+     return mutex_lock_impl(kernel, mem, export_name, thread_id, 1, condvar->associated_mutex, weight, timeout, false);
+ }
+ 
+-int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_id, SceUID condid, Condvar::SignalTarget signal_target, SyncWeight weight) {
++int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_id, SceUID condid, Condvar::SignalTarget signal_target, SyncWeight weight, Address workarea) {
+     assert(condid >= 0);
+ 
+     CondvarPtr condvar;
+     CondvarPtrs *condvars;
+-    if (auto error = find_condvar(condvar, &condvars, kernel, export_name, condid, weight))
++    const ThreadStatePtr thread = kernel.get_thread(thread_id);
++    if (auto error = find_condvar(condvar, &condvars, kernel, export_name, condid, weight)) {
++#ifdef VITA3K_TRACE_LWCOND
++        if (weight == SyncWeight::Light && lwcond_trace_classify(thread) != LwCondTraceThread::Other) {
++            lwcond_trace_register_exit_flush();
++            lwcond_trace_record(LwCondTraceEvent::ApiError, thread, condid, workarea, nullptr,
++                0, 0, 0, 0, 0, {}, error);
++        }
++#endif
+         return error;
++    }
+ 
+     if (LOG_SYNC_PRIMITIVES) {
+         LOG_DEBUG("{}: uid: {} name: \"{}\" attr: {} assoc_mutexid: {} waiting_threads: {}",
+@@ -1281,9 +1516,29 @@ int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_i
+     }
+ 
+     const auto target_type = signal_target.type;
+-
++#ifdef VITA3K_TRACE_LWCOND
++    if (weight == SyncWeight::Light)
++        lwcond_trace_register_exit_flush();
++#endif
+     const std::lock_guard<std::mutex> condvar_lock(condvar->mutex);
+     auto &waiting_threads = condvar->waiting_threads;
++#ifdef VITA3K_TRACE_LWCOND
++    const size_t trace_depth_before = weight == SyncWeight::Light ? waiting_threads->size() : 0;
++    const uint32_t trace_target_type = static_cast<uint32_t>(target_type);
++    const SceUID trace_target_id = signal_target.thread_id;
++    bool trace_signal = false;
++    if (weight == SyncWeight::Light) {
++        for (auto it = waiting_threads->begin(); it != waiting_threads->end(); ++it) {
++            const auto data = *it;
++            if (lwcond_trace_classify(data.thread) != LwCondTraceThread::Other) {
++                trace_signal = true;
++                lwcond_trace_record(LwCondTraceEvent::SignalCandidate, thread, condid, workarea,
++                    nullptr, 0, trace_depth_before, trace_depth_before, trace_target_type, trace_target_id, data.thread);
++            }
++        }
++        trace_signal = trace_signal || lwcond_trace_classify(thread) != LwCondTraceThread::Other;
++    }
++#endif
+ 
+     if (target_type == Condvar::SignalTarget::Type::Specific) {
+         ThreadStatePtr waiting_thread = lock_and_find(signal_target.thread_id, kernel.threads, kernel.mutex);
+@@ -1309,6 +1564,11 @@ int condvar_signal(KernelState &kernel, const char *export_name, SceUID thread_i
+             waiting_threads->pop();
+         }
+     }
++#ifdef VITA3K_TRACE_LWCOND
++    if (trace_signal)
++        lwcond_trace_record(LwCondTraceEvent::Signal, thread, condid, workarea, nullptr, 0,
++            trace_depth_before, waiting_threads->size(), trace_target_type, trace_target_id, {});
++#endif
+ 
+     return SCE_KERNEL_OK;
+ }
+diff --git a/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp b/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp
+index b59fb56..789f5e3 100644
+--- a/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp
++++ b/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp
+@@ -702,14 +702,14 @@ EXPORT(int, _sceKernelSignalLwCond, Ptr<SceKernelLwCondWork> workarea) {
+     TRACY_FUNC(_sceKernelSignalLwCond, workarea);
+     SceUID condid = workarea.get(emuenv.mem)->uid;
+     return condvar_signal(emuenv.kernel, export_name, thread_id, condid,
+-        Condvar::SignalTarget(Condvar::SignalTarget::Type::Any), SyncWeight::Light);
++        Condvar::SignalTarget(Condvar::SignalTarget::Type::Any), SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(int, _sceKernelSignalLwCondAll, Ptr<SceKernelLwCondWork> workarea) {
+     TRACY_FUNC(_sceKernelSignalLwCondAll, workarea);
+     SceUID condid = workarea.get(emuenv.mem)->uid;
+     return condvar_signal(emuenv.kernel, export_name, thread_id, condid,
+-        Condvar::SignalTarget(Condvar::SignalTarget::Type::All), SyncWeight::Light);
++        Condvar::SignalTarget(Condvar::SignalTarget::Type::All), SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(int, _sceKernelSignalLwCondTo) {
+@@ -797,14 +797,14 @@ EXPORT(int, _sceKernelWaitExceptionCB) {
+ EXPORT(int, _sceKernelWaitLwCond, Ptr<SceKernelLwCondWork> workarea, SceUInt32 *timeout) {
+     TRACY_FUNC(_sceKernelWaitLwCond, workarea, timeout);
+     const auto cond_id = workarea.get(emuenv.mem)->uid;
+-    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, timeout, SyncWeight::Light);
++    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, timeout, SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(SceInt32, _sceKernelWaitLwCondCB, Ptr<SceKernelLwCondWork> pWork, SceUInt32 *pTimeout) {
+     TRACY_FUNC(_sceKernelWaitLwCondCB, pWork, pTimeout);
+     process_callbacks(emuenv.kernel, thread_id);
+     const auto cond_id = pWork.get(emuenv.mem)->uid;
+-    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, pTimeout, SyncWeight::Light);
++    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, pTimeout, SyncWeight::Light, pWork.address());
+ }
+ 
+ EXPORT(int, _sceKernelWaitMultipleEvents) {
+diff --git a/vita3k/modules/SceLibKernel/SceLibKernel.cpp b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+index cceae26..38ac432 100644
+--- a/vita3k/modules/SceLibKernel/SceLibKernel.cpp
++++ b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+@@ -1696,21 +1696,21 @@ EXPORT(int, sceKernelSignalLwCond, Ptr<SceKernelLwCondWork> workarea) {
+     TRACY_FUNC(sceKernelSignalLwCond, workarea);
+     SceUID condid = workarea.get(emuenv.mem)->uid;
+     return condvar_signal(emuenv.kernel, export_name, thread_id, condid,
+-        Condvar::SignalTarget(Condvar::SignalTarget::Type::Any), SyncWeight::Light);
++        Condvar::SignalTarget(Condvar::SignalTarget::Type::Any), SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(int, sceKernelSignalLwCondAll, Ptr<SceKernelLwCondWork> workarea) {
+     TRACY_FUNC(sceKernelSignalLwCondAll, workarea);
+     SceUID condid = workarea.get(emuenv.mem)->uid;
+     return condvar_signal(emuenv.kernel, export_name, thread_id, condid,
+-        Condvar::SignalTarget(Condvar::SignalTarget::Type::All), SyncWeight::Light);
++        Condvar::SignalTarget(Condvar::SignalTarget::Type::All), SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(int, sceKernelSignalLwCondTo, Ptr<SceKernelLwCondWork> workarea, SceUID thread_target) {
+     TRACY_FUNC(sceKernelSignalLwCondTo, workarea, thread_target);
+     SceUID condid = workarea.get(emuenv.mem)->uid;
+     return condvar_signal(emuenv.kernel, export_name, thread_id, condid,
+-        Condvar::SignalTarget(Condvar::SignalTarget::Type::Specific, thread_target), SyncWeight::Light);
++        Condvar::SignalTarget(Condvar::SignalTarget::Type::Specific, thread_target), SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(int, sceKernelStackChkFail) {
+@@ -1852,7 +1852,7 @@ EXPORT(int, sceKernelWaitExceptionCB) {
+ EXPORT(int, sceKernelWaitLwCond, Ptr<SceKernelLwCondWork> workarea, SceUInt32 *timeout) {
+     TRACY_FUNC(sceKernelWaitLwCond, workarea, timeout);
+     const auto cond_id = workarea.get(emuenv.mem)->uid;
+-    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, timeout, SyncWeight::Light);
++    return condvar_wait(emuenv.kernel, emuenv.mem, export_name, thread_id, cond_id, timeout, SyncWeight::Light, workarea.address());
+ }
+ 
+ EXPORT(SceInt32, sceKernelWaitLwCondCB, Ptr<SceKernelLwCondWork> pWork, SceUInt32 *pTimeout) {

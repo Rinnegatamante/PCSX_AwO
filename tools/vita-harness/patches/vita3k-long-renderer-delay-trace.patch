@@ -1,0 +1,47 @@
+--- a/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp
++++ b/vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp
+@@ -19,6 +19,11 @@
+ #include <modules/module_parent.h>
+ 
+ #include <kernel/callback.h>
++#ifdef VITA3K_TRACE_LONG_RENDERER_DELAY
++#include <cpu/functions.h>
++#include <atomic>
++#include <cstdio>
++#endif
+ #include <kernel/state.h>
+ #include <kernel/sync_primitives.h>
+ #include <kernel/types.h>
+@@ -1060,11 +1065,32 @@
+     return thread->id;
+ }
+ 
++#ifdef VITA3K_TRACE_LONG_RENDERER_DELAY
++namespace {
++std::atomic<uint32_t> long_renderer_delay_trace_count{0};
++const auto long_renderer_delay_trace_start = std::chrono::steady_clock::now();
++}
++#endif
++
+ static int delay_thread(KernelState &kernel, SceUID thread_id, SceUInt delay_us) {
+     if (delay_us == 0)
+         return SCE_KERNEL_ERROR_INVALID_ARGUMENT;
+ 
+     const ThreadStatePtr thread = kernel.get_thread(thread_id);
++#ifdef VITA3K_TRACE_LONG_RENDERER_DELAY
++    if (thread && thread->name == "CTR Renderer" && delay_us >= 1000000) {
++        const uint32_t record = long_renderer_delay_trace_count.fetch_add(1, std::memory_order_relaxed);
++        if (record < 32) {
++            const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
++                std::chrono::steady_clock::now() - long_renderer_delay_trace_start).count();
++            const uint32_t guest_pc = thread->cpu ? read_pc(*thread->cpu) : 0;
++            const uint32_t guest_lr = thread->cpu ? read_lr(*thread->cpu) : 0;
++            std::fprintf(stderr,
++                "Vita3K long renderer delay elapsed_us=%lld tid=%d delay_us=%u guest_pc=0x%08x guest_lr=0x%08x record=%u\n",
++                static_cast<long long>(elapsed_us), thread_id, delay_us, guest_pc, guest_lr, record + 1);
++        }
++    }
++#endif
+     std::unique_lock<std::mutex> lock(thread->mutex);
+     thread->update_status(ThreadStatus::wait);
+     thread->status_cond.wait_for(lock, std::chrono::microseconds(delay_us),

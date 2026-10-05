@@ -33,6 +33,10 @@ parser.add_argument('--fix-stale-protection-faults', action='store_true',
                     help='Ignore a direct-memory protection miss only when Mach reports the page is RW')
 parser.add_argument('--trace-protection-miss', action='store_true',
                     help='Log up to eight valid-address host protection misses')
+parser.add_argument('--trace-lwcond-waits', action='store_true',
+                    help='Trace bounded light-weight condition wait/signal activity for two named guest threads')
+parser.add_argument('--trace-long-renderer-delays', action='store_true',
+                    help='Log up to 32 long sceKernelDelayThread calls from CTR Renderer')
 parser.add_argument('--fix-unmapped-readback', action='store_true',
                     help='Synchronize Vulkan color surfaces through CPU staging when mapping is disabled')
 parser.add_argument('--trace-display-presentation', action='store_true',
@@ -64,6 +68,8 @@ HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-pr
 RECOVERY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-macos-recovery-trace.patch'
 STALE_FAULT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-stale-protection-fault.patch'
 PROTECTION_MISS_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-protection-miss-trace.patch'
+LWCOND_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-lwcond-wait-trace.patch'
+LONG_RENDERER_DELAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-long-renderer-delay-trace.patch'
 FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
 READBACK_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-unmapped-readback.patch'
 DISPLAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-display-presentation-trace.patch'
@@ -83,6 +89,15 @@ if options.trace_display_presentation:
     if not options.fix_unmapped_readback:
         SOURCES.append(('renderer', 'src/vulkan/surface_cache.cpp',
                         'vita3k/renderer/src/vulkan/surface_cache.cpp', 'surface_cache.cpp.o'))
+if options.trace_lwcond_waits:
+    SOURCES.extend([
+        ('kernel', 'src/sync_primitives.cpp', 'vita3k/kernel/src/sync_primitives.cpp', 'sync_primitives.cpp.o'),
+        ('modules', 'SceLibKernel/SceLibKernel.cpp', 'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'),
+        ('modules', 'SceKernelThreadMgr/SceThreadmgr.cpp', 'vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp', 'SceThreadmgr.cpp.o'),
+    ])
+if options.trace_long_renderer_delays:
+    SOURCES.append(('modules', 'SceKernelThreadMgr/SceThreadmgr.cpp',
+                    'vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp', 'SceThreadmgr.cpp.o'))
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
@@ -97,9 +112,14 @@ if options.fix_unmapped_readback:
         ('renderer', 'src/transfer.cpp', 'vita3k/renderer/src/transfer.cpp', 'transfer.cpp.o'),
     ])
 
+# Preserve first occurrence and stable order when multiple options patch one TU.
+SOURCES = list(dict.fromkeys(SOURCES))
+
 # Only the patched sources/header are copied. Apply the checked-in patch to
 # these private copies, so even a dirty user's source checkout stays untouched.
 inputs = [row[2] for row in SOURCES] + ['vita3k/display/include/display/state.h']
+if options.trace_lwcond_waits:
+    inputs.append('vita3k/kernel/include/kernel/sync_primitives.h')
 original_hashes = {}
 for relative in inputs:
     original = ORIG / relative
@@ -136,6 +156,12 @@ if options.fix_unmapped_readback:
 if options.trace_display_presentation:
     subprocess.run(['git', 'apply', '--check', str(DISPLAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(DISPLAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.trace_lwcond_waits:
+    subprocess.run(['git', 'apply', '--check', str(LWCOND_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(LWCOND_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.trace_long_renderer_delays:
+    subprocess.run(['git', 'apply', '--check', str(LONG_RENDERER_DELAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(LONG_RENDERER_DELAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -154,8 +180,21 @@ def compile_one(target, source_rel, patch_rel, obj_name):
     copied = source
     output = OBJ / obj_name
     output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ['/usr/bin/c++', *shlex.split(flags['CXX_DEFINES']),
+    trace_sources = {
+        ('kernel', 'src/sync_primitives.cpp'),
+        ('modules', 'SceLibKernel/SceLibKernel.cpp'),
+        ('modules', 'SceKernelThreadMgr/SceThreadmgr.cpp'),
+    }
+    trace_include = (['-I' + str(WORKTREE / 'vita3k/kernel/include')]
+                     if options.trace_lwcond_waits and (target, source_rel) in trace_sources else [])
+    trace_define = (['-DVITA3K_TRACE_LWCOND']
+                    if options.trace_lwcond_waits and (target, source_rel) == ('kernel', 'src/sync_primitives.cpp')
+                    else [])
+    if options.trace_long_renderer_delays and (target, source_rel) == ('modules', 'SceKernelThreadMgr/SceThreadmgr.cpp'):
+        trace_define.append('-DVITA3K_TRACE_LONG_RENDERER_DELAY')
+    cmd = ['/usr/bin/c++', *shlex.split(flags['CXX_DEFINES']), *trace_define,
            '-I' + str(WORKTREE / 'vita3k/display/include'),
+           *trace_include,
            '-I' + str(ORIG / 'vita3k' / target / Path(source_rel).parent),
            *shlex.split(flags['CXX_INCLUDES']), *shlex.split(flags['CXX_FLAGS']),
            '-c', str(copied), '-o', str(output)]
@@ -187,7 +226,7 @@ for target in ('display', 'modules', 'renderer', *(['mem'] if ('mem', 'src/mem.c
 
 # Rebuild app/kernel archives in the isolated directory, sourcing untouched
 # members from existing objects and replacing only the patched source member.
-for target, source_rel, patch_rel, obj_name in SOURCES[:2]:
+for target in ('app', 'kernel'):
     target_dir = BUILD / 'vita3k' / target
     words = shlex.split((target_dir / 'CMakeFiles' / f'{target}.dir/link.txt').read_text())
     object_paths = [Path(w) for w in words if w.endswith('.o')]
@@ -196,10 +235,9 @@ for target, source_rel, patch_rel, obj_name in SOURCES[:2]:
         archive.unlink()
     args = ['/usr/bin/ar', 'qc', str(archive)]
     for obj in object_paths:
-        if obj.as_posix().endswith(source_rel + '.o'):
-            args.append(str(compiled[(target, source_rel)]))
-        else:
-            args.append(str(target_dir / obj))
+        replacement = next((output for (compiled_target, source_rel), output in compiled.items()
+                            if compiled_target == target and obj.as_posix().endswith(source_rel + '.o')), None)
+        args.append(str(replacement if replacement else target_dir / obj))
     subprocess.run(args, check=True, cwd=BUILD)
     subprocess.run(['/usr/bin/ranlib', str(archive)], check=True)
 
@@ -280,6 +318,10 @@ manifest = {
                                      if options.fix_unmapped_readback else None),
     'display_presentation_trace_patch_sha256': (hashlib.sha256(DISPLAY_TRACE_PATCH.read_bytes()).hexdigest()
                                                if options.trace_display_presentation else None),
+    'lwcond_trace_patch_sha256': (hashlib.sha256(LWCOND_TRACE_PATCH.read_bytes()).hexdigest()
+                                  if options.trace_lwcond_waits else None),
+    'long_renderer_delay_trace_patch_sha256': (hashlib.sha256(LONG_RENDERER_DELAY_TRACE_PATCH.read_bytes()).hexdigest()
+                                               if options.trace_long_renderer_delays else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),
