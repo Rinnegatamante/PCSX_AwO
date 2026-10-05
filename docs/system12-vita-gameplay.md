@@ -209,3 +209,25 @@ for the direct-sampling VPK. The latter is retained in
 H8 cycles (3396679944) as the cached replay. Graphics review still fails.
 `p4-direct-source.patch` and `p4-direct-replay-evidence.json` beside the frozen
 VPK record this experiment; the bypass is not applied to repository code.
+
+`VITA_CTR_GPU_TRACE=1` also records up to 256 distinct begin/store geometry
+states (`pcsx-vita: frame-geometry`): draw clip, E5 offset, display rect,
+physical/logical target size, initial clip and final pack rect. It changes no
+rendering state. The first 64-record diagnostic VPK
+`94cdf2bb2f071233f8f98b4715b9de294496ab1f58399b2242d0c4a1eb5ed0df`
+was run with the 3600-frame input replay on the stale-fault host. Its trace
+shows scene 2 begin with a 1x1 target, then store that same target into a
+640x220 draw area. Later scenes alternate draw pages at y=10/250 while the
+display window points at the opposite page. The target uses draw-clip extents,
+but onscreen projection/scissor currently use display extents/origin; ordinary
+onscreen clip changes do not rebind the target. These are coordinate/lifecycle
+inconsistencies to investigate, not a validated graphics fix.
+
+The run retains 12 native PNGs and the board report in
+`/tmp/pcsx-vita-system12-vitagl-geometry-20261005`. Graphics review still fails.
+Its guest consumed 33/33 inputs, reached 3600/3600 frames, shutdown PASS and
+Idle, but the runner did not recognize completion after its 128-message ring
+lost early expected tokens. A native sample showed the host in Qt idle;
+only the owned process group was terminated. `geometry-evidence.json` beside
+the frozen VPK keeps this run failed at runner completion detection. Do not
+reclassify it as a passing validation; rerun with corrected token retention.

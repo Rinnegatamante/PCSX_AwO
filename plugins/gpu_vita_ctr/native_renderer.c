@@ -264,6 +264,45 @@ struct NativeRenderTarget
 global_variable struct NativeRenderTarget s_mainRenderTarget;
 global_variable struct NativeRenderTarget s_offscreenRenderTarget;
 
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+global_variable RECT16 s_traceBeginClip;
+global_variable u32 s_traceScene;
+
+/* Keep complete, distinct geometry records without logging every buffer swap.
+ * This records state only; it does not change clipping or texture contents. */
+internal void NativeRenderer_TraceFrameGeometry(int storing, int x, int y, int w, int h)
+{
+	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
+	const DISPENV *disp = NativeGpu_GetRenderDispEnv();
+	const int geometry[] = {
+		storing, draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h,
+		draw->ofs[0], draw->ofs[1], draw->dfe, draw->isbg,
+		disp->disp.x, disp->disp.y, disp->disp.w, disp->disp.h,
+		s_mainRenderTarget.width, s_mainRenderTarget.height,
+		s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight,
+		s_traceBeginClip.x, s_traceBeginClip.y, s_traceBeginClip.w, s_traceBeginClip.h,
+		x, y, w, h, s_previousOffscreenState
+	};
+	static int seen[256][26];
+	static unsigned seenCount;
+	for (unsigned i = 0; i < seenCount; ++i)
+		if (memcmp(seen[i], geometry, sizeof(geometry)) == 0)
+			return;
+	if (seenCount == 256)
+		return;
+	memcpy(seen[seenCount++], geometry, sizeof(geometry));
+	SysPrintf("pcsx-vita: frame-geometry scene=%u stage=%s draw=%d,%d,%d,%d ofs=%d,%d dfe=%d bg=%d disp=%d,%d,%d,%d target=%dx%d logical=%dx%d begin=%d,%d,%d,%d pack=%d,%d,%d,%d offscreen=%d\n",
+		s_traceScene, storing ? "store" : "begin",
+		draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h,
+		draw->ofs[0], draw->ofs[1], draw->dfe, draw->isbg,
+		disp->disp.x, disp->disp.y, disp->disp.w, disp->disp.h,
+		s_mainRenderTarget.width, s_mainRenderTarget.height,
+		s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight,
+		s_traceBeginClip.x, s_traceBeginClip.y, s_traceBeginClip.w, s_traceBeginClip.h,
+		x, y, w, h, s_previousOffscreenState);
+}
+#endif
+
 global_variable TextureID s_whiteTexture = (TextureID)-1;
 global_variable TextureID s_lastBoundTexture = (TextureID)-1;
 
@@ -632,6 +671,11 @@ void NativeRenderer_BeginScene(void)
 
 	NativeRenderer_UpdatePresentationViewport();
 	NativeRenderer_BindMainRenderTarget();
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	s_traceBeginClip = NativeGpu_GetRenderDrawEnv()->clip;
+	++s_traceScene;
+	NativeRenderer_TraceFrameGeometry(0, 0, 0, 0, 0);
+#endif
 	NativeRenderer_SetDepthState(0, 1);
 
 	NativeRenderer_UpdateVRAM();
@@ -3400,6 +3444,7 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 {
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	NativeRenderer_TraceFrameGeometry(1, x, y, w, h);
 	static int traceMainSampled;
 	if (!traceMainSampled && x <= 160 && y <= 100 && x + w > 160 && y + h > 100 &&
 	    s_mainRenderTarget.width > 0 && s_mainRenderTarget.height > 0 &&
