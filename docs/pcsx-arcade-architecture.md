@@ -189,3 +189,52 @@ complete a family. For each board variant, retain interpreter/DRC bus and DMA
 checks, media/persistence checks, controls, timed IRQ/audio traces and authentic
 game evidence against the pinned MAME baseline. Do not report speculative
 engineering estimates as measured completion percentages.
+
+## H8/C352 worker and H8 DRC candidates
+
+Treating H8/C352 as the board's audio/I/O subsystem makes a worker analogous to
+the existing SPU worker a valid candidate. It would be a new worker using common
+infrastructure, not an option that redirects H8 into dfSound's worker today.
+The two candidates solve different problems and can eventually be combined:
+
+| Candidate | Purpose | Required boundary / unresolved cost |
+| --- | --- | --- |
+| H8/C352 worker | Overlap auxiliary CPU/audio work with independent MIPS/GPU/frontend work. | One owner for H8/C352 state; timestamped external events, bounded work/PCM queues, barriers for shared-memory visibility and deterministic reset/teardown. Frequent mailbox accesses may eliminate much of the overlap. |
+| H8 DRC | Reduce interpreter dispatch and instruction execution cost while keeping the initial execution synchronous. | H8 decode/flags/register semantics, cycle and event exits, observable bus accesses, mutable-code invalidation and interpreter fallback. Peripheral/bus costs remain; the measured H8 scope does not isolate dispatch cost. |
+
+The SPU precedent is concrete: `queue_channel_work` in `plugins/dfsound/spu.c`
+packages channel parameters and advances control state on the producer;
+`do_channel_work` processes queued audio work; `sync_worker_thread` waits/reaps
+results and restores state when required. It uses a bounded four-item queue and
+retains IRQ/control work in the synchronous path. The thread/queue/completion
+pattern is reusable, but its channel snapshots are not a representation of an
+H8 CPU executing arbitrary firmware with shared-memory and I/O effects.
+
+For an H8/C352 worker proposal, the worker would advance to an agreed emulated
+deadline and deliver ordered memory/event effects and PCM. The main CPU must
+observe H8 writes only at their defined time and wait when it needs an
+unpublished result. Main-to-H8 shared writes, IRQ/ADTRG, inputs and serial events
+also need a defined ordering before the worker passes their timestamp. Both
+CPUs cannot access the existing mutable `board.shared` concurrently without
+that contract. C352 access/sample ordering belongs to the same owner/timeline;
+putting only H8 on another thread leaves its C352 callbacks racing the generator.
+Do not assume frame-sized jobs are safe just because audio is consumed in
+buffers. Host audio waits should not hold board-state locks needed by the main
+CPU, and reset/unload must drain or cancel old-epoch work before freeing state.
+
+An H8 DRC is a separate ISA backend; the existing MIPS ARI64 compiler cannot
+compile H8 instructions unchanged. It may offer host-code emission techniques,
+but H8 state, flags and timing still need their own implementation. Vita requires
+ARMv7 output and code-cache visibility support. A native M1 DRC comparison would
+require ARM64 output or use the H8 interpreter as its control; Vita3K executes
+the ARMv7 package through its outer translator. These are different validation
+paths, not one interchangeable cache of host instructions.
+
+Recommendation: first obtain H8 dispatch/peripheral/bus cost and timed mailbox
+traffic, then choose the initial implementation. If instruction execution
+dominates, a synchronous H8 DRC directly reduces work without adding ownership
+changes. If independent auxiliary work has long intervals between barriers, the
+worker can overlap it. If timers or bus handling dominate, improve those paths
+before expecting either candidate to remove their cost. Keep a synchronous
+reference for deterministic event/audio comparison. No worker or DRC is
+implemented by this proposal, and neither has a measured speedup yet.
