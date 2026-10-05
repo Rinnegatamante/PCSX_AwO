@@ -160,8 +160,9 @@ class CapturedGuest:
         if b"pcsx-vita: system12-progress " in encoded:
             # Keep bounded frame milestones visible while the guarded guest runs.
             print(line[:1024], flush=True)
-        if encoded.startswith(self.LIVE_DIAGNOSTIC_PREFIXES):
-            # Private host probes already bound their output. Bound it here too,
+        if (encoded.startswith(self.LIVE_DIAGNOSTIC_PREFIXES) or
+                b"pcsx-vita: VGL_ALLOC " in encoded):
+            # Private host and guest probes already bound their output. Bound it here too,
             # and expose snapshots before a stalled guest's watchdog expires.
             if self.live_diagnostic_lines < self.LIVE_DIAGNOSTIC_LIMIT:
                 print(line[:1024], flush=True)

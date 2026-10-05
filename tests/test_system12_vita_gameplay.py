@@ -226,6 +226,29 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
             self.assertIn("Vita3K lwcond trace seq=4", log.read_text())
             self.assertIn("Vita3K long renderer delay", log.read_text())
 
+    def test_timestamped_guest_allocator_probe_is_live(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "vita.log"
+            probe = "[13:00:00] |I| [export_sceClibPrintf]: pcsx-vita: VGL_ALLOC event=0 size=8192"
+            process = subprocess.Popen([sys.executable, "-u", "-c",
+                                        "print(" + repr(probe) + ")"],
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            live = io.StringIO()
+            with contextlib.redirect_stdout(live):
+                captured = GAMEPLAY.CapturedGuest(process, log, "unit guest allocator")
+                try:
+                    process.wait(timeout=5)
+                    captured.thread.join(timeout=5)
+                    self.assertFalse(captured.thread.is_alive())
+                    self.assertEqual(live.getvalue().strip(), probe)
+                    self.assertFalse(log.exists())
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    captured.close()
+            self.assertIn(probe, log.read_text())
+
     def test_ppm_dimensions_and_payload_are_checked(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "frame.ppm"
