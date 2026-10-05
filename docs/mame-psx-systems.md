@@ -104,7 +104,11 @@ machine's assets does not imply that it boots.
   2 MiB type-2 GPU bring-up; [runtime evidence](system12.md). Native COH-700/716
   reset guests verify RAM/bank/input retention and absolute PCM phase with
   interpreter/DRC. Actual MAME C352 hooks confirm timed key-on/off and continuous
-  reset sample phase. Native H8 port-B vblank polling now matches actual MAME
+  reset sample phase. Native ADC/timer/SCI firmware traces now match 1152
+  MAME value/address/cycle comparisons across three H8 slice sizes; SCI1
+  RTC/settings wiring uses individual source clock edges. RX-start attotime
+  phase, standby and full RTC/JVS waveforms remain unverified. Native H8
+  port-B vblank polling now matches actual MAME
   reads with zero cycle difference on interpreter/ARI64, both short/long blocks
   and block/vblank-only frontend cadence. Seven screen mode/reset captures also
   match the standalone source screen component in exact attoseconds; native

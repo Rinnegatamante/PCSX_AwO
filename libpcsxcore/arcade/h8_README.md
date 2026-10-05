@@ -22,8 +22,9 @@ Implemented peripherals:
   IRQ0..5/NMI controller with edge/level latching and CCR/ICR priority filters.
 - Five 16-bit timers with internal clock divisors, compare A/B flags, overflow,
   automatic counter clearing and interrupt generation.
-- Two SCI channels with status read/clear semantics, cycle-timed byte transmit,
-  receive, receive-overrun and interrupt events. Board code supplies serial
+- Two SCI channels with source TX/RX shift registers, clock pins, internal and
+  external clock modes, status read/clear semantics, framing/errors and IRQs.
+  Board code supplies serial
   endpoints and external device behavior.
 - H8 ADC3337 software/external trigger, 10-bit input sampling, channel scanning,
   conversion delays, result registers and completion interrupt. System 12
@@ -33,16 +34,18 @@ Implemented peripherals:
 Execution accounts for MAME instruction bus/internal cycle costs.
 `h8_run_cycles` completes execution states and carries scheduling overshoot
 to the next call. `h8_run_until` uses MAME-generated partial states to suspend
-and resume at external absolute deadlines, including within EEPMOV loops.
+and resume at external and internal peripheral deadlines, including within EEPMOV loops.
 Checkpoints follow bus operations, so one operation can cross the deadline;
 its remaining charge is carried forward without repeating the access. The
 caller then delivers external edges before resuming the state.
 Peripherals advance between execution checkpoints, including intermediate
-prefix decoder and exception states. Internal timer/SCI/ADC deadlines do not
-yet establish their own MAME-style partial execution boundaries.
+prefix decoder and exception states. Register changes refresh the deadline at
+the charged access cycle, using source ADC/SCI0/SCI1/timer order. Device
+cycles restart on soft reset; bus callbacks retain the absolute board epoch.
+The older whole-state `run_cycles` API remains coarser than `run_until`.
 
 Remaining limitations: DMA and watchdog execution, external timer clock pins,
-SCI bit/clock waveforms and external serial clock rates, hardware timer output
+RX-start scheduler-attotime phase versus TX-start local cycles, hardware timer output
 waveforms/synchronization, ADC analog power/standby behavior, and save-state
 serialization. DMA/watchdog accesses set diagnostic bits in `H8Status`.
 Unconnected analog channels return zero; device responses belong in the board
@@ -67,3 +70,10 @@ its shared-memory identification at 0x080400 matches MAME. The independent MAME
 oracle captures H8/PSX CPU state, internal registers, shared RAM and stack at
 0.1, 1, 2, 10 and 20 seconds. Full system behavior also depends on the main CPU,
 board I/O and scheduling, so PC samples are not asserted cycle-identical.
+
+Peripheral component gates are `tests/Makefile.h8-adc`,
+`tests/Makefile.h8_timer16`, and `tests/Makefile.h8-sci` (normal and UBSan).
+`tests/check_mame_h8_peripherals.py --include-sci` executes firmware register
+polling in both MAME and native code and requires identical first-N stores at
+all native slice sizes. This does not prove full RTC/JVS wire, standby, or
+real-game frame/audio equivalence. See `docs/h8-port.md` for scope and commands.

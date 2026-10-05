@@ -718,9 +718,72 @@ comparison. Frozen binary/log/image are under
 The framebuffer and all final board report lines equal the source-screen replay
 before the frontend-cadence fix; `cadence-regression.json` records that control.
 
-Internal H8 timers, SCI and ADC still advance through the port's `tick()`
-checkpoints; `m_bcount` currently bounds external deadlines, not each internal
-MAME device deadline. Internal-event ordering, timed shared-mailbox protocols,
+The following internal-device correction supersedes the earlier coarse
+H8 timer/SCI/ADC scheduling. Timed shared-mailbox protocols,
 MIPS IRQ ordering, real-game state/pixel/audio comparison and native/libretro
 scheduling equivalence remain open. No worker, H8 DRC, new Vita or vitaGL
 validation is claimed. Zero whole driver families are complete.
+
+### Mac H8 internal-device correction (2026-10-05)
+
+The ADC3337, H83002 timer16 and SCI source models now replace the coarse
+register-array implementations. `h8_run_until` bounds partial CPU execution by
+the next internal event as well as the external board deadline. ADC starts
+from the charged write cycle; timers settle elapsed time before register
+mutations and use source compare/divider arithmetic; SCI runs physical TX/CLK
+transitions rather than delivering grouped bytes. System12 wires inverted
+RTC CLK first, then settings CLK, and routes RTC DATA to RX1. SCI0's fixed
+external clock period is `542534722222` attoseconds. Soft reset restarts local
+peripheral cycles while keeping the board's absolute callback time and SCI
+status-read/RX latches.
+
+The independent installed-MAME probe injects four H8 programs: ADC start/poll,
+timer0 counter polling, internal asynchronous SCI, and external-rate SCI.
+Each emits 96 external observation stores. Native runs with 1/1024/10000-cycle
+slices match **1152 value/address/cycle comparisons with zero differences**.
+The fixed pre-port baseline `dde07db7` differs in 101 observations. For example,
+the ADC read at cycle 280 still sees ADST in MAME and the new port, whereas
+the old port has completed early; its observable store differs at cycle 288.
+Internal SCI SSR polls bracket TEND between cycles 356 and 374; the source
+external-rate case brackets it between 1508 and 1526. Parent ROM/template
+hashes remain unchanged and all MAME runs exit under the watchdog.
+Installed MAME is 0.287; matching that binary to the pinned source remains
+unverified. These are register traces, not full RTC/JVS waveform captures.
+
+Component normal/UBSan tests and H8 instruction/IRQ/deadline/reset tests pass,
+including an odd soft-reset epoch above 32 bits. Native interpreter and ARI64
+GP1 modes/reset, C352 key-on/off phase and warm-reset retention gates pass.
+A fresh MAME vblank capture also matches the four initial old/new port-B read
+pairs exactly for both CPU engines, both MIPS block sizes and both frontend
+sync cadences.
+
+An authentic Mac NEON/ARI64 **12000-frame** run uses the existing
+`artifacts/system12/match-3600.csv` input script. It completes at main cycles
+`10029193005`, H8 cycles `3396767298`, H8 instructions `590887759`, and PCM
+frames `17691497`, without H8 illegal/unsupported or unmapped accesses. The
+final image shows the VS-BATTLE ranking screen. This run has a different input
+script from the former temporary replay and is not its state/image equivalence
+baseline. The measured 57.912 s emulation elapsed is a smoke observation, not
+a controlled optimization benchmark. The frozen executable SHA-256 is
+`c991acc204feeffd8338b78a44f2f8013482a61232b09fcdd6e336602c4715b4`.
+
+Evidence is retained in ignored `artifacts/validation/h8-peripherals-20261005/`:
+`summary.json`, `mame-peripherals.json`, `vblank-comparison.json`,
+`core-final.log`, `mac-gates.log`, and the frozen executable/input/log/PPM/PNG/WAV.
+Older `/tmp` evidence referenced above is historical and was lost when the
+execution environment restarted; current claims use these fresh captures.
+
+Reproduction uses the Mac source-timing build command above, the component
+gates in [H8 port details](h8-port.md), and:
+
+```sh
+python3 tests/check_mame_h8_peripherals.py --include-sci --output artifacts/validation/h8-peripherals-20261005/mame-peripherals.json
+```
+
+Open fidelity work includes the scheduler-attotime phase of RX clock starts
+(the source distinguishes `now_as_cycles()` from TX `total_cycles()`),
+standby/DMA/watchdog, timer external pins, complete RTC/JVS wire traces, timed
+shared mailboxes and MIPS IRQ ordering, real-game MAME pixels/audio, and
+native/libretro scheduler equivalence. The legacy whole-state `h8_run_cycles`
+API retains coarse checkpoints. Worker/H8 DRC and new Vita/vitaGL validation
+remain outside this milestone. No whole driver family is complete.
