@@ -135,6 +135,7 @@ void H8CPU::bind_peripherals() {
         sci[ch].setExternalClockPeriodAS(config.serial_external_period_as[ch],16934400);
 }
 u64 H8CPU::next_internal_event() const {
+    // Peripheral clocks restart at reset, while board deadlines stay absolute.
     u64 next=adc.next_event();
     next=std::min(next?next:UINT64_MAX,timers.nextDeadline());
     for(unsigned ch=0;ch<2;ch++)
@@ -148,6 +149,8 @@ void H8CPU::refresh_bcount() {
     m_bcount=-int(std::min<u64>(span,0x7fffffff));
 }
 void H8CPU::internal_update_at(u64 when) {
+    // Keep the source device order. SCI reschedules can re-enter here using
+    // the charged CPU clock, like MAME's no-argument internal_update().
     when-=cycle_epoch;
     adc.update(when);
     sci[0].update(when);

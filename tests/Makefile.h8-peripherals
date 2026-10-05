@@ -19,7 +19,7 @@ $(TARGET): $(SOURCES) $(HEADERS)
 	$(CXX) $(CXXFLAGS) $(SOURCES) -o $@
 
 test: $(TARGET)
-	python3 tests/check_mame_h8_peripherals.py
+	python3 tests/check_mame_h8_peripherals.py --include-sci --output $(BUILD)/mame-peripherals.json
 
 clean:
 	rm -rf $(BUILD)

@@ -68,8 +68,8 @@ int main(int argc, char **argv) {
     bus.cpu = h8_create(&config);
     if (!bus.cpu) return 2;
 
-    // Fine absolute deadlines exercise partial generated states and the bus
-    // callback's access timestamp, while MAME runs the same instruction stream.
+    // Short and long absolute slices exercise partial generated states and
+    // internal deadlines while MAME runs the same instruction stream.
     for (uint64_t deadline = slice; deadline <= 50000 && bus.observations < expected_observations; deadline += slice) {
         if (h8_run_until(bus.cpu, deadline) != 0) {
             std::fprintf(stderr, "h8_run_until failed at cycle %llu\n",

@@ -66,6 +66,7 @@ int h8_run_until(H8CPU *cpu, uint64_t absolute_cycle);
 uint64_t h8_current_cycle(const H8CPU *cpu);
 /* IRQ0..IRQ5 are 0..5; NMI is -1. Level is 0/1 (asserted). */
 void h8_set_irq(H8CPU *cpu, int line, int level);
+/* Diagnostic byte injection; bypasses the physical receive shift register. */
 void h8_serial_receive(H8CPU *cpu, unsigned channel, uint8_t value);
 /* Physical receive/clock inputs; board devices should use these pin APIs. */
 void h8_serial_rx_pin(H8CPU *cpu, unsigned channel, int level);
