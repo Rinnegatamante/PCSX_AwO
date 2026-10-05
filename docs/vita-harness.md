@@ -747,3 +747,13 @@ This observation does not identify the cause of graphical artifacts or prove
 completed gameplay. The observation was recorded while the guarded run was
 still active in
 `/tmp/pcsx-vitagl-mspace-fixed-native-12000-20261005/allocator-live-review.json`.
+
+The guarded run subsequently failed at the 900-second limit and its process
+was confirmed closed. It never produced the requested 12000-frame report or
+completion marker; its last milestone remained 8400 frames and 116/177 input
+events. It preserved 24 native screenshots. Manual review of the final image
+shows a VS BATTLE ranking scene with repeated/overlapping text. The results
+contain no unresolved host execution issue, which is not proof of correct
+rendering or synchronization. The same evidence file now records this terminal
+failure; fixing host mspace statistics and arena bounds did not resolve the
+extended gameplay stall.
