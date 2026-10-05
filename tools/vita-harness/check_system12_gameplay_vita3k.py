@@ -150,6 +150,9 @@ class CapturedGuest:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
         encoded = raw_line
         self.lines_seen += 1
+        if b"pcsx-vita: system12-progress " in encoded:
+            # Keep bounded frame milestones visible while the guarded guest runs.
+            print(line[:1024], flush=True)
         for token in self.expected_tokens:
             if token in encoded:
                 self.expected_tokens_seen.add(token)
