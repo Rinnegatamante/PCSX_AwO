@@ -29,6 +29,8 @@ RESULT_MAGIC = 0x53314642  # S1FB
 DEFAULT_MAIN_SHA256 = "07cbcdecd6a8c4c6cb3b85b060dbd211e06e70f2fea5af62336099c458661bf6"
 TEXTURE_WINDOW_MAIN_SHA256 = "8eb3780d65e540b668f82e52899c41721ef416201a9d0e0683ff59b4a85a6562"
 DEFAULT_GP0_SHA256 = "66469427106cc45f1798a85949e63af3ad2f56f5e7856be251acfcd49abecf52"
+SPRITE_UV_WRAP_MAIN_SHA256 = "bfe0204a0b50d8c24b0f199476d8e9d0fa3c72e72b27f6811938ae224210a6d8"
+SPRITE_UV_WRAP_GP0_SHA256 = "b5604049f2cbca0498a9fc53923fa79eec342a530eb872bf2530f07a3bfa631e"
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
                    0x7fff, 0x03e0, 0x7c1f, 0x7c1f)
 EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
@@ -36,6 +38,9 @@ EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
                            0x7fe0, 0x7c1f, 0x7fff, 0x4210)
 EXPECTED_TEXTURE_WINDOW_PIXELS = (0x7c1f, 0x7c1f, 0x4210,
                                   0x7fe0, 0x7c1f, 0x7fff)
+EXPECTED_SPRITE_UV_WRAP_PIXELS = (0x03ff, 0x7c00, 0x03e0, 0x001f, 0x7c00,
+                                 0x4210, 0x7fff, 0x7c1f, 0x7fe0, 0x7fff,
+                                 0x03ff, 0x7c00, 0x03e0, 0x001f, 0x7c00)
 DISPLAY_W, DISPLAY_H = 320, 240
 
 
@@ -48,8 +53,10 @@ def module(name, path):
     return result
 
 
-def make_guest_code(texture_window=False):
+def make_guest_code(texture_window=False, sprite_uv_wrap=False):
     """Generate an ari64 MIPS guest that exercises main-target/VRAM ordering."""
+    if texture_window and sprite_uv_wrap:
+        raise ValueError("texture-window and sprite-UV-wrap probes are separate fixture modes")
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     code = []
     commands = []
@@ -164,6 +171,34 @@ def make_guest_code(texture_window=False):
                 word |= tpage << 16
             gp0(word)
 
+    def upload_constant_words(x, y, width, height, value):
+        upload_rect(x, y, width, height, [value] * (width * height))
+
+    def emit_uv_wrap_sprite(x, y, tpage, clut):
+        gp0(0xe1000000 | tpage)
+        gp0(0x64000000 | 0x808080)
+        gp0(x | (y << 16))
+        gp0(252 | (252 << 8) | (clut << 16))
+        # Width exceeds one complete U period and therefore exercises both
+        # the initial seam and the next wrap after 256 more texels.
+        gp0(272 | (16 << 16))
+
+    def upload_p4_wrap_quadrants():
+        # Four broad 16x8 texel patches around both 8-bit coordinate seams.
+        for x, y, index in ((0, 0, 1), (60, 0, 2),
+                            (0, 248, 3), (60, 248, 4)):
+            upload_constant_words(x, y, 4, 8, index * 0x1111)
+
+    def upload_p8_wrap_quadrants():
+        for x, y, index in ((0, 0, 1), (124, 0, 2),
+                            (0, 248, 3), (124, 248, 4)):
+            upload_constant_words(x, y, 4, 8, index * 0x0101)
+
+    def upload_p16_wrap_quadrants():
+        for x, y, color in ((0, 0, 0x001f), (248, 0, 0x03e0),
+                            (0, 248, 0x7c00), (248, 248, 0x03ff)):
+            upload_constant_words(x, y, 8, 8, color)
+
     code.append(drc.sw(0, 4, 8))  # GP1 reset
     gp1(0x05000000)               # display start at VRAM (0,0)
     gp1(0x08000001)               # 320-wide, 240-line display mode
@@ -242,6 +277,32 @@ def make_guest_code(texture_window=False):
         for x, y, index in ((36, 168, 22), (68, 168, 23), (28, 200, 24)):
             c0_pixel(x, y, index)
 
+    if sprite_uv_wrap:
+        # Sample one interior pixel from each broad color patch while a
+        # 272x16 sprite starting at UV(252,252) crosses U and V seams, then
+        # wraps U again after a complete 256-texel period.
+        upload_p4_wrap_quadrants()
+        emit_uv_wrap_sprite(24, 80, 0x0000, clut_a)
+        for x, y, index in ((26, 82, 19), (34, 82, 20),
+                            (26, 90, 21), (34, 90, 22), (284, 82, 23)):
+            c0_pixel(x, y, index)
+
+        palette_p8 = [0] * 256
+        palette_p8[1:5] = palette_b[1:5]
+        upload_rect(64, 800, 256, 1, palette_p8)
+        upload_p8_wrap_quadrants()
+        clut_p8 = (800 << 6) | (64 >> 4)
+        emit_uv_wrap_sprite(24, 112, 0x0080, clut_p8)
+        for x, y, index in ((26, 114, 24), (34, 114, 25),
+                            (26, 122, 26), (34, 122, 27), (284, 114, 28)):
+            c0_pixel(x, y, index)
+
+        upload_p16_wrap_quadrants()
+        emit_uv_wrap_sprite(24, 144, 0x0100, 0)
+        for x, y, index in ((26, 146, 29), (34, 146, 30),
+                            (26, 154, 31), (34, 154, 32), (284, 146, 33)):
+            c0_pixel(x, y, index)
+
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
     loop = 0xbfc01000 + len(code) * 4
@@ -249,11 +310,12 @@ def make_guest_code(texture_window=False):
     return code, commands
 
 
-def make_regions(path, texture_window=False):
+def make_regions(path, texture_window=False, sprite_uv_wrap=False):
     """Reuse the DRC's local System12 board/media regions; replace guest ROM."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     drc.make_regions(path, 4, vita_signature=True)
-    code, _ = make_guest_code(texture_window=texture_window)
+    code, _ = make_guest_code(texture_window=texture_window,
+                              sprite_uv_wrap=sprite_uv_wrap)
     if len(code) > (0x400000 - 0x1000) // 4:
         raise RuntimeError("generated framebuffer guest exceeds the main ROM region")
     main = bytearray(0x400000)

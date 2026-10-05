@@ -150,6 +150,13 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                 (optional_region / "main.bin").read_bytes()).hexdigest(),
                 FIXTURE.TEXTURE_WINDOW_MAIN_SHA256)
 
+            wrap_region = region / "sprite-uv-wrap"
+            wrap_region.mkdir()
+            FIXTURE.make_regions(wrap_region, sprite_uv_wrap=True)
+            self.assertEqual(hashlib.sha256(
+                (wrap_region / "main.bin").read_bytes()).hexdigest(),
+                FIXTURE.SPRITE_UV_WRAP_MAIN_SHA256)
+
     def test_optional_texture_window_probe_sets_and_resets_e2(self):
         _code, commands = FIXTURE.make_guest_code(texture_window=True)
         self.assertEqual(commands.count(0xc0000000), 24)
@@ -194,6 +201,63 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                                            (36, 168), (68, 168), (28, 200)])
         self.assertEqual(FIXTURE.EXPECTED_TEXTURE_WINDOW_PIXELS,
                          (0x7c1f, 0x7c1f, 0x4210, 0x7fe0, 0x7c1f, 0x7fff))
+
+    def test_optional_sprite_uv_wrap_covers_p4_p8_and_p16_seams(self):
+        _code, commands = FIXTURE.make_guest_code(sprite_uv_wrap=True)
+        self.assertEqual(commands.count(0xc0000000), 33)
+        self.assertEqual([word for word in commands if word >> 24 == 0xe1],
+                         [0xe1000000, 0xe1000080, 0xe1000100])
+        gp0_sha256 = hashlib.sha256(b"".join(word.to_bytes(4, "little")
+                                               for word in commands)).hexdigest()
+        self.assertEqual(gp0_sha256, FIXTURE.SPRITE_UV_WRAP_GP0_SHA256)
+
+        sprites = []
+        reads = []
+        tpage = None
+        cursor = 0
+        while cursor < len(commands):
+            word = commands[cursor]
+            opcode = word >> 24
+            if opcode == 0xa0:
+                pixel_count = ((commands[cursor + 2] & 0xffff) *
+                               (commands[cursor + 2] >> 16))
+                cursor += 3 + (pixel_count + 1) // 2
+            elif opcode == 0xe1:
+                tpage = word & 0x1ff
+                cursor += 1
+            elif opcode == 0x64:
+                xy = commands[cursor + 1]
+                sprites.append((tpage, xy & 0xffff, xy >> 16,
+                                commands[cursor + 2] & 0xffff,
+                                commands[cursor + 3]))
+                cursor += 4
+            elif opcode == 0xc0:
+                xy = commands[cursor + 1]
+                reads.append((xy & 0xffff, xy >> 16))
+                cursor += 3
+            elif opcode in (0x24, 0x2c):
+                cursor += 7 if opcode == 0x24 else 9
+            elif opcode == 0x80:
+                cursor += 4
+            elif opcode == 0x70:
+                cursor += 2
+            else:
+                cursor += 1
+
+        self.assertEqual(sprites, [
+            (0x0000, 24, 80, 0xfcfc, 0x00100110),
+            (0x0080, 24, 112, 0xfcfc, 0x00100110),
+            (0x0100, 24, 144, 0xfcfc, 0x00100110),
+        ])
+        self.assertEqual(reads[-15:], [(26, 82), (34, 82), (26, 90), (34, 90), (284, 82),
+                                       (26, 114), (34, 114), (26, 122), (34, 122), (284, 114),
+                                       (26, 146), (34, 146), (26, 154), (34, 154), (284, 146)])
+        self.assertEqual(FIXTURE.EXPECTED_SPRITE_UV_WRAP_PIXELS,
+                         (0x03ff, 0x7c00, 0x03e0, 0x001f, 0x7c00,
+                          0x4210, 0x7fff, 0x7c1f, 0x7fe0, 0x7fff,
+                          0x03ff, 0x7c00, 0x03e0, 0x001f, 0x7c00))
+        with self.assertRaises(ValueError):
+            FIXTURE.make_guest_code(texture_window=True, sprite_uv_wrap=True)
 
 
 if __name__ == "__main__":
