@@ -11,7 +11,7 @@ the installed listxml reports MAME 0.287.
 | `sony/psx.cpp` | Retail PlayStation | 4 | `psu`, `psj` | SCPH NTSC/PAL; controller and memory-card ports, parallel I/O, CD-ROM | Console core and native PS-X EXE smoke pass; full retail machine/BIOS/media validation remains pending |
 | `sony/zn.cpp` | Sony ZN-1/ZN-2; Capcom ZN; Tecmo TPS; Raizing ZN | 116 | `sfex`, `glpracr3`, `brvblade` | COH-1000/1001/1002 and COH-3002; variants include 1/2 MiB GPU memory, alternate sound CPUs, CAT702 security, and game I/O | Native synthetic Capcom COH1000C/1002C/3002C and Taito FX1S COH1000T MIPS/Z80, banks, SIO/MCU, EEPROM, inputs, GPU and sound pass; authentic games and other daughterboards remain unverified |
 | `sony/taitogn.cpp` | Taito G-Net (ZN-derived CPU/GPU) | 41 | `psyvaria`, `gdariusg`, `aerofgtsg` | COH-1002/3002 variants, Taito Zoom sound; CompactFlash and title-specific I/O on applicable sets | Standalone Zoom MN10200/ZSG-2/TMS57002 board fixtures pass; native PSX, flash command engines, CompactFlash and games remain pending |
-| `konami/konamigv.cpp` | Konami System GV (Baby Phoenix) | 15 | `tmosh`, `weddingr` | CXD8530-class CPU; CXD8514/CXD8561 GPU variants, CD-ROM and game I/O | All 15 source media profiles and local ROM/CHD preparation tested; native board execution pending |
+| `konami/konamigv.cpp` | Konami System GV (Baby Phoenix) | 15 | `tmosh`, `weddingr` | CXD8530-class CPU; CXD8514/CXD8561 GPU variants, CD-ROM and game I/O | All 15 media profiles audited; seven common-map profiles have native integration and generated MIPS interpreter/DRC fixtures; authentic games and special I/O remain unverified |
 | `konami/konamigq.cpp` | Konami System GQ | 1 | `cryptklr` | CXD8530BQ/CXD8538Q; MC68000 and TMS57002 sound system | Complete source profile and local ROM/HDD preparation tested; native board execution pending |
 | `konami/ksys573.cpp` | Konami System 573 | 156 | `ddr4m`, `drmn`, `sys573` | CD-ROM, cassette, PC-card, flash and game I/O configurations | No arcade board support |
 | `konami/twinkle.cpp` | Konami Twinkle | 19 | `bmiidx`, `bmiidx8` | CD/DVD media, MC68000/RF5C400 sound and network/session I/O | Standalone sound-board MC68000/RF5C400, sample RAM and mailbox/periodic IRQ fixtures pass; native PSX integration, ATA/media and authentic games remain pending |
@@ -42,7 +42,7 @@ family is considered finished.
 | Retail PlayStation | 20–35% | Existing console core and native CPU/GPU smoke; native BIOS/disc, controller, sound and retail-game validation pending |
 | Sony ZN family (including Taito FX1) | 50–65% | Capcom and FX1S generated native guests pass; authentic games and Tecmo/Raizing/other daughterboards pending |
 | Taito G-Net | 85–95% | Standalone Zoom sound-board execution, mailbox and DSP audio tested; native PSX, Intel flash command engines, CompactFlash and game validation pending |
-| Konami System GV | 45–60% | Media preparation, NCR/SCSI, CD target and UART/EEPROM components tested; CHD CD tested and common board under review, native integration and special I/O pending |
+| Konami System GV | 45–60% | Common native board MIPS interpreter/DRC, DMA5, IRQ10 and CHD fixture tested; authentic BIOS/CD execution, sound and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
 | Konami Twinkle | 90–95% | Sound-board MC68000/RF5C400, banked wave RAM and IRQ/mailbox fixtures pass; native PSX board, ATA/media/session I/O and game validation pending |
@@ -165,8 +165,10 @@ machine's assets does not imply that it boots.
   Native PSX integration, ATA sample loading and authentic games remain pending.
 - Konami System GV: [15-set source registry and local media preparer](konamigv-boards.md)
   preserves game EEPROM/CD pairing and audits ROM hashes, CHD SHA1, CD metadata
-  and hunk integrity. Generated CD fixtures pass; native SCSI/board execution
-  and game-specific peripherals remain pending.
+  and hunk integrity. The [native common-board adapter](konamigv-native.md)
+  passes generated MIPS interpreter/DRC input, DMA5 and NCR IRQ10 fixtures
+  against a real synthetic CHD. Authentic BIOS/CD execution and game-specific
+  peripherals remain pending.
   The standalone [NCR53CF96 controller](ncr53cf96-port.md) passes register,
   selection, phase, DMA and timer tests, including sanitizers. A mounted-media
   backend is still required for disc execution. The connected
@@ -179,10 +181,10 @@ machine's assets does not imply that it boots.
   its [CHD CD/audio backing](nscsi-chd-cd.md) passes actual compressed MODE1/raw
   sectors, pregap/postgap/TOC, real CDDA PCM, a full NCR transaction including
   terminal disconnect IRQ, and malformed-metadata/callback guards with
-  sanitizers. Native board integration remains pending.
+  sanitizers. Authentic game media execution remains pending.
   The [93C46 EEPROM component](eeprom93c46-port.md) passes serial commands,
   write protection, busy deadlines, storage byte order and selective reset
-  tests, including sanitizers. Native board integration remains pending.
+  tests, including sanitizers; native common-board persistence is connected.
   The [i8251/MB89371 serial components](standalone_i8251_mb89371.md) pass
   pin waveforms, async/sync parity, source reset retention, dual-channel clock
   ordering, loopback and timing tests, including sanitizers.

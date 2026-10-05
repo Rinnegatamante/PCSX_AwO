@@ -167,6 +167,8 @@ __pycache__/
 /build/vita-validation-gxm-free-diagnostic*/
 /build/vita-validation-neon-capture/
 /build/vita-validation-gxm-shutdown/
+/build/vita-validation-gxm-shader-cache/
+/build/mac-harness-gv-drc/
 /build/vita-validation-gxm-memcpy-diagnostic*/
 /build/mac-harness-noboard/
 /build/mac-harness-gv/

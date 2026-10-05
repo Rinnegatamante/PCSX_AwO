@@ -42,13 +42,20 @@ SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c 
   libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/nor_flash.c \
   libpcsxcore/arcade/zn_board.c libpcsxcore/arcade/zn_mcu.c libpcsxcore/arcade/cat702.c \
   libpcsxcore/arcade/psx_sio.c libpcsxcore/arcade/capcom_zn.c \
-  libpcsxcore/arcade/taito_fx1.c libpcsxcore/arcade/taito_sound_comm.c libpcsxcore/arcade/mb3773.c
+  libpcsxcore/arcade/taito_fx1.c libpcsxcore/arcade/taito_sound_comm.c libpcsxcore/arcade/mb3773.c \
+  libpcsxcore/arcade/mb89371.c libpcsxcore/arcade/i8251.c \
+  libpcsxcore/arcade/eeprom93c46.c
 CXXSOURCES := libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
   libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_board.cpp \
   libpcsxcore/arcade/z80.cpp libpcsxcore/arcade/qsound_hle.cpp \
   libpcsxcore/arcade/ym2610.cpp libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
-  libpcsxcore/arcade/ymfm/ymfm_ssg.cpp libpcsxcore/arcade/ymfm/ymfm_adpcm.cpp
+  libpcsxcore/arcade/ymfm/ymfm_ssg.cpp libpcsxcore/arcade/ymfm/ymfm_adpcm.cpp \
+  libpcsxcore/arcade/ncr53cf96.cpp \
+  libpcsxcore/arcade/nscsi_bus.cpp libpcsxcore/arcade/nscsi_target.cpp
 ifeq ($(HAVE_CHD),1)
+CFLAGS += -DPCSX_SYSTEM_GV
+SOURCES += libpcsxcore/systemgv.c
+CXXSOURCES += libpcsxcore/arcade/konamigv.cpp libpcsxcore/arcade/nscsi_cd.cpp
 CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp libpcsxcore/arcade/chd_cd.cpp
 endif
 CFLAGS += -DPCSX_SYSTEM12
@@ -58,7 +65,7 @@ endif
 endif
 OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o) $(ASM_SOURCES:.S=.o)) $(LIBCHDR_EXTRA_OBJECTS)
 
-.PHONY: all clean smoke board-test system11-test system10-test capcom-zn-test taito-fx1-test gpu-type1-test devices-test FORCE
+.PHONY: all clean smoke board-test system11-test system10-test systemgv-test capcom-zn-test taito-fx1-test gpu-type1-test devices-test FORCE
 all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CXX) -arch arm64 -Wl,-dead_strip -o $@ $^ -lz -lm
@@ -91,6 +98,11 @@ system11-test: $(TARGET)
 	python3 tests/check_system11_harness.py --harness $(TARGET)
 system10-test: $(TARGET)
 	python3 tests/check_system10_harness.py --harness $(TARGET)
+systemgv-test: $(TARGET)
+	python3 tests/check_systemgv_harness.py --harness $(TARGET)
+ifeq ($(DRC),1)
+	python3 tests/check_systemgv_harness.py --harness $(TARGET) --drc
+endif
 capcom-zn-test: $(TARGET)
 	python3 tests/check_capcom_zn_harness.py --harness $(TARGET)
 taito-fx1-test: $(TARGET)

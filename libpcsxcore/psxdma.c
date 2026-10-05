@@ -26,6 +26,9 @@
 #ifdef PCSX_SYSTEM12
 #include "system10.h"
 #include "system12.h"
+#ifdef PCSX_SYSTEM_GV
+#include "systemgv.h"
+#endif
 
 void psxDma5(u32 madr, u32 bcr, u32 chcr)
 {
@@ -35,6 +38,18 @@ void psxDma5(u32 madr, u32 bcr, u32 chcr)
 			DMA_INTERRUPT(5);
 		}
 	}
+#ifdef PCSX_SYSTEM_GV
+	else if (systemgv_active()) {
+		/* MAME's PSX DMA device calls dma_finished immediately after the
+		 * channel-5 handler registers the transfer. The GV board may keep
+		 * payload pending until NCR DRQ; that payload is still gated by its
+		 * real controller/target status. */
+		if (systemgv_dma5(madr, bcr, chcr) == 0) {
+			psxHu32ref(0x10d8) &= SWAPu32(~0x11000000u);
+			DMA_INTERRUPT(5);
+		}
+	}
+#endif
 	else if (system12_active()) system12_dma5(madr, bcr, chcr);
 }
 #endif

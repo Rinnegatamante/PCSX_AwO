@@ -26,7 +26,7 @@ The common `konamigv_state` class supplies the shared SCSI/DMA and common memory
 
 | MAME set(s) | State/config | Source-declared extra I/O | Native adapter status |
 | --- | --- | --- | --- |
-| `hyperath`, `lacrazyc`, `naganoj`, `nagano98`, `powyak96`, `susume`, `weddingr` | `konamigv_state` / `konamigv` | Common P1/P2/P3_P4 ports | Media candidate only |
+| `hyperath`, `lacrazyc`, `naganoj`, `nagano98`, `powyak96`, `susume`, `weddingr` | `konamigv_state` / `konamigv` | Common P1/P2/P3_P4 ports | Native loader/common-board integration; generated MIPS fixtures pass, authentic games unverified |
 | `btchamp` | `konamigv_state` / `btchamp` | Two UPD4701A trackballs, serial reads/reset, LH28F400 flash | Trackball and flash command interfaces remain unsupported |
 | `kdeadeye` | `konamigv_state` / `kdeadeye` | Two lightguns, buttons, LH28F400 flash | Lightgun and flash command interfaces remain unsupported; MAME marks the game not working |
 | `tmosh`, `tmoshs`, `tmoshsp`, `tmoshspa` | `tokimeki_state` / `tmosh` | Sensor serial protocol, heartbeat/GSR inputs, printer state, printer timing/video | Tokimeki sensor and printer path remain unsupported; `tmoshspa` is marked not working |
@@ -34,7 +34,12 @@ The common `konamigv_state` class supplies the shared SCSI/DMA and common memory
 
 The GAME macros also mark all sets `MACHINE_IMPERFECT_SOUND`; graphics are imperfect for the listed exceptions, and `btchamp`, `kdeadeye`, and `tmoshspa` are marked not working. These MAME flags are recorded per set in the registry.
 
-## Requirements for a later board adapter
+## Common board and remaining game validation
+
+The [native common-board adapter](konamigv-native.md) connects the seven shared
+profiles to the Mac harness. Its generated MIPS interpreter/DRC fixtures
+validate input, DMA completion/pending payload and NCR IRQ10 against a real
+synthetic CHD. They do not establish authentic BIOS/CD boot or game execution.
 
 The common source map places the NCR53CF96 registers at `0x1f000000–0x1f00001f` with an 8-bit lane, inputs at `0x1f100000`, EEPROM output at `0x1f180000`, the two DUART channels at `0x1f680000` and `0x1f680008`, and a watchdog/no-op write range at `0x1f780000`. SCSI DMA channel 5 transfers between the controller and PSX RAM. A board implementation needs the NCR53CF96, SCSI bus/CD-ROM sector and redbook audio behavior, correct byte-lane and DMA semantics, 93C46 persistence, and MB89371 behavior before it can make a boot claim.
 

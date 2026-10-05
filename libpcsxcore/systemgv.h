@@ -1,0 +1,29 @@
+/* GPL-2.0-or-later. Native host integration for the shared Konami GV board. */
+#ifndef PCSX_SYSTEMGV_H
+#define PCSX_SYSTEMGV_H
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+
+int systemgv_load(const char *directory);
+/* Test-only boot path. The BIOS image is generated in memory and is never
+ * accepted by the source-profile loader; `chd_path` must still be a real CHD. */
+int systemgv_test_load(const char *chd_path);
+void systemgv_unload(void);
+int systemgv_active(void);
+void systemgv_mem_reset(void);
+void systemgv_reset(void);
+int systemgv_sync(uint32_t psx_cycle);
+int systemgv_read(uint32_t address, unsigned width, uint32_t *value);
+int systemgv_write(uint32_t address, unsigned width, uint32_t value,
+                   uint32_t mem_mask);
+int systemgv_dma5(uint32_t madr, uint32_t bcr, uint32_t chcr);
+int systemgv_set_input(const char *name, int pressed);
+int systemgv_eeprom_import(const unsigned char *image, size_t size);
+int systemgv_eeprom_export(unsigned char *image, size_t size);
+int systemgv_selftest(void);
+uint64_t systemgv_dma_pending_bytes(void);
+void systemgv_report(FILE *out);
+
+#endif

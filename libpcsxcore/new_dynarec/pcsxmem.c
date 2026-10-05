@@ -610,7 +610,7 @@ void new_dyna_pcsx_mem_init(void)
 
 	new_dyna_pcsx_mem_load_state();
 	if (new_dynarec_arcade_memory_enabled() && !new_dyna_pcsx_mem_arcade_selftest()) {
-		SysPrintf("System12 DRC memory-table selftest failed\n");
+		SysPrintf("Arcade DRC memory-table selftest failed\n");
 		abort();
 	}
 }

@@ -31,6 +31,9 @@
 #include "system10.h"
 #include "systemzn.h"
 #include "systemtaito.h"
+#ifdef PCSX_SYSTEM_GV
+#include "systemgv.h"
+#endif
 #endif
 #include "psxinterpreter.h"
 #include "psxbios.h"
@@ -100,6 +103,12 @@ void psxReset() {
 		systemtaito_reset();
 		return;
 	}
+#ifdef PCSX_SYSTEM_GV
+	if (systemgv_active()) {
+		systemgv_reset();
+		return;
+	}
+#endif
 	if (systemzn_active()) {
 		systemzn_reset();
 		return;

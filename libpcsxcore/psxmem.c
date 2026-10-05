@@ -35,6 +35,11 @@
 #include "system10.h"
 #include "systemzn.h"
 #include "systemtaito.h"
+#endif
+#ifdef PCSX_SYSTEM_GV
+#include "systemgv.h"
+#endif
+#ifdef PCSX_SYSTEM12
 u32 psxRamSize = 0x200000, psxRomSize = 0x80000;
 #endif
 //#include "debug.h"
@@ -304,6 +309,14 @@ void psxMemReset() {
 		Config.HLE = FALSE;
 		return;
 	}
+#ifdef PCSX_SYSTEM_GV
+	if (systemgv_active()) {
+		systemgv_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+#endif
 	if (systemzn_active()) {
 		systemzn_mem_reset();
 		if (!DISABLE_MEM_LUTS) mapRam(1);
@@ -397,7 +410,11 @@ void psxMemOnIsolate(int enable)
 u8 psxMemRead8(psxRegisters *regs, u32 mem) {
 #ifdef PCSX_SYSTEM12
 	u32 board_value;
-	if (systemtaito_read(mem, 1, &board_value) || systemzn_read(mem, 1, &board_value) || system10_read(mem, 1, &board_value) || system11_read(mem, 1, &board_value) || system12_read(mem, 1, &board_value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_read(mem, 1, &board_value) ||
+#endif
+	    systemtaito_read(mem, 1, &board_value) || systemzn_read(mem, 1, &board_value) || system10_read(mem, 1, &board_value) || system11_read(mem, 1, &board_value) || system12_read(mem, 1, &board_value))
 		return board_value;
 #endif
 	u8 *p;
@@ -419,7 +436,11 @@ u8 psxMemRead8(psxRegisters *regs, u32 mem) {
 u16 psxMemRead16(psxRegisters *regs, u32 mem) {
 #ifdef PCSX_SYSTEM12
 	u32 board_value;
-	if (systemtaito_read(mem, 2, &board_value) || systemzn_read(mem, 2, &board_value) || system10_read(mem, 2, &board_value) || system11_read(mem, 2, &board_value) || system12_read(mem, 2, &board_value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_read(mem, 2, &board_value) ||
+#endif
+	    systemtaito_read(mem, 2, &board_value) || systemzn_read(mem, 2, &board_value) || system10_read(mem, 2, &board_value) || system11_read(mem, 2, &board_value) || system12_read(mem, 2, &board_value))
 		return board_value;
 #endif
 	u8 *p;
@@ -441,7 +462,11 @@ u16 psxMemRead16(psxRegisters *regs, u32 mem) {
 u32 psxMemRead32(psxRegisters *regs, u32 mem) {
 #ifdef PCSX_SYSTEM12
 	u32 board_value;
-	if (systemtaito_read(mem, 4, &board_value) || systemzn_read(mem, 4, &board_value) || system10_read(mem, 4, &board_value) || system11_read(mem, 4, &board_value) || system12_read(mem, 4, &board_value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_read(mem, 4, &board_value) ||
+#endif
+	    systemtaito_read(mem, 4, &board_value) || systemzn_read(mem, 4, &board_value) || system10_read(mem, 4, &board_value) || system11_read(mem, 4, &board_value) || system12_read(mem, 4, &board_value))
 		return board_value;
 #endif
 	u8 *p;
@@ -464,7 +489,11 @@ u32 psxMemRead32(psxRegisters *regs, u32 mem) {
 
 void psxMemWrite8(psxRegisters *regs, u32 mem, u32 value) {
 #ifdef PCSX_SYSTEM12
-	if (systemtaito_write(mem, 1, value) || systemzn_write(mem, 1, value) || system10_write(mem, 1, value, 0xff) || system11_write(mem, 1, value) || system12_write(mem, 1, value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_write(mem, 1, value, 0xff) ||
+#endif
+	    systemtaito_write(mem, 1, value) || systemzn_write(mem, 1, value) || system10_write(mem, 1, value, 0xff) || system11_write(mem, 1, value) || system12_write(mem, 1, value))
 		return;
 #endif
 	u8 *p;
@@ -491,7 +520,11 @@ void psxMemWrite8(psxRegisters *regs, u32 mem, u32 value) {
 
 void psxMemWrite16(psxRegisters *regs, u32 mem, u32 value) {
 #ifdef PCSX_SYSTEM12
-	if (systemtaito_write(mem, 2, value) || systemzn_write(mem, 2, value) || system10_write(mem, 2, value, 0xffff) || system11_write(mem, 2, value) || system12_write(mem, 2, value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_write(mem, 2, value, 0xffff) ||
+#endif
+	    systemtaito_write(mem, 2, value) || systemzn_write(mem, 2, value) || system10_write(mem, 2, value, 0xffff) || system11_write(mem, 2, value) || system12_write(mem, 2, value))
 		return;
 #endif
 	u8 *p;
@@ -518,7 +551,11 @@ void psxMemWrite16(psxRegisters *regs, u32 mem, u32 value) {
 
 void psxMemWrite32(psxRegisters *regs, u32 mem, u32 value) {
 #ifdef PCSX_SYSTEM12
-	if (systemtaito_write(mem, 4, value) || systemzn_write(mem, 4, value) || system10_write(mem, 4, value, 0xffffffffu) || system11_write(mem, 4, value) || system12_write(mem, 4, value))
+	if (
+#ifdef PCSX_SYSTEM_GV
+	    systemgv_write(mem, 4, value, 0xffffffffu) ||
+#endif
+	    systemtaito_write(mem, 4, value) || systemzn_write(mem, 4, value) || system10_write(mem, 4, value, 0xffffffffu) || system11_write(mem, 4, value) || system12_write(mem, 4, value))
 		return;
 #endif
 	u8 *p;

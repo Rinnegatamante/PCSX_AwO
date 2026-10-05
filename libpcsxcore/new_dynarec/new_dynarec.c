@@ -943,7 +943,8 @@ int new_dynarec_arcade_selftest(void)
   u_int span, offset;
   if (!new_dynarec_arcade_memory_enabled())
     return 1;
-  if ((ram_size != 0x400000u && ram_size != 0x1000000u) ||
+  if ((ram_size != 0x200000u && ram_size != 0x400000u &&
+       ram_size != 0x1000000u) ||
       (ram_size & (ram_size - 1)) != 0)
     return 0;
   span = ram_size > 0x800000u ? ram_size : 0x800000u;
@@ -6908,7 +6909,7 @@ void new_dynarec_init(void)
   arch_init();
   new_dynarec_test();
   if (new_dynarec_arcade_memory_enabled() && !new_dynarec_arcade_selftest()) {
-    SysPrintf("System12 DRC RAM/page geometry selftest failed\n");
+    SysPrintf("Arcade DRC RAM/page geometry selftest failed\n");
     abort();
   }
   ram_offset = (uintptr_t)psxRegs.ptrs.psxM - 0x80000000;

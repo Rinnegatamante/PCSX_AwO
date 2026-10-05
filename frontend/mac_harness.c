@@ -23,6 +23,9 @@
 #include "../libpcsxcore/system10.h"
 #include "../libpcsxcore/systemzn.h"
 #include "../libpcsxcore/systemtaito.h"
+#ifdef PCSX_SYSTEM_GV
+#include "../libpcsxcore/systemgv.h"
+#endif
 
 enum { BOARD_BUS_TRACE_BIN_CYCLES = 8192, BOARD_BUS_TRACE_MAX_BINS = 100000 };
 typedef struct harness_bus_trace_bin {
@@ -98,10 +101,18 @@ typedef struct HarnessBoard {
   int (*export_nvram)(unsigned char *, size_t);
 } HarnessBoard;
 static int sync_system12(u32 cycle) { system12_sync(cycle); return 0; }
+#ifdef PCSX_SYSTEM_GV
+static int sync_systemgv(u32 cycle) { return systemgv_sync(cycle); }
+#endif
 static const HarnessBoard boards[] = {
   {101, "TaitoFX1S", systemtaito_load, systemtaito_unload, systemtaito_sync,
     systemtaito_set_input, systemtaito_selftest, systemtaito_report,
     systemtaito_open_audio, systemtaito_close_audio, systemtaito_eeprom_import, systemtaito_eeprom_export},
+#ifdef PCSX_SYSTEM_GV
+  {102, "KonamiGV", systemgv_load, systemgv_unload, sync_systemgv,
+    systemgv_set_input, systemgv_selftest, systemgv_report,
+    NULL, NULL, systemgv_eeprom_import, systemgv_eeprom_export},
+#endif
   {100, "CapcomZN", systemzn_load, systemzn_unload, systemzn_sync,
     systemzn_set_input, systemzn_selftest, systemzn_report,
     systemzn_open_audio, systemzn_close_audio, systemzn_eeprom_import, systemzn_eeprom_export},
@@ -185,7 +196,7 @@ void SysRunGui(void) { interrupted = 1; }
 
 static void usage(const char *name)
 {
-  fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR) "
+  fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR | --system-gv REGION-DIR | --system-gv-fixture TEST-CHD) "
     "[--frames N] [--output FRAME.ppm] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
@@ -363,19 +374,24 @@ int main(int argc, char **argv)
   uint64_t cycles = 0, cycle_limit;
   unsigned long blocks = 0, trace_blocks = 1000, max_blocks = 1000000000;
   int i, board_test = 0, audio_test_fixture = 0, verify = 0, result = 0, gpu_type1_test = 0;
+  int gv_fixture = 0;
   int board_family = 12;
   int icache = 0;
   int use_drc = 0;
   struct timespec begin, end;
   for (i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--exe") && i + 1 < argc) exe = argv[++i];
+    else if (!strcmp(argv[i], "--system-gv-fixture") && i + 1 < argc) {
+      if (board) { usage(argv[0]); return 2; }
+      board = argv[++i]; board_family = 102; gv_fixture = 1; board_test = 1;
+    }
     else if ((!strcmp(argv[i], "--system12") || !strcmp(argv[i], "--system11") ||
         !strcmp(argv[i], "--system10") || !strcmp(argv[i], "--capcom-zn") ||
-        !strcmp(argv[i], "--taito-fx1")) && i + 1 < argc) {
+        !strcmp(argv[i], "--taito-fx1") || !strcmp(argv[i], "--system-gv")) && i + 1 < argc) {
       if (board) { usage(argv[0]); return 2; }
       board_family = !strcmp(argv[i], "--system11") ? 11 :
         !strcmp(argv[i], "--system10") ? 10 : !strcmp(argv[i], "--capcom-zn") ? 100 :
-        !strcmp(argv[i], "--taito-fx1") ? 101 : 12;
+        !strcmp(argv[i], "--taito-fx1") ? 101 : !strcmp(argv[i], "--system-gv") ? 102 : 12;
       board = argv[++i];
     }
     else if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
@@ -448,6 +464,16 @@ int main(int argc, char **argv)
       (audio_test_fixture && (!board_test || !audio_path || board_family != 12))) {
     usage(argv[0]); return 2;
   }
+  if (gv_fixture && (!board || board_family != 102 || !board_test || exe ||
+      inputs_path || audio_path || nvram_path || snapshot_path || bus_trace_path ||
+      trace_path || verify || gpu_type1_test)) {
+    usage(argv[0]); return 2;
+  }
+#ifndef PCSX_SYSTEM_GV
+  if (gv_fixture || (board && board_family == 102)) {
+    fprintf(stderr, "Rebuild with BOARD=1 and HAVE_CHD=1 for Konami GV.\n"); return 2;
+  }
+#endif
   if (trace_path) {
     trace = fopen(trace_path, "w");
     if (!trace) { perror(trace_path); return 1; }
@@ -493,7 +519,7 @@ int main(int argc, char **argv)
 #ifdef DRC_DISABLE
   if (use_drc) { fprintf(stderr, "Rebuild with DRC=1 for --drc.\n"); return 2; }
 #endif
-  if (use_drc && board && board_family != 12) {
+  if (use_drc && board && board_family != 12 && board_family != 102) {
     fprintf(stderr, "Arcade DRC validation currently covers System 12 only.\n"); return 2;
   }
   Config.icache_emulation = icache;
@@ -513,7 +539,13 @@ int main(int argc, char **argv)
       if (trace) fclose(trace);
       return 2;
     }
-    if (selected_board->load(board)) { if (trace) fclose(trace); return 1; }
+#ifdef PCSX_SYSTEM_GV
+    if ((gv_fixture ? systemgv_test_load(board) : selected_board->load(board))) {
+#else
+    if (selected_board->load(board)) {
+#endif
+      if (trace) fclose(trace); return 1;
+    }
   }
   if (nvram_path && load_nvram(nvram_path)) {
     selected_board->unload();
@@ -560,6 +592,36 @@ int main(int argc, char **argv)
     if (selected_board->selftest() || (gpu_get_model() == 1 ? harness_gpu_type1_selftest() :
         harness_gpu_vram_selftest())) result = 1;
   }
+#ifdef PCSX_SYSTEM_GV
+  if (gv_fixture) {
+    unsigned step;
+    systemgv_set_input("p1button1", 1);
+    for (step = 0; step < (use_drc ? 1024u : 600u); step++) {
+      if (use_drc)
+        psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
+      else {
+        psxRegs.branchSeen = 0;
+        execI(&psxRegs);
+      }
+    }
+    if (systemgv_sync(psxRegs.cycle) < 0) result = 1;
+    if (psxMemRead32(&psxRegs, 0x80000100) != 0xffffffefu ||
+        (psxHu32(0x10d8) & 0x01000000u) != 0 ||
+        systemgv_dma_pending_bytes() != 1048576 ||
+        !(psxHu32(0x1070) & (1u << 10))) {
+      fprintf(stderr, "SystemGV MIPS fixture: FAIL guest=%08x CHCR=%08x pending=%" PRIu64 "\n",
+        psxMemRead32(&psxRegs, 0x80000100), psxHu32(0x10d8),
+        systemgv_dma_pending_bytes());
+      result = 1;
+    } else fprintf(stderr, "SystemGV MIPS fixture: PASS cpu=%s guest_input=%08x DMA5_pending=1048576 CHCR_completed=1 IRQ10=1\n",
+        use_drc ? "drc" : "interpreter",
+        psxMemRead32(&psxRegs, 0x80000100));
+    systemgv_report(stderr);
+    GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
+    systemgv_unload();
+    return result;
+  }
+#endif
 #endif
   if (!result && exe && Load(exe)) result = 1;
   signal(SIGINT, on_signal); signal(SIGTERM, on_signal);
