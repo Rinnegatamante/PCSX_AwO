@@ -48,11 +48,15 @@ runtime MAME traces remain follow-up work. Unsupported families without an
 active native profile (including Twinkle, System 573, and GQ) retain the
 console timing fallback; this does not claim those boards are source-timed.
 
-The first System12 runtime vblank comparison now demonstrates that matching
-refresh and blank duration does not match screen phase. Native source timing
-places start 2.5 ms before its frame boundary; MAME's initial start occurs at
-the frame-period boundary, with end 2.5 ms later. See the measured failing gate
-in [system12-performance.md](system12-performance.md#measured-mac-vblank-discrepancy-2026-10-05).
+The first System12 runtime vblank comparison demonstrated a phase error of
+2.5 ms. Source-timed System12 now uses an integer-attosecond screen timeline:
+the initial start occurs one full MAME frame period after time zero and end
+occurs 2.5 ms later. Mode changes retain the last start and an armed end timer;
+soft reset restores GPU defaults without resetting screen time. H8 execution
+resumes from generated partial states around external screen deadlines.
+The strict H8 port-B polling comparison passes for native interpreter and
+ARI64 with both short and long MIPS blocks. See the measured discrepancy and
+its correction in [system12-performance.md](system12-performance.md#mac-source-screen-correction-2026-10-05).
 Other families using the common counter bridge have not been validated by that
 System12 capture; their screen/device contracts need corresponding fixtures.
 

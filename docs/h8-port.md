@@ -21,9 +21,13 @@ inputs default to zero in MAME. The System 12 sub CPU clock is 16,934,400 Hz.
 
 Implemented internal devices include RAM, GPIO, IRQ priority/latching, five
 internal-clock timers, two SCI byte interfaces and ADC software/external/scan
-conversion. Instruction costs follow MAME bus/internal cycle accounting, with
-whole-instruction completion and budget overshoot carried to the next call.
-Peripherals advance between instructions; execution is not cycle-exact.
+conversion. Instruction costs follow MAME bus/internal cycle accounting.
+`h8_run_cycles` completes execution states and carries budget overshoot;
+`h8_run_until` resumes MAME-generated partial states at external absolute
+deadlines. Bus checkpoints occur after an access, so a crossing access sees
+the pre-edge value and its remaining charge is carried forward. Peripherals
+advance between checkpoints; internal timer/SCI/ADC deadlines still need
+source scheduler integration and comparison.
 
 DMA and watchdog execution remain unimplemented and accesses set diagnostic
 bits. External timer clock pins, exact SCI bit/clock waveforms and external
@@ -33,10 +37,17 @@ the board adapter's responsibility. No complete-peripheral claim is made.
 
 `make -f tests/Makefile.h8 test` verifies instructions/addressing/flags,
 subroutines/IRQ return, atomic word access, timers, SCI, ADC trigger/scan,
-illegal diagnostics and scheduler slicing. Synthetic tests and 120 frames of
+illegal diagnostics, scheduler slicing and partial deadline continuation.
+`make -f tests/Makefile.h8 deadline-ubsan-test` covers access timestamps, reset,
+IRQ selection and external IRQ/ADTRG deadlines under UBSan. Synthetic tests and 120 frames of
 the actual sub ROM passed ASan/UBSan with no illegal opcode or unsupported
 DMA/watchdog access. The sub ROM completes RTC/settings initialization and
 reaches its 0x16ca..0x16d2 idle routine.
+
+The native System12 port-B polling fixture now matches four actual MAME
+old/new read pairs with zero cycle difference on interpreter and ARI64,
+independent of short/long MIPS block sizes. See
+[screen timing evidence and its limits](system12-performance.md#mac-source-screen-correction-2026-10-05).
 
 `python3 tests/check_mame_h8.py` captures an independent installed-MAME oracle
 at 0.1/1/2/10/20 seconds. MAME observes the same idle routine and shared H8

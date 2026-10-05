@@ -604,10 +604,123 @@ python3 tests/check_system12_vblank.py --harness build/mac-system12-audio-time-2
 python3 tests/compare_system12_vblank.py --mame /tmp/mame-vblank.json --native /tmp/mac-vblank-interpreter.json /tmp/mac-vblank-drc.json
 ```
 
-The capture fixtures pass; the last command currently returns 1 for the known
-fidelity failure. Frozen native binary/evidence are under
+At pre-correction revision `42e64dc2`, the capture fixtures pass and the last
+command returns 1 for the measured fidelity failure. Frozen native binary/evidence are under
 `/tmp/pcsx-mac-vblank-fidelity-20261005/`, binary SHA-256
 `320f9386de8e9ca4d71294df0dccb5dd421bb746f10c9726e447f27bb5e70feb`.
 Root MAME evidence is `/tmp/pcsx-mame-system12-vblank-root-20261005.json`
 with adjacent stdout log. Comparison evidence is
 `/tmp/pcsx-system12-vblank-comparison-20261005.{json,log}`.
+
+## Mac source screen correction, 2026-10-05
+
+Mac fidelity to MAME remains the first target. Optimization work must preserve
+the compared device observations; neither a frame-rate improvement nor this
+narrow gate establishes complete board fidelity.
+
+`a1b20e0c` adds a standalone screen clock modeled on pinned MAME
+`screen_device::configure/vblank_begin`, with integer-attosecond periods and
+the source's approximate 2500 us blank duration. It retains fractional frame
+phase, the previous start origin on refresh changes and an already armed end
+timer. The cold end time exists for `screen.vblank()` queries but its timer is
+unarmed until the first actual start. The component preserves phase across
+GPU and machine reset rather than restarting a frame at reset time.
+
+`bff1141c` generates both full and partial H8 instruction states using MAME's
+bus checkpoints. `h8_run_until` advances the committed H8 clock to an absolute
+external deadline and resumes the partial state after the caller delivers the
+edge. A bus operation can cross the deadline: its callback observes the charged
+cycle before the edge, and the remaining charge is carried forward without
+repeating the access. This follows the post-access checkpoint contract, rather
+than claiming that every callback is bounded by the external deadline.
+
+`cc02244d` schedules source screen events independently of
+MIPS block endpoints. It runs the H8 to the floor of the event's absolute time
+on the truncated H8 clock, then delivers IRQ1, ADTRG and port-B bit 7 in source
+order. GP1 reset/display-mode writes update the source screen configuration;
+warm reset restores GPU defaults and retains absolute screen time. Compatibility
+timing and other board families keep their existing counter path.
+
+`cafcc034` also preserves catch-up for frontends that rely on core vblank
+events. RTC/EEPROM/PCM advance after all overdue screen edges have been
+delivered, so H8 execution cannot pass a later queued edge while catching up
+to a late MIPS endpoint. The native diagnostic option
+`--system12-vblank-sync-only` omits the harness's extra block synchronization.
+Before this fix its silent-ROM fixture left C352 at zero generated frames;
+after the fix PCM advances and the same strict H8 polling gate passes on both
+CPU backends and block sizes. This simulates the cadence in Mac, without
+claiming an actual libretro/Vita run.
+
+The strict polling comparison now passes with **zero cycle tolerance**:
+
+| Port-B bit 7 becomes | MAME old → new H8 read | Mac interpreter, short/long blocks | Mac ARI64, short/long blocks |
+| --- | ---: | ---: | ---: |
+| 1 | 283052 → 283062 | 283052 → 283062 | 283052 → 283062 |
+| 0 | 325392 → 325402 | 325392 → 325402 | 325392 → 325402 |
+| 1 | 566112 → 566122 | 566112 → 566122 | 566112 → 566122 |
+| 0 | 608452 → 608462 | 608452 → 608462 | 608452 → 608462 |
+
+Observer-on/off controls retain identical native board reports and images.
+The recorded main-counter synchronization tail can still be nonzero when an
+edge is traced: the H8 is now advanced separately to the scheduled edge time,
+so that field describes the last ordinary bridge synchronization, not the
+delivered H8 deadline. MIPS interrupt delivery remains subject to the core's
+block boundary granularity; no instruction-exact MIPS interrupt claim follows
+from the H8 comparison.
+
+Seven real installed-MAME captures cover initial phase, NTSC480, PAL, a change
+during blank, shortening a frame past its elapsed age, GP1 reset and machine
+soft reset. `compare_psx_screen_clock.py` compiles the actual C component and
+replays their exact integer write/reset/sample timestamps. All queried start
+and end targets match with zero tolerance; rounded floating-point period
+diagnostics are not used for comparison. The installed executable's source
+revision is still unknown. Evidence is `/tmp/mame-psx-screen-clock.json`.
+
+`f0de5e78` executes GP1 mode writes from synthetic native MIPS guests on both
+interpreter and ARI64. It checks exact absolute H8 edge clocks for NTSC480,
+PAL and PAL-to-default GPU reset. The during-blank write retains the old end
+and uses the previous start as the new period's origin; a main-CPU trace
+confirms the write occurs inside that window. Warm reset at actual main cycle
+850002 retains the active end and schedules the next default start from the
+last NTSC480 start, rather than from reset time.
+
+Standalone screen normal/UBSan tests and H8 normal, IRQ and deadline UBSan
+tests pass. Native H8/C352 key-on/off, timed reads and warm-reset retention/PCM
+phase gates pass on both interpreter and ARI64. Comparison evidence is
+`/tmp/pcsx-system12-source-screen-final-comparison-20261005.json`; native
+captures are `/tmp/pcsx-system12-source-screen-{vblank,vblank-only}-{interpreter,drc}-20261005.json`.
+Console smoke and the existing synthetic System11, System10, Capcom ZN,
+Taito FX1, System GV and G-Net gates also pass; they remain component/integration
+regressions, not authentic-game validation of those families.
+
+Additional reproduction commands, after the build used above:
+
+```sh
+make -f tests/Makefile.psx-screen-clock test sanitize
+make -f tests/Makefile.h8 test irq-test deadline-ubsan-test
+python3 tests/check_mame_psx_screen_clock.py --output /tmp/mame-screen-clock.json
+python3 tests/compare_psx_screen_clock.py /tmp/mame-screen-clock.json
+python3 tests/check_system12_screen_modes.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --drc
+python3 tests/check_system12_vblank.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --drc --vblank-sync-only --output /tmp/mac-vblank-cadence.json
+python3 tests/compare_system12_vblank.py --mame /tmp/mame-vblank.json --native /tmp/mac-vblank-cadence.json
+```
+
+An authentic NEON/ARI64 Soul Calibur replay completes **12000 frames** with
+no illegal/unsupported H8 instruction or unmapped board access. Its final
+image shows the continue prompt, credit 0. Main cycles are `10029192943`, H8
+cycles `3396767298`, H8 instructions `598911789`, and PCM frames `17691496`.
+The screen correction changes the gameplay timeline, so the previous replay's
+framebuffer and counters are not an equivalence baseline for this run. Its
+80.432 s elapsed time is a single smoke measurement, not a controlled speed
+comparison. Frozen binary/log/image are under
+`/tmp/pcsx-mac-screen-cadence-soul-12000-20261005/`, binary SHA-256
+`f26faf50fcc9ed5644bc521e99ea8be45aec7ae4b4b7c42ce1017e57ed0c70d8`.
+The framebuffer and all final board report lines equal the source-screen replay
+before the frontend-cadence fix; `cadence-regression.json` records that control.
+
+Internal H8 timers, SCI and ADC still advance through the port's `tick()`
+checkpoints; `m_bcount` currently bounds external deadlines, not each internal
+MAME device deadline. Internal-event ordering, timed shared-mailbox protocols,
+MIPS IRQ ordering, real-game state/pixel/audio comparison and native/libretro
+scheduling equivalence remain open. No worker, H8 DRC, new Vita or vitaGL
+validation is claimed. Zero whole driver families are complete.

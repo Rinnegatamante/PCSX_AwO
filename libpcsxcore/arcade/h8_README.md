@@ -30,11 +30,16 @@ Implemented peripherals:
   vblank must drive `h8_adc_trigger` as well as IRQ1; falling ADTRG starts an
   externally configured conversion.
 
-Execution accounts for MAME instruction bus/internal cycle costs, completes
-whole instructions and carries scheduling overshoot to the next call.
-Peripherals advance between execution states, including intermediate prefix
-decoder states and exception states. Very long EEPMOV instructions can
-postpone externally scheduled events until instruction completion.
+Execution accounts for MAME instruction bus/internal cycle costs.
+`h8_run_cycles` completes execution states and carries scheduling overshoot
+to the next call. `h8_run_until` uses MAME-generated partial states to suspend
+and resume at external absolute deadlines, including within EEPMOV loops.
+Checkpoints follow bus operations, so one operation can cross the deadline;
+its remaining charge is carried forward without repeating the access. The
+caller then delivers external edges before resuming the state.
+Peripherals advance between execution checkpoints, including intermediate
+prefix decoder and exception states. Internal timer/SCI/ADC deadlines do not
+yet establish their own MAME-style partial execution boundaries.
 
 Remaining limitations: DMA and watchdog execution, external timer clock pins,
 SCI bit/clock waveforms and external serial clock rates, hardware timer output
@@ -47,6 +52,7 @@ Validation:
 
 ```
 make -f tests/Makefile.h8 test
+make -f tests/Makefile.h8 deadline-ubsan-test
 make -f tests/Makefile.h8 rom-test
 python3 tests/check_mame_h8.py
 ```
@@ -54,7 +60,8 @@ python3 tests/check_mame_h8.py
 Synthetic tests cover 8/16/32-bit instructions, memory addressing, stack and
 subroutine return, IRQ/RTE, atomic word callbacks, timer compare, SCI transmit/
 receive, ADC software/external/scan conversions, illegal opcodes and scheduler
-slice equivalence. The actual Soul Calibur sub ROM runs through RTC/settings
+slice equivalence, external deadlines, post-access overshoot and partial
+continuation without repeated bus accesses. The actual Soul Calibur sub ROM runs through RTC/settings
 initialization and enters the same 0x16ca..0x16d2 idle routine observed in MAME;
 its shared-memory identification at 0x080400 matches MAME. The independent MAME
 oracle captures H8/PSX CPU state, internal registers, shared RAM and stack at
