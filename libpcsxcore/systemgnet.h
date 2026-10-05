@@ -5,11 +5,23 @@
 #include <stdint.h>
 #include <stdio.h>
 
+typedef void (*systemgnet_audio_frame_fn)(void *opaque, float left, float right,
+                                           uint64_t zsg_cycle);
+
 int systemgnet_load(const char *directory);
 /* Test-only in-memory BIOS fixture; never accepted by the production loader. */
 int systemgnet_test_load(void);
 void systemgnet_unload(void);
 int systemgnet_active(void);
+/* Install an optional Zoom PCM sink. The sink is disabled by default and is
+ * retained across board reset, unload, and subsequent loads until replaced.
+ * Frames are stereo normalized floats with a ZSG timestamp in its 25 MHz
+ * clock domain. Calls are synchronous from systemgnet_sync(), including calls
+ * made while routing CPU MMIO; keep the callback bounded and do not re-enter
+ * or destroy the board. Timestamps are monotonic within a ZSG reset epoch and
+ * may restart when the Zoom sound devices reset. The client owns opaque and
+ * must unregister with NULL before freeing it. */
+void systemgnet_set_audio_output(systemgnet_audio_frame_fn callback, void *opaque);
 void systemgnet_mem_reset(void);
 void systemgnet_reset(void);
 int systemgnet_sync(uint32_t psx_cycle);

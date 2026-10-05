@@ -5,6 +5,7 @@
 #include <time.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <math.h>
 #include <unistd.h>
 #include "../libpcsxcore/r3000a.h"
 #include "../libpcsxcore/psxinterpreter.h"
@@ -28,6 +29,21 @@
 #endif
 #ifdef PCSX_SYSTEM_GNET
 #include "../libpcsxcore/systemgnet.h"
+typedef struct HarnessGnetAudio {
+  uint64_t frames, last_cycle;
+  int finite, monotonic, nonzero;
+} HarnessGnetAudio;
+static HarnessGnetAudio gnet_audio;
+static void harness_gnet_audio_frame(void *opaque, float left, float right,
+    uint64_t zsg_cycle)
+{
+  HarnessGnetAudio *audio = opaque;
+  if (!isfinite(left) || !isfinite(right)) audio->finite = 0;
+  if (audio->frames && zsg_cycle <= audio->last_cycle) audio->monotonic = 0;
+  if (fabsf(left) > 0.00001f || fabsf(right) > 0.00001f) audio->nonzero = 1;
+  audio->frames++;
+  audio->last_cycle = zsg_cycle;
+}
 #endif
 
 enum { BOARD_BUS_TRACE_BIN_CYCLES = 8192, BOARD_BUS_TRACE_MAX_BINS = 100000 };
@@ -574,6 +590,11 @@ int main(int argc, char **argv)
 #endif
     } else if (gnet_fixture) {
 #ifdef PCSX_SYSTEM_GNET
+      memset(&gnet_audio, 0, sizeof(gnet_audio));
+      gnet_audio.finite = gnet_audio.monotonic = 1;
+      /* Register before fixture load and the subsequent psxReset() so this
+       * exercises sink persistence through the normal board reset path. */
+      systemgnet_set_audio_output(harness_gnet_audio_frame, &gnet_audio);
       board_load_result = systemgnet_test_load();
 #else
       board_load_result = -1;
@@ -661,6 +682,7 @@ int main(int argc, char **argv)
 #ifdef PCSX_SYSTEM_GNET
   if (gnet_fixture) {
     unsigned step;
+    uint64_t captured_audio_frames;
     for (step = 0; step < (use_drc ? 1024u : 600u); step++) {
       if (use_drc)
         psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
@@ -676,6 +698,28 @@ int main(int argc, char **argv)
       result = 1;
     } else fprintf(stderr, "SystemGNet MIPS fixture: PASS cpu=%s const=2 bank1_flash=1234\n",
         use_drc ? "drc" : "interpreter");
+    /* The guest fixture's memory accesses advance the board as usual. Give
+     * the synthetic Zoom firmware a bounded extra interval to emit PCM. */
+    for (step = 0; step < 20; step++) {
+      psxRegs.cycle += 4096;
+      if (systemgnet_sync(psxRegs.cycle)) result = 1;
+    }
+    if (gnet_audio.frames < 4 || !gnet_audio.finite ||
+        !gnet_audio.monotonic || !gnet_audio.nonzero) {
+      fprintf(stderr, "SystemGNet PCM fixture: FAIL frames=%" PRIu64
+          " finite=%d monotonic=%d nonzero=%d\n", gnet_audio.frames,
+          gnet_audio.finite, gnet_audio.monotonic, gnet_audio.nonzero);
+      result = 1;
+    } else fprintf(stderr, "SystemGNet PCM fixture: PASS frames=%" PRIu64
+        " finite=1 monotonic=1 nonzero=1\n", gnet_audio.frames);
+    captured_audio_frames = gnet_audio.frames;
+    systemgnet_set_audio_output(NULL, NULL);
+    psxRegs.cycle += 4096;
+    if (systemgnet_sync(psxRegs.cycle) || gnet_audio.frames != captured_audio_frames) {
+      fprintf(stderr, "SystemGNet PCM sink disable: FAIL frames=%" PRIu64
+          " expected=%" PRIu64 "\n", gnet_audio.frames, captured_audio_frames);
+      result = 1;
+    } else fprintf(stderr, "SystemGNet PCM sink disable: PASS\n");
     systemgnet_report(stderr);
     GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
     systemgnet_unload();

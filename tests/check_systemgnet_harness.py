@@ -25,6 +25,9 @@ def main() -> int:
     cpu = "drc" if args.drc else "interpreter"
     expected = (
         f"SystemGNet MIPS fixture: PASS cpu={cpu} const=2 bank1_flash=1234",
+        "SystemGNet PCM fixture: PASS",
+        "finite=1 monotonic=1 nonzero=1",
+        "SystemGNet PCM sink disable: PASS",
         "SystemGNet set=coh3002t model=ZN2 ram=4194304 vram=2097152 gpu=type2",
         "reads=2 writes=1 unsupported=0 bank=1 fault=0 execution_verified=false",
     )

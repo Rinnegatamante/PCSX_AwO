@@ -59,11 +59,20 @@ the board through its adapter lifecycle, and disables savestates while the
 board is active because the current generic state format omits G-Net devices.
 Normal console game loading remains available in the same build.
 
-The current frontend routes generic PSX SPU audio. The G-Net API does not
-expose its Zoom sound-frame callback to the libretro frontend yet, and its
-EEPROM API is not connected to frontend save storage. G-Net card/PCMCIA media,
-game-specific input variations, and other game-specific device extensions
-remain unsupported.
+The public G-Net adapter API can now deliver Zoom PCM frames to an optional
+callback. The sink is disabled by default and persists across board resets;
+the libretro frontend still routes generic PSX SPU audio only and does not yet
+mix or resample Zoom PCM. The EEPROM API is not connected to frontend save
+storage. G-Net card/PCMCIA media, game-specific input variations, and other
+game-specific device extensions remain unsupported.
+
+The audio callback receives normalized stereo floats and a ZSG timestamp in
+the 25 MHz chip-clock domain. It runs synchronously while `systemgnet_sync`
+advances the board, including when CPU MMIO routing triggers synchronization,
+so clients should keep it bounded and avoid reentering or destroying the
+board. Timestamps increase within a sound-device reset epoch and may restart
+when those devices reset. The client owns the opaque pointer and must clear the
+callback before freeing it; passing a null callback disables delivery.
 
 The standalone Zoom regression also loads a synthetic MN10200 program that
 uploads a small TMS57002 tone routine through the board pins and captures the
@@ -80,6 +89,9 @@ profile checks, not a claim that those main-CPU timings are already applied.
 `--system-gnet-fixture` is test-only and uses generated in-memory data. Its
 executed MIPS program selects flash bank 1, reads the banked flash and constant
 ID register through the PSX memory bus, and records both values in PSX RAM. It
-passes in both the interpreter and ARM64 DRC harness. This checks the board
-map bridge and 4 MiB RAM path, not MAME assets, startup firmware, game boot,
-or real-board compatibility.
+also installs an audio sink before board load and reset, then advances the
+synthetic MN10200/TMS57002 tone program and verifies finite nonzero PCM with
+monotonic timestamps through the public adapter callback. It passes in both
+the interpreter and ARM64 DRC harness. This checks the board map bridge, audio
+callback lifecycle, and 4 MiB RAM path, not MAME assets, startup firmware, game
+boot, or real-board compatibility.

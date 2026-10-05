@@ -87,6 +87,15 @@ typedef struct GnetBoard {
     uint64_t reads, writes, unsupported;
 } GnetBoard;
 static GnetBoard board;
+static systemgnet_audio_frame_fn audio_output;
+static void *audio_output_opaque;
+
+static void zoom_audio_frame(void *opaque, float left, float right,
+                             uint64_t zsg_cycle)
+{
+    (void)opaque;
+    if (audio_output) audio_output(audio_output_opaque, left, right, zsg_cycle);
+}
 
 #ifndef DRC_DISABLE
 static int gnet_code_span(unsigned int pc, const unsigned int **words,
@@ -292,6 +301,7 @@ static int create_devices(void)
     gcfg.zoom_program_flash = board.zoomprog; gcfg.zoom_program_flash_size = GNET_ZOOM_PROGRAM_FLASH_BYTES;
     for (i = 0; i < 3; ++i) { gcfg.sample_flash[i] = board.waves[i]; gcfg.sample_flash_size[i] = GNET_FIRM_FLASH_BYTES; }
     gcfg.eprom = board.eprom; gcfg.eprom_size = EPROM_BYTES;
+    gcfg.audio_frame = zoom_audio_frame;
     if (gnet_zoom_create(&gcfg, &board.zoom) != GNET_ZOOM_OK) return -1;
     if (gpu_set_model(2) || gpu_set_vram_height(1024)) return -1;
     board.old_ram_size = psxRamSize; board.old_rom_size = psxRomSize;
@@ -366,7 +376,34 @@ int systemgnet_test_load(void)
     for (unsigned i = 0; i < KEY_BYTES; ++i) { board.key0[i] = (uint8_t)(i * 17 + 3); board.key1[i] = (uint8_t)(i * 29 + 7); }
     memset(board.firm, 0xff, FIRM_BYTES); memset(board.eprom, 0xff, EPROM_BYTES);
     memset(board.zoomprog, 0xff, GNET_ZOOM_PROGRAM_FLASH_BYTES);
-    for (unsigned i = 0; i < 3; ++i) memset(board.waves[i], 0xff, GNET_FIRM_FLASH_BYTES);
+    for (unsigned i = 0; i < 3; ++i) memset(board.waves[i], 0, GNET_FIRM_FLASH_BYTES);
+    /* Test-only executable MN10200 program which uploads a real TMS57002
+     * tone routine through Port 1. Production media loading remains strict
+     * and continues to leave the absent program/sample regions erased. */
+    {
+        size_t p = 0;
+        static const uint8_t tms_program[] = {
+            0,0,0, 0,0,0, 0xcc,0x05,0x10, 0x01,0x10,0x00, 0xfc,0x40,0x00
+        };
+        static const uint8_t tms_coefficients[] = {0x10,0x12,0x34,0x56,0x78};
+        unsigned i;
+#define GNET_TEST_STORE8(v, a) do { \
+            const uint8_t instruction[] = {0xf8, (uint8_t)(v), 0, 0xf4, 0x44, \
+                (uint8_t)(a), (uint8_t)((a) >> 8), (uint8_t)((a) >> 16)}; \
+            memcpy(board.zoomprog + p, instruction, sizeof(instruction)); \
+            p += sizeof(instruction); \
+        } while (0)
+        GNET_TEST_STORE8(0xff, 0xffe1); /* P1 direction = output */
+        GNET_TEST_STORE8(3, 0xfe64);    /* release PLOAD and CLOAD */
+        GNET_TEST_STORE8(2, 0xfe64);    /* assert PLOAD */
+        for (i = 0; i < sizeof(tms_program); ++i) GNET_TEST_STORE8(tms_program[i], 0xc00000);
+        GNET_TEST_STORE8(3, 0xfe64);    /* release PLOAD */
+        GNET_TEST_STORE8(1, 0xfe64);    /* assert CLOAD */
+        for (i = 0; i < sizeof(tms_coefficients); ++i) GNET_TEST_STORE8(tms_coefficients[i], 0xc00000);
+        GNET_TEST_STORE8(3, 0xfe64);    /* complete CLOAD */
+        board.zoomprog[p++] = 0xea; board.zoomprog[p++] = 0xfe; /* BRA -2 */
+#undef GNET_TEST_STORE8
+    }
     board.waves[0][0] = 0x34; board.waves[0][1] = 0x12;
     if (create_devices()) goto bad;
     return 0;
@@ -389,6 +426,11 @@ void systemgnet_unload(void)
     }
 }
 int systemgnet_active(void) { return board.active; }
+void systemgnet_set_audio_output(systemgnet_audio_frame_fn callback, void *opaque)
+{
+    audio_output = callback;
+    audio_output_opaque = callback ? opaque : NULL;
+}
 
 void systemgnet_mem_reset(void)
 {
