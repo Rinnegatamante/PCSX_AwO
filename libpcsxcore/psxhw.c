@@ -143,9 +143,17 @@ void psxHwWriteDmaIcr32(u32 value)
 void psxHwWriteGpuSR(u32 value)
 {
 	u32 old_sr = HW_GPU_STATUS, new_sr;
+#ifdef PCSX_SYSTEM12
+	if ((value >> 24) == 0 || (value >> 24) == 8)
+		psxRcntSourceScreenUpdate();
+#endif
 	GPU_writeStatus(value);
 	gpuSyncPluginSR();
 	new_sr = HW_GPU_STATUS;
+#ifdef PCSX_SYSTEM12
+	if ((value >> 24) == 0 || (value >> 24) == 8)
+		psxRcntSourceScreenConfigure(SWAP32(new_sr));
+#endif
 	// "The Next Tetris" seems to rely on the field order after enable
 	if ((old_sr ^ new_sr) & new_sr & SWAP32(PSXGPU_ILACE))
 		frame_counter |= 1;

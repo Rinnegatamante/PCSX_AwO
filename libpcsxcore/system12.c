@@ -18,6 +18,7 @@
 #include "psxhw.h"
 #include "psxdma.h"
 #include "psxinterpreter.h"
+#include "psxcounters.h"
 #include "plugins.h"
 #include <inttypes.h>
 #include "arcade/h8.h"
@@ -458,7 +459,8 @@ static void sync_to(u32 psx_cycle, int force)
     u32 requested = board.h8_fraction / PSXCLK;
     board.h8_requested += requested;
     uint64_t h8_started = pcsx_profile_begin(PCSX_PROF_H8, 1);
-    h8_run_cycles(board.h8, requested);
+    if (psxArcadeSourceTimingActive()) h8_run_until(board.h8, board.h8_requested);
+    else h8_run_cycles(board.h8, requested);
     pcsx_profile_end(PCSX_PROF_H8, h8_started);
     board.h8_fraction %= PSXCLK;
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
@@ -470,6 +472,9 @@ static void sync_to(u32 psx_cycle, int force)
 
 void system12_sync(u32 psx_cycle)
 {
+    /* Deliver any source screen deadlines before the H8 passes them, also on
+     * frontend block boundaries that did not process an RCNT event yet. */
+    psxRcntSourceScreenUpdate();
     sync_to(psx_cycle, 0);
 }
 
@@ -477,7 +482,10 @@ void system12_sync(u32 psx_cycle)
  * This runs at the same quiescent CPU boundary as psxReset, never from a sink. */
 void system12_pre_reset(void)
 {
-    if (board.booted) sync_to(psxRegs.cycle, 1);
+    if (board.booted) {
+        psxRcntSourceScreenUpdate();
+        sync_to(psxRegs.cycle, 1);
+    }
 }
 
 #ifdef PCSX_SYSTEM12_PROFILE
@@ -497,6 +505,27 @@ void system12_vblank(int level)
     board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
     h8_set_irq(board.h8, 1, level);
     h8_adc_trigger(board.h8, level);
+    trace_edge(SYSTEM12_EDGE_VBLANK, level);
+}
+
+void system12_vblank_at(int level, const psx_screen_time *time)
+{
+    const u64 period = UINT64_C(1000000000000000000) / 16934400;
+    const u64 remainder = UINT64_C(1000000000000000000) - period * 16934400;
+    u64 seconds, target;
+    if (!board.active || !board.h8 || !time || time->seconds < 0) return;
+    seconds = (u64)time->seconds;
+    /* CPU execution before a global timer is bounded by floor, not ceil.
+     * Preserve the H8's truncated attosecond clock instead of rounding the
+     * edge through a main-CPU instruction/block endpoint. */
+    target = seconds * 16934400 + (time->attoseconds + seconds * remainder) / period;
+    uint64_t started = pcsx_profile_begin(PCSX_PROF_H8, 1);
+    if (h8_run_until(board.h8, target))
+        SysPrintf("System12: invalid H8 screen deadline\n");
+    pcsx_profile_end(PCSX_PROF_H8, started);
+    h8_set_irq(board.h8, 1, level);
+    h8_adc_trigger(board.h8, level);
+    board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
     trace_edge(SYSTEM12_EDGE_VBLANK, level);
 }
 
@@ -662,6 +691,7 @@ void system12_unload(void)
     bus_trace_opaque = NULL;
     edge_trace_cb = NULL;
     edge_trace_opaque = NULL;
+    psxRcntSourceScreenUnload();
 #ifndef DRC_DISABLE
     new_dynarec_set_code_span_provider(NULL);
 #endif
@@ -715,6 +745,7 @@ void system12_mem_reset(void)
     if (board.boot_hack && board.main_size >= 0x2028c && board.ram_size >= 0x1000c)
         memcpy(psxRegs.ptrs.psxM + 0x10000, board.main + 0x20280, 12);
     map_bank(board.booted ? board.bank : 0);
+    if (!board.booted) psxRcntSourceScreenUnload();
 }
 
 void system12_reset(void)
@@ -752,6 +783,11 @@ void system12_reset(void)
     board.last_shared_address = board.last_shared_pc = board.last_shared_value = 0;
     board.last_unknown_address = board.last_unknown_pc = 0;
     map_bank(board.bank);
+    if (psxArcadeSourceTimingActive()) {
+        GPU_writeStatus(0); /* MAME resets GPU configuration, not screen time. */
+        gpuSyncPluginSR();
+        psxRcntSourceScreenReset(!board.booted, SWAP32(HW_GPU_STATUS));
+    }
     board.booted = 1;
     psxRegs.pc = 0xbfc00000;
     psxRegs.CP0.n.SR = 0x10600000;

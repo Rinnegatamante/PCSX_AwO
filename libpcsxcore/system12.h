@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stddef.h>
 #include "psxcommon.h"
+#include "arcade/psx_screen_clock.h"
 
 typedef void (*system12_audio_cb)(void *opaque, const int16_t *stereo,
 		unsigned frames);
@@ -37,6 +38,8 @@ void system12_pre_reset(void);
 void system12_reset(void);
 void system12_sync(u32 psx_cycle);
 void system12_vblank(int level);
+/* Source screen edge at its scheduled absolute time, even if MIPS is late. */
+void system12_vblank_at(int level, const psx_screen_time *time);
 int system12_set_input(const char *control, int pressed);
 /* Exact 2080-byte AT28C16 data+ID image import/export; board must be active. */
 int system12_eeprom_export(unsigned char *image, size_t size);

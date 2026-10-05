@@ -24,6 +24,7 @@
 #include "psxcounters.h"
 #include "psxevents.h"
 #include "gpu.h"
+#include "arcade/psx_screen_clock.h"
 #ifdef PCSX_SYSTEM12
 #include "system12.h"
 #endif
@@ -77,6 +78,35 @@ Rcnt rcnts[ CounterQuantity ];
 unsigned int hSyncCount = 0;
 unsigned int frame_counter = 0;
 static u32 hsync_steps = 0;
+#ifdef PCSX_SYSTEM12
+static psx_screen_clock source_screen;
+static uint64_t source_main_cycles, source_epoch_cycles;
+static u32 source_last_cycle;
+static int source_screen_updating;
+
+static int sourceScreenActive(void)
+{
+    return system12_active() && psxArcadeSourceTimingActive() && source_screen.configured;
+}
+
+static psx_screen_time sourceScreenTime(void)
+{
+    psx_screen_time now;
+    source_main_cycles += (u32)(psxRegs.cycle - source_last_cycle);
+    source_last_cycle = psxRegs.cycle;
+    /* System12's 50 MHz main clock has an exact 20 ns period. */
+    now.seconds = source_main_cycles / PSXCLK;
+    now.attoseconds = (source_main_cycles % PSXCLK) *
+        (PSX_SCREEN_ATTOSECONDS_PER_SECOND / PSXCLK);
+    return now;
+}
+
+static uint64_t sourceScreenPeriod(u32 status)
+{
+    return status & (1u << 20) ? PSX_SCREEN_PAL_PERIOD :
+        status & (1u << 19) ? PSX_SCREEN_NTSC_480_PERIOD : PSX_SCREEN_NTSC_240_PERIOD;
+}
+#endif
 
 /******************************************************************************/
 
@@ -367,6 +397,18 @@ void psxRcntReset( u32 index )
 
 static void scheduleRcntBase(void)
 {
+#ifdef PCSX_SYSTEM12
+    if (sourceScreenActive()) {
+        psx_screen_event next;
+        uint64_t deadline, delay;
+        psx_screen_clock_next_deadline(&source_screen, &next);
+        deadline = psx_screen_time_to_cycles_ceil(next.time, PSXCLK);
+        delay = deadline > source_main_cycles ? deadline - source_main_cycles : 0;
+        rcnts[3].cycleStart = psxRegs.cycle;
+        rcnts[3].cycle = delay > 0x7fffffffu ? 0x7fffffffu : (u32)delay;
+        return;
+    }
+#endif
     // Schedule next call, in hsyncs
     if (hSyncCount < VBlankStart)
         hsync_steps = VBlankStart - hSyncCount;
@@ -392,6 +434,109 @@ static void scheduleRcntBase(void)
         }
     }
 }
+
+static void deliverVblankStart(const psx_screen_time *when)
+{
+    HW_GPU_STATUS &= SWAP32(~PSXGPU_LCF);
+    GPU_vBlank(1, 0);
+#ifdef PCSX_SYSTEM12
+    if (when) system12_vblank_at(1, when);
+    else system12_vblank(1);
+#endif
+    setIrq(0x01);
+    EmuUpdate();
+    if (SPU_async) SPU_async(psxRegs.cycle, 1);
+}
+
+static void deliverVblankEnd(const psx_screen_time *when)
+{
+    u32 status, field = 0;
+    hSyncCount = 0;
+    frame_counter++;
+    gpuSyncPluginSR();
+    status = SWAP32(HW_GPU_STATUS) | PSXGPU_FIELD;
+    if ((status & PSXGPU_ILACE_BITS) == PSXGPU_ILACE_BITS) {
+        field = frame_counter & 1;
+        status |= field << 31;
+        status ^= field << 13;
+    }
+    HW_GPU_STATUS = SWAP32(status);
+    GPU_vBlank(0, field);
+#ifdef PCSX_SYSTEM12
+    if (when) system12_vblank_at(0, when);
+    else system12_vblank(0);
+#endif
+    if ((s32)(psxRegs.gpuIdleAfter - psxRegs.cycle) < 0)
+        psxRegs.gpuIdleAfter = psxRegs.cycle - 1;
+    if ((rcnts[0].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset) ||
+        (rcnts[0].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset2))
+        rcnts[0].cycleStart = rcnts[3].cycleStart;
+    if ((rcnts[1].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset) ||
+        (rcnts[1].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset2))
+        rcnts[1].cycleStart = rcnts[3].cycleStart;
+    else if (rcnts[1].mode & Rc1HSyncClock)
+        _psxRcntWcount(1, (psxRegs.cycle - rcnts[1].cycleStart) / rcnts[1].rate);
+}
+
+#ifdef PCSX_SYSTEM12
+static void deliverSourceScreenEvent(const psx_screen_event *event)
+{
+    rcnts[3].cycleStart = (u32)(psx_screen_time_to_cycles_ceil(event->time, PSXCLK) -
+        source_epoch_cycles);
+    if (event->type == PSX_SCREEN_EVENT_VBLANK_START) {
+        hSyncCount = VBlankStart;
+        deliverVblankStart(&event->time);
+    } else deliverVblankEnd(&event->time);
+}
+
+void psxRcntSourceScreenUpdate(void)
+{
+    psx_screen_event event;
+    psx_screen_time target;
+    if (!sourceScreenActive() || source_screen_updating) return;
+    source_screen_updating = 1;
+    target = sourceScreenTime();
+    while (psx_screen_clock_advance_to(&source_screen, target, &event))
+        deliverSourceScreenEvent(&event);
+    scheduleRcntBase();
+    psxRcntSet();
+    source_screen_updating = 0;
+}
+
+void psxRcntSourceScreenConfigure(u32 gpu_status)
+{
+    psx_screen_event event;
+    if (!sourceScreenActive()) return;
+    psxRcntSourceScreenUpdate();
+    if (psx_screen_clock_configure(&source_screen, sourceScreenTime(),
+        sourceScreenPeriod(gpu_status), &event)) deliverSourceScreenEvent(&event);
+    scheduleRcntBase();
+    psxRcntSet();
+}
+
+void psxRcntSourceScreenReset(int cold, u32 gpu_status)
+{
+    psx_screen_event event;
+    if (cold) {
+        psx_screen_clock_init(&source_screen);
+        source_main_cycles = 0;
+    }
+    source_epoch_cycles = source_main_cycles;
+    source_last_cycle = psxRegs.cycle;
+    if (psx_screen_clock_configure(&source_screen, sourceScreenTime(),
+        sourceScreenPeriod(gpu_status), &event)) deliverSourceScreenEvent(&event);
+    scheduleRcntBase();
+    psxRcntSet();
+}
+
+void psxRcntSourceScreenUnload(void)
+{
+    psx_screen_clock_init(&source_screen);
+    source_main_cycles = source_epoch_cycles = 0;
+    source_last_cycle = 0;
+    source_screen_updating = 0;
+}
+#endif
 
 void psxRcntUpdate()
 {
@@ -430,70 +575,18 @@ void psxRcntUpdate()
     }
 
     // rcnt base.
-    if( cycle - rcnts[3].cycleStart >= rcnts[3].cycle )
+#ifdef PCSX_SYSTEM12
+    if (sourceScreenActive()) psxRcntSourceScreenUpdate();
+    else
+#endif
+    if (cycle - rcnts[3].cycleStart >= rcnts[3].cycle)
     {
         hSyncCount += hsync_steps;
-
-        // VSync irq.
-        if( hSyncCount == VBlankStart )
-        {
-            HW_GPU_STATUS &= SWAP32(~PSXGPU_LCF);
-            GPU_vBlank( 1, 0 );
-#ifdef PCSX_SYSTEM12
-            system12_vblank(1);
-#endif
-            setIrq( 0x01 );
-
-            EmuUpdate();
-            //GPU_updateLace(); // handled by GPU_vBlank() now
-
-            if( SPU_async )
-            {
-                SPU_async( cycle, 1 );
-            }
-        }
-        
-        // Update lace.
-        if( hSyncCount >= hsyncTotal() )
-        {
-            u32 status, field = 0;
+        if (hSyncCount == VBlankStart) deliverVblankStart(NULL);
+        if (hSyncCount >= hsyncTotal()) {
             rcnts[3].cycleStart += frameCycles();
-            hSyncCount = 0;
-            frame_counter++;
-
-            gpuSyncPluginSR();
-            status = SWAP32(HW_GPU_STATUS) | PSXGPU_FIELD;
-            if ((status & PSXGPU_ILACE_BITS) == PSXGPU_ILACE_BITS) {
-                field = frame_counter & 1;
-                status |= field << 31;
-                status ^= field << 13;
-            }
-            HW_GPU_STATUS = SWAP32(status);
-            GPU_vBlank(0, field);
-#ifdef PCSX_SYSTEM12
-            system12_vblank(0);
-#endif
-            if ((s32)(psxRegs.gpuIdleAfter - psxRegs.cycle) < 0)
-                psxRegs.gpuIdleAfter = psxRegs.cycle - 1; // prevent overflow
-
-            if ((rcnts[0].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset) ||
-                (rcnts[0].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset2))
-            {
-                rcnts[0].cycleStart = rcnts[3].cycleStart;
-            }
-
-            if ((rcnts[1].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset) ||
-                (rcnts[1].mode & 7) == (RcSyncModeEnable | Rc01UnblankReset2))
-            {
-                rcnts[1].cycleStart = rcnts[3].cycleStart;
-            }
-            else if (rcnts[1].mode & Rc1HSyncClock)
-            {
-                // adjust to remove the rounding error
-                _psxRcntWcount(1, (psxRegs.cycle - rcnts[1].cycleStart) / rcnts[1].rate);
-            }
+            deliverVblankEnd(NULL);
         }
-
         scheduleRcntBase();
     }
 

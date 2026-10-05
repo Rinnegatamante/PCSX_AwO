@@ -41,6 +41,13 @@ extern Rcnt rcnts[];
 
 void psxRcntInit();
 void psxRcntUpdate();
+#ifdef PCSX_SYSTEM12
+/* Source screen timeline for System12; survives main-counter soft resets. */
+void psxRcntSourceScreenReset(int cold, u32 gpu_status);
+void psxRcntSourceScreenUnload(void);
+void psxRcntSourceScreenUpdate(void);
+void psxRcntSourceScreenConfigure(u32 gpu_status);
+#endif
 
 void psxRcntWcount(u32 index, u32 value);
 void psxRcntWmode(u32 index, u32 value);
