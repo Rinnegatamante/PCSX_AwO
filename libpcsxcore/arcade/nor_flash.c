@@ -61,6 +61,8 @@ typedef struct flash_spec {
     uint64_t chip_erase_us;
     int intel;
     int fujitsu_busy_reads_all;
+    int intel_mame_program;
+    int intel_amd_commands;
 } flash_spec;
 
 struct nor_flash {
@@ -84,6 +86,7 @@ static int profile_spec(nor_flash_profile_t profile, flash_spec *spec)
         spec->sector = 0x10000; spec->sector_erase_us = 1000000;
         spec->chip_erase_us = 0; spec->intel = 1;
         spec->fujitsu_busy_reads_all = 0;
+        spec->intel_mame_program = 0; spec->intel_amd_commands = 0;
         return 1;
     case NOR_FLASH_FUJITSU_MBM29F016A:
         spec->size = 0x200000; spec->width = 8;
@@ -91,6 +94,7 @@ static int profile_spec(nor_flash_profile_t profile, flash_spec *spec)
         spec->sector = 0x10000; spec->sector_erase_us = 1000000;
         spec->chip_erase_us = 16000000; spec->intel = 0;
         spec->fujitsu_busy_reads_all = 1;
+        spec->intel_mame_program = 0; spec->intel_amd_commands = 0;
         return 1;
     case NOR_FLASH_AMD_29F040:
         spec->size = 0x80000; spec->width = 8;
@@ -98,6 +102,7 @@ static int profile_spec(nor_flash_profile_t profile, flash_spec *spec)
         spec->sector = 0x10000; spec->sector_erase_us = 1000000;
         spec->chip_erase_us = 16000000; spec->intel = 0;
         spec->fujitsu_busy_reads_all = 0;
+        spec->intel_mame_program = 0; spec->intel_amd_commands = 0;
         return 1;
     case NOR_FLASH_SST_39SF040:
         spec->size = 0x80000; spec->width = 8;
@@ -105,6 +110,23 @@ static int profile_spec(nor_flash_profile_t profile, flash_spec *spec)
         spec->sector = 0x1000; spec->sector_erase_us = 125000;
         spec->chip_erase_us = 1000000; spec->intel = 0;
         spec->fujitsu_busy_reads_all = 0;
+        spec->intel_mame_program = 0; spec->intel_amd_commands = 0;
+        return 1;
+    case NOR_FLASH_INTEL_E28F400B_X16:
+        spec->size = 0x80000; spec->width = 16;
+        spec->maker = 0x89; spec->device = 0x4471;
+        spec->sector = 0x10000; spec->sector_erase_us = 1000000;
+        spec->chip_erase_us = 16000000; spec->intel = 1;
+        spec->fujitsu_busy_reads_all = 0;
+        spec->intel_mame_program = 1; spec->intel_amd_commands = 1;
+        return 1;
+    case NOR_FLASH_INTEL_TE28F160_X16:
+        spec->size = 0x200000; spec->width = 16;
+        spec->maker = 0xb0; spec->device = 0x00d0;
+        spec->sector = 0x10000; spec->sector_erase_us = 1000000;
+        spec->chip_erase_us = 16000000; spec->intel = 1;
+        spec->fujitsu_busy_reads_all = 0;
+        spec->intel_mame_program = 1; spec->intel_amd_commands = 1;
         return 1;
     default:
         return 0;
@@ -118,6 +140,8 @@ const char *nor_flash_profile_name(nor_flash_profile_t profile)
     case NOR_FLASH_FUJITSU_MBM29F016A: return "Fujitsu MBM29F016A";
     case NOR_FLASH_AMD_29F040: return "AMD 29F040";
     case NOR_FLASH_SST_39SF040: return "SST 39SF040";
+    case NOR_FLASH_INTEL_E28F400B_X16: return "Intel E28F400B x16";
+    case NOR_FLASH_INTEL_TE28F160_X16: return "Intel TE28F160 x16";
     default: return "unsupported NOR profile";
     }
 }
@@ -166,8 +190,14 @@ static void array_program(nor_flash_t *flash, uint32_t address, uint16_t value)
 {
     uint32_t off = image_offset(flash, address);
     if (flash->spec.width == 16) {
-        flash->image[off] &= (uint8_t)(value >> 8);
-        flash->image[off + 1] &= (uint8_t)value;
+        if (flash->spec.intel_mame_program) {
+            /* MAME intelfsh writes x16 words directly in FM_WRITEPART1. */
+            flash->image[off] = (uint8_t)(value >> 8);
+            flash->image[off + 1] = (uint8_t)value;
+        } else {
+            flash->image[off] &= (uint8_t)(value >> 8);
+            flash->image[off + 1] &= (uint8_t)value;
+        }
     } else {
         flash->image[off] &= (uint8_t)value;
     }
@@ -184,6 +214,40 @@ static void finish_if_due(nor_flash_t *flash)
         flash->status = 0x80;
         flash->busy_until_us = 0;
     }
+}
+
+static void intel_erase_block(nor_flash_t *flash, uint32_t address)
+{
+    uint32_t base = image_offset(flash, address);
+    uint32_t length = flash->spec.sector;
+    uint64_t delay = flash->spec.sector_erase_us;
+    if (flash->profile == NOR_FLASH_INTEL_E28F400B_X16) {
+        base = (address & 0x3ffffu) * 2;
+        if (base < 0x4000) {
+            base = 0;
+            length = 0x4000;
+            delay = 300000;
+        } else if (base < 0x8000) {
+            base &= 0x6000;
+            length = 0x2000;
+            delay = 300000;
+        } else if (base < 0x20000) {
+            base = 0x8000;
+            length = 0x18000;
+            delay = 600000;
+        } else {
+            base &= 0x60000;
+            length = 0x20000;
+            delay = 600000;
+        }
+    } else {
+        base &= ~(length - 1);
+    }
+    for (uint32_t i = 0; i < length; i++) flash->image[base + i] = 0xff;
+    flash->status = 0;
+    flash->mode = MODE_INTEL_STATUS;
+    flash->busy_until_us = UINT64_MAX - flash->now_us < delay
+        ? UINT64_MAX : flash->now_us + delay;
 }
 
 void nor_flash_advance_us(nor_flash_t *flash, uint64_t microseconds)
@@ -216,7 +280,8 @@ int nor_flash_read(nor_flash_t *flash, uint32_t address, uint16_t *value)
     if (!flash || !value) return NOR_FLASH_ERR_ARGUMENT;
     if (address >= bus_size(flash)) return NOR_FLASH_ERR_RANGE;
     finish_if_due(flash);
-    if (flash->spec.intel) {
+    if (flash->spec.intel && flash->mode != MODE_AMD_ID &&
+        flash->mode != MODE_AMD_ERASE_BUSY) {
         switch (flash->mode) {
         case MODE_INTEL_ID:
             switch (address & 0xff) {
@@ -294,13 +359,7 @@ static int intel_write(nor_flash_t *flash, uint32_t address, uint16_t value)
             flash->mode = MODE_INTEL_STATUS;
             return NOR_FLASH_ERR_SEQUENCE;
         }
-        flash->erase_start = image_offset(flash, address) & ~(flash->spec.sector - 1);
-        for (uint32_t i = 0; i < flash->spec.sector; i++)
-            flash->image[flash->erase_start + i] = 0xff;
-        flash->status = 0;
-        flash->mode = MODE_INTEL_STATUS;
-        flash->busy_until_us = UINT64_MAX - flash->now_us < flash->spec.sector_erase_us
-            ? UINT64_MAX : flash->now_us + flash->spec.sector_erase_us;
+        intel_erase_block(flash, address);
         return NOR_FLASH_OK;
     case MODE_INTEL_SET_MASTER:
         if (command == 0xf1) flash->master_lock = 1;
@@ -335,14 +394,17 @@ static void amd_begin_erase(nor_flash_t *flash, uint32_t address, int chip)
         start = 0; length = (uint32_t)flash->spec.size;
         delay = flash->spec.chip_erase_us;
     } else {
-        start = address & ~(flash->spec.sector - 1);
+        start = image_offset(flash, address) & ~(flash->spec.sector - 1);
         length = flash->spec.sector;
         delay = flash->spec.sector_erase_us;
     }
     for (uint32_t i = 0; i < length; i++) flash->image[start + i] = 0xff;
-    if (!chip) flash->busy_read_start = start;
+    if (!chip) flash->busy_read_start = start / (flash->spec.width / 8);
     /* MAME leaves the last polled sector unchanged on chip erase. */
-    flash->busy_read_length = chip ? 0x10000 : length;
+    /* intelfsh::read_full uses a fixed 64K address-unit polling window, also
+       for x16 parts, even though the physical erase span is 64 KiB in bytes. */
+    flash->busy_read_length = (chip || flash->spec.intel_amd_commands)
+        ? 0x10000 : length / (flash->spec.width / 8);
     flash->status = 0x08;
     flash->toggle = 0;
     flash->mode = MODE_AMD_ERASE_BUSY;
@@ -416,8 +478,14 @@ int nor_flash_write(nor_flash_t *flash, uint32_t address, uint16_t value)
     if (!flash) return NOR_FLASH_ERR_ARGUMENT;
     if (address >= bus_size(flash)) return NOR_FLASH_ERR_RANGE;
     finish_if_due(flash);
-    return flash->spec.intel ? intel_write(flash, address, value)
-                             : amd_write(flash, address, value);
+    if (!flash->spec.intel) return amd_write(flash, address, value);
+    if (flash->spec.intel_amd_commands &&
+        ((flash->mode >= MODE_AMD_UNLOCK1 && flash->mode <= MODE_AMD_ERASE_BUSY) ||
+         ((flash->mode == MODE_ARRAY || flash->mode == MODE_INTEL_STATUS ||
+           flash->mode == MODE_INTEL_ID) && amd_unlock1_address(flash, address) &&
+          (value & 0xff) == 0xaa)))
+        return amd_write(flash, address, value);
+    return intel_write(flash, address, value);
 }
 
 uint8_t *nor_flash_image(nor_flash_t *flash)
@@ -448,5 +516,12 @@ uint16_t nor_flash_device_id(const nor_flash_t *flash)
 uint32_t nor_flash_sector_size(const nor_flash_t *flash, uint32_t address)
 {
     if (!flash || address >= bus_size(flash)) return 0;
+    if (flash->profile == NOR_FLASH_INTEL_E28F400B_X16) {
+        uint32_t byte_address = (address & 0x3ffffu) * 2;
+        if (byte_address < 0x4000) return 0x4000;
+        if (byte_address < 0x8000) return 0x2000;
+        if (byte_address < 0x20000) return 0x18000;
+        return 0x20000;
+    }
     return flash->spec.sector;
 }

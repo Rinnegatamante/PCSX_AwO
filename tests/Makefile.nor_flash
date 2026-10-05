@@ -2,7 +2,7 @@ CC ?= clang
 CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c99
 TARGET = test_nor_flash
 
-.PHONY: all run clean
+.PHONY: all run sanitize clean
 all: $(TARGET)
 
 $(TARGET): test_nor_flash.c ../libpcsxcore/arcade/nor_flash.c ../libpcsxcore/arcade/nor_flash.h
@@ -11,5 +11,9 @@ $(TARGET): test_nor_flash.c ../libpcsxcore/arcade/nor_flash.c ../libpcsxcore/arc
 run: $(TARGET)
 	./$(TARGET)
 
+sanitize:
+	$(CC) -O1 -g -Wall -Wextra -Werror -std=c99 -fsanitize=address,undefined -fno-omit-frame-pointer -o $(TARGET)-sanitize test_nor_flash.c ../libpcsxcore/arcade/nor_flash.c
+	./$(TARGET)-sanitize
+
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(TARGET)-sanitize

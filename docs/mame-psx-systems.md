@@ -41,7 +41,7 @@ family is considered finished.
 | --- | ---: | --- |
 | Retail PlayStation | 20–35% | Existing console core and native CPU/GPU smoke; native BIOS/disc, controller, sound and retail-game validation pending |
 | Sony ZN family (including Taito FX1) | 50–65% | Capcom and FX1S generated native guests pass; authentic games and Tecmo/Raizing/other daughterboards pending |
-| Taito G-Net | 85–95% | Standalone Zoom sound-board execution, mailbox and DSP audio tested; native PSX, Intel flash command engines, CompactFlash and game validation pending |
+| Taito G-Net | 85–95% | Zoom sound-board and E28F400B/TE28F160 flash components tested; native PSX, flash-bank wiring, CompactFlash and game validation pending |
 | Konami System GV | 45–60% | Common native board MIPS interpreter/DRC, DMA5, IRQ10 and CHD fixture tested; authentic BIOS/CD execution, sound and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |
@@ -144,8 +144,11 @@ machine's assets does not imply that it boots.
   CPU](mn10200-port.md) and [standalone Zoom board](zoom-board-port.md) pass
   generated firmware execution, word-register access, mailbox lanes, reset
   synchronization and nonzero DSP audio fixtures, including sanitizers. Native
-  PSX integration, Intel flash command engines, CompactFlash and authentic
+  PSX integration, writable flash-bank wiring, CompactFlash and authentic
   G-Net game execution remain pending.
+  The [NOR engine](nor-flash.md) now has source-derived E28F400B/TE28F160
+  profiles, with x16 programming, IDs, erase geometry and timing fixtures plus
+  sanitizers; their board/image integration remains pending.
 - Namco System 10: [35 crypto profiles and read-only NAND](namcos10-crypto.md),
   with 441 fixed encrypted streams; [MEM(M)/MEM(N) board adapter](namcos10-board.md)
   tests cover boot copies, banks, flash, bus masks and DMA. The connected

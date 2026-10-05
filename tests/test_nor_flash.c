@@ -99,6 +99,94 @@ static void test_geometry_and_intel(void)
     free(image);
 }
 
+static void test_gnet_intel_profile(nor_flash_profile_t profile, size_t size,
+                                    uint8_t maker, uint16_t device)
+{
+    uint8_t *image = (uint8_t *)malloc(size);
+    nor_flash_t *f;
+    uint32_t target_word = 0x1234;
+    uint32_t target_byte = target_word * 2;
+    uint16_t value;
+    assert(image);
+    memset(image, 0x5a, size);
+    assert(nor_flash_create(profile, image, size - 1) == NULL);
+    f = nor_flash_create(profile, image, size);
+    assert(f && nor_flash_bus_width(f) == 16);
+    assert(nor_flash_image(f) == image && nor_flash_image_size(f) == size);
+    assert(nor_flash_manufacturer_id(f) == maker);
+    assert(nor_flash_device_id(f) == device);
+    assert(nor_flash_sector_size(f, (uint32_t)(size / 4)) ==
+           (profile == NOR_FLASH_INTEL_E28F400B_X16 ? 0x20000 : 0x10000));
+    assert(nor_flash_read(f, (uint32_t)(size / 2), &value) == NOR_FLASH_ERR_RANGE);
+
+    /* MAME constructors: E28F400B=(Intel,4471), TE28F160=(Sharp,d0). */
+    wr(f, 0, 0x90);
+    assert(rd(f, 0) == maker && rd(f, 1) == device);
+    assert(rd(f, 2) == 0 && rd(f, 3) == 0);
+    wr(f, 0, 0xff);
+
+    /* The pinned intelfsh x16 FM_WRITEPART1 path assigns both bytes. */
+    image[target_byte] = image[target_byte + 1] = 0x00;
+    wr(f, target_word, 0x40);
+    wr(f, target_word, 0x12f0);
+    assert(image[target_byte] == 0x12 && image[target_byte + 1] == 0xf0);
+    assert(rd(f, target_word) == 0x80);
+    wr(f, 0, 0xff);
+    assert(rd(f, target_word) == 0x12f0);
+
+    /* Intel block erase has 64 KiB sectors and a 1 s status interval. */
+    wr(f, target_word, 0x20);
+    wr(f, target_word, 0xd0);
+    if (profile == NOR_FLASH_INTEL_E28F400B_X16) {
+        assert(nor_flash_sector_size(f, 0) == 0x4000);
+        assert(nor_flash_sector_size(f, 0x2000) == 0x2000);
+        assert(nor_flash_sector_size(f, 0x3000) == 0x2000);
+        assert(nor_flash_sector_size(f, 0x4000) == 0x18000);
+        assert(image[0] == 0xff && image[0x3fff] == 0xff);
+        assert(image[0x4000] == 0x5a); /* boot erase stops at 16 KiB */
+    } else {
+        assert(image[target_byte & ~0xffffu] == 0xff);
+    }
+    assert(!nor_flash_ready(f));
+    wr(f, 0, 0x70);
+    assert(rd(f, 0) == 0);
+    nor_flash_advance_us(f, profile == NOR_FLASH_INTEL_E28F400B_X16 ? 300000 : 1000000);
+    assert(nor_flash_ready(f) && rd(f, 0) == 0x80);
+    wr(f, 0, 0xff);
+
+    if (profile == NOR_FLASH_INTEL_E28F400B_X16) {
+        image[0x8000] = image[0x1ffff] = 0;
+        image[0x20000] = 0x5a;
+        wr(f, 0x4000, 0x20); wr(f, 0x4000, 0xd0);
+        assert(image[0x8000] == 0xff && image[0x1ffff] == 0xff);
+        assert(image[0x20000] == 0x5a); /* 96 KiB main block boundary */
+        assert(!nor_flash_ready(f));
+        nor_flash_advance_us(f, 599999);
+        assert(!nor_flash_ready(f));
+        nor_flash_advance_us(f, 1);
+        assert(nor_flash_ready(f));
+    }
+
+    /* Intel master lock command/status bits mirror MAME's FM_SETMASTER. */
+    wr(f, 0, 0x60); wr(f, 0, 0xf1);
+    wr(f, 0, 0x90); assert(rd(f, 3) == 1);
+    wr(f, 0, 0xff);
+    wr(f, 0, 0x60); wr(f, 0, 0xd0);
+    wr(f, 0, 0x90); assert(rd(f, 3) == 0);
+    wr(f, 0, 0xff);
+
+    /* MAME's shared intelfsh AMD-compat sequence supports chip erase too. */
+    image[0] = image[size - 1] = 0;
+    wr(f, 0x555, 0xaa); wr(f, 0x2aa, 0x55); wr(f, 0x555, 0x80);
+    wr(f, 0x555, 0xaa); wr(f, 0x2aa, 0x55); wr(f, 0x555, 0x10);
+    assert(image[0] == 0xff && image[size - 1] == 0xff);
+    assert(!nor_flash_ready(f));
+    nor_flash_advance_us(f, 16000000);
+    assert(nor_flash_ready(f));
+    nor_flash_destroy(f);
+    free(image);
+}
+
 static void test_amd_profile(nor_flash_profile_t profile, size_t size,
                              uint8_t maker, uint8_t device,
                              uint32_t sector, uint64_t sector_us,
@@ -168,6 +256,10 @@ static void test_amd_profile(nor_flash_profile_t profile, size_t size,
 int main(void)
 {
     test_geometry_and_intel();
+    test_gnet_intel_profile(NOR_FLASH_INTEL_E28F400B_X16, 0x80000,
+                            0x89, 0x4471);
+    test_gnet_intel_profile(NOR_FLASH_INTEL_TE28F160_X16, 0x200000,
+                            0xb0, 0x00d0);
     test_amd_profile(NOR_FLASH_FUJITSU_MBM29F016A, 0x200000,
                      0x04, 0xad, 0x10000, 1000000, 1);
     test_amd_profile(NOR_FLASH_AMD_29F040, 0x80000,

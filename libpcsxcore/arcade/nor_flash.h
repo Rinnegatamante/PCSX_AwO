@@ -15,7 +15,9 @@ typedef enum nor_flash_profile {
     NOR_FLASH_INTEL_28F640J5_X16 = 0,
     NOR_FLASH_FUJITSU_MBM29F016A,
     NOR_FLASH_AMD_29F040,
-    NOR_FLASH_SST_39SF040
+    NOR_FLASH_SST_39SF040,
+    NOR_FLASH_INTEL_E28F400B_X16,
+    NOR_FLASH_INTEL_TE28F160_X16
 } nor_flash_profile_t;
 
 typedef enum nor_flash_result {
@@ -44,6 +46,7 @@ size_t nor_flash_image_size(const nor_flash_t *flash);
 unsigned nor_flash_bus_width(const nor_flash_t *flash);
 uint8_t nor_flash_manufacturer_id(const nor_flash_t *flash);
 uint16_t nor_flash_device_id(const nor_flash_t *flash);
+/* Erase span in image bytes for the supplied bus address; zero if out of range. */
 uint32_t nor_flash_sector_size(const nor_flash_t *flash, uint32_t address);
 const char *nor_flash_profile_name(nor_flash_profile_t profile);
 

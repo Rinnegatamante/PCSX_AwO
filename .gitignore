@@ -169,6 +169,10 @@ __pycache__/
 /build/vita-validation-gxm-shutdown/
 /build/vita-validation-gxm-shader-cache/
 /build/mac-harness-gv-drc/
+/build/mac-harness-board-nochd/
+/build/mac-harness-gv-noboard/
+/tests/test_nor_flash-sanitize
+/tests/test_nor_flash-sanitize.dSYM/
 /build/vita-validation-gxm-memcpy-diagnostic*/
 /build/mac-harness-noboard/
 /build/mac-harness-gv/
