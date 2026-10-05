@@ -263,21 +263,15 @@ typedef struct
 
 internal void NativeGpu_BackendStoreFrameBufferTask(void *arg)
 {
-	NativeGpuBackendRectTask *task = (NativeGpuBackendRectTask *)arg;
-	if (NativeGpu_GetRenderDrawEnv()->dfe)
-	{
-		NativeRenderer_StoreFrameBuffer(task->x, task->y, task->w, task->h);
-	}
-	else
-	{
-		NativeRenderer_EndScene();
-	}
+	(void)arg;
+	/* The current GP0 environment need not describe the last rendered split.
+	 * Feedback must commit both owned targets before sampling VRAM. */
+	NativeRenderer_EndScene();
 }
 
 internal void NativeGpu_BackendClearTask(void *arg)
 {
 	NativeGpuBackendRectTask *task = (NativeGpuBackendRectTask *)arg;
-	NativeRenderer_Clear(task->x, task->y, task->w, task->h, task->r, task->g, task->b);
     NativeRenderer_ClearVRAM(task->x, task->y, task->w, task->h, task->r, task->g, task->b);
     NativeRenderer_UpdateVRAM();
 }
@@ -1776,9 +1770,9 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 	const bool drawOnScreen = split->drawenv.dfe;
 	if ((split->drawenv.clip.w <= 0) || (split->drawenv.clip.h <= 0))
 	{
-		// NOTE(aalhendi): VS/Battle end previews can shrink a losing viewport into an empty retail draw area. Empty clips should consume no pixels, and must not leak stale native offscreen/scissor state.
-		NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
-		NativeRenderer_SetOffscreenState(&split->drawenv.clip, 0);
+		/* An empty GP0 draw area writes nothing. Preserve the previous segment
+		 * until a valid split or a VRAM barrier commits it; the next draw sets
+		 * both its target and scissor before submitting geometry. */
 		if (split->debugText)
 		{
 			NativeRenderer_PopDebugLabel();
@@ -1788,8 +1782,8 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 
 	NativeRenderer_SetStencilMode(split->drawPrimMode); // draw with mask 0x16
 
-	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
 	NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
+	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
 	NativeGpu_SetSplitShaderState(split, semiTransPass, blendMode, !drawOnScreen);
 	NativeRenderer_SetDepthState(1, depthWrite);
 	NativeRenderer_DrawTriangles(startVertex, numVerts / 3);
@@ -1813,7 +1807,6 @@ void DrawSplit(const GPUDrawSplit *split)
 		const DRAWENV savedDrawEnv = s_gpuBackendDrawEnv;
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
 		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv);
-		NativeRenderer_Clear(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_UpdateVRAM();
 		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv);
@@ -1855,13 +1848,9 @@ internal bool NativeGpu_SplitsShareReorderDomain(const GPUDrawSplit *first, cons
 		return false;
 	}
 
-	if (!first->drawenv.dfe)
-	{
-		return first->drawenv.clip.x == second->drawenv.clip.x && first->drawenv.clip.y == second->drawenv.clip.y &&
-		       first->drawenv.clip.w == second->drawenv.clip.w && first->drawenv.clip.h == second->drawenv.clip.h;
-	}
-
-	return true;
+	/* Rect/page switches are VRAM write barriers for both target modes. */
+	return first->drawenv.clip.x == second->drawenv.clip.x && first->drawenv.clip.y == second->drawenv.clip.y &&
+	       first->drawenv.clip.w == second->drawenv.clip.w && first->drawenv.clip.h == second->drawenv.clip.h;
 }
 
 internal u32 NativeGpu_DepthHashMix(u32 hash, u32 value)
@@ -2013,8 +2002,8 @@ internal void NativeGpu_DrawDepthBatch(const NativeGpuDepthBatch *batch)
 
 	const bool drawOnScreen = split->drawenv.dfe;
 	NativeRenderer_SetStencilMode(split->drawPrimMode);
-	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
 	NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
+	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
 	NativeGpu_SetSplitShaderState(split, batch->semiTransPass, BM_NONE, !drawOnScreen);
 	NativeRenderer_SetDepthState(1, true);
 

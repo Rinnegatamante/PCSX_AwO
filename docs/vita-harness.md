@@ -390,3 +390,23 @@ readbacks are zero, while the direct upload returns 0x7fff. The segmented
 VitaGL candidate passes all eight reads in
 `/tmp/pcsx-vitagl-fb-segments-20261005`. This is a framebuffer coherency
 regression test, not an authentic-game or whole-system validation.
+
+The Vita renderer now captures the absolute GP0 draw rectangle with each main
+or offscreen target. Page/clip transitions commit the old rectangle before
+loading the next one; A0 uploads, fills, MoveImage and CPU reads also commit
+pending targets first. Reordering cannot cross a draw-rectangle boundary.
+Projection and scissor use the selected target's local dimensions, while
+16-bit scanout reads DISPENV from packed VRAM. This prevents later GP0 state
+from repacking an earlier texture into the wrong page or overwriting a CPU
+upload with an old framebuffer.
+
+The final VPK SHA256
+`0616eec30ec69300dd6e05c15e39f84314e0f22145bc5321dfd4a1dbd3f91a09`
+passes the eight onscreen reads in `/tmp/pcsx-vitagl-fb-final-20261005` and all
+legacy upper-VRAM checks plus 48 texture/palette samples in
+`/tmp/pcsx-vitagl-final-textures-20261005`. Both runs reach shutdown PASS and
+Idle. `segments-final-evidence.json` and `segments-final-source.patch` under
+`build/vita-system12-vitagl-teardown` bind the private build to its exact source
+delta, VPK, host and VitaGL library with the four requested build flags.
+These pixel probes do not establish authentic Soul Calibur graphics or
+physical Vita performance.

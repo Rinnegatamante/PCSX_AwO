@@ -133,7 +133,8 @@ void Platform_EndScene(void)
     }
     else {
         NativeRenderer_StoreFrameBuffer(draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h);
-        NativeRenderer_PresentMainRenderTarget();
+        /* Scanout reads DISPENV, independently of the final GP0 draw page. */
+        NativeRenderer_PresentVRAMRect(display->disp.x, display->disp.y, display->disp.w, display->disp.h);
     }
     NativeRenderer_SwapWindow();
 }

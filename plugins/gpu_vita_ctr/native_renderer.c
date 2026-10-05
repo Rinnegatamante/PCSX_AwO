@@ -263,6 +263,15 @@ struct NativeRenderTarget
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
 global_variable struct NativeRenderTarget s_offscreenRenderTarget;
+#ifdef __vita__
+/* A target owns one absolute VRAM rect. GP0 state may change after binding;
+ * never repack that texture using a later draw environment. */
+global_variable RECT16 s_mainDrawRect;
+global_variable int s_mainLoaded;
+global_variable int s_mainDirty;
+global_variable int s_offscreenLoaded;
+global_variable int s_offscreenDirty;
+#endif
 
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
 global_variable RECT16 s_traceBeginClip;
@@ -419,6 +428,11 @@ internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target)
 internal void NativeRenderer_DestroyRenderTarget(struct NativeRenderTarget *target);
 internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *target, int width, int height);
 internal void NativeRenderer_BindMainRenderTarget(void);
+internal void NativeRenderer_BindMainRect(const RECT16 *rect);
+internal void NativeRenderer_CommitTargets(void);
+internal void NativeRenderer_FlushMainToVRAM(void);
+internal void NativeRenderer_FlushOffscreenToVRAM(void);
+internal int NativeRenderer_RectEquals(const RECT16 *a, const RECT16 *b);
 internal void NativeRenderer_DrawVRAMRegion(int x, int y, int width, int height);
 internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget *target, int x, int y, int logicalWidth, int logicalHeight);
 internal void NativeRenderer_DestroyPSXShaders(void);
@@ -670,6 +684,10 @@ void NativeRenderer_BeginScene(void)
 	s_lastBoundTexture = 0;
 
 	NativeRenderer_UpdatePresentationViewport();
+#ifdef __vita__
+	s_mainLoaded = s_mainDirty = s_offscreenLoaded = s_offscreenDirty = 0;
+	s_previousOffscreenState = 0;
+#endif
 	NativeRenderer_BindMainRenderTarget();
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
 	s_traceBeginClip = NativeGpu_GetRenderDrawEnv()->clip;
@@ -698,6 +716,9 @@ void NativeRenderer_BeginScene(void)
 			glEnable(GL_SCISSOR_TEST);
 		}
 	}
+#ifdef __vita__
+	s_mainLoaded = 1;
+#endif
 	NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
 
 	if (g_dbg_wireframeMode)
@@ -711,10 +732,17 @@ void NativeRenderer_BeginScene(void)
 
 void NativeRenderer_EndScene(void)
 {
+#ifdef __vita__
+	NativeRenderer_CommitTargets();
+	s_previousOffscreenState = 0;
+	if (s_mainRenderTarget.framebuffer)
+		glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
+#else
 	if (s_previousOffscreenState)
 	{
 		NativeRenderer_SetOffscreenState(&s_previousOffscreen, 0);
 	}
+#endif
 
 	if (g_dbg_wireframeMode)
 	{
@@ -879,8 +907,16 @@ internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *targe
 
 internal void NativeRenderer_BindMainRenderTarget(void)
 {
-	int logicalWidth = NativeGpu_GetRenderDrawEnv()->clip.w;
-	int logicalHeight = NativeGpu_GetRenderDrawEnv()->clip.h;
+	RECT16 rect = NativeGpu_GetRenderDrawEnv()->clip;
+	if (rect.w <= 0 || rect.h <= 0)
+		rect = NativeGpu_GetRenderDispEnv()->disp;
+	NativeRenderer_BindMainRect(&rect);
+}
+
+internal void NativeRenderer_BindMainRect(const RECT16 *rect)
+{
+	int logicalWidth = rect->w;
+	int logicalHeight = rect->h;
 	if ((logicalWidth <= 0) || (logicalHeight <= 0))
 	{
 		logicalWidth = NativeGpu_GetRenderDispEnv()->disp.w;
@@ -900,6 +936,9 @@ internal void NativeRenderer_BindMainRenderTarget(void)
 	NativeRenderer_EnsureRenderTarget(&s_mainRenderTarget, physicalWidth, physicalHeight);
 	s_mainRenderTarget.logicalWidth = logicalWidth;
 	s_mainRenderTarget.logicalHeight = logicalHeight;
+#ifdef __vita__
+	s_mainDrawRect = *rect;
+#endif
 	glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
 }
 
@@ -2151,6 +2190,10 @@ internal void NativeRenderer_InitRG8LUT(void)
 
 int NativeRenderer_InitialisePSX(void)
 {
+#ifdef __vita__
+	s_mainLoaded = s_mainDirty = s_offscreenLoaded = s_offscreenDirty = 0;
+	s_previousOffscreenState = 0;
+#endif
 	SDL_memset(s_vram.cpuPixels, 0, sizeof(s_vram.cpuPixels));
 	s_vram.cpuDirtyRects[0].x = 0;
 	s_vram.cpuDirtyRects[0].y = 0;
@@ -2293,6 +2336,14 @@ internal void NativeRenderer_Ortho2D(float left, float right, float bottom, floa
 
 void NativeRenderer_SetupClipMode(const RECT16 *rect, const DISPENV *displayEnv, int enable)
 {
+#ifdef __vita__
+	(void)displayEnv;
+	NativeRenderer_SetScissorState(enable != 0);
+	if (enable)
+		NativeRenderer_SetScissorRectCached(0, 0,
+			rect->w > 0 && rect->h > 0 ? s_mainRenderTarget.width : 0,
+			rect->w > 0 && rect->h > 0 ? s_mainRenderTarget.height : 0);
+#else
 	if ((displayEnv->disp.w <= 0) || (displayEnv->disp.h <= 0))
 	{
 		NativeRenderer_SetScissorState(0);
@@ -2352,6 +2403,7 @@ void NativeRenderer_SetupClipMode(const RECT16 *rect, const DISPENV *displayEnv,
 	const int scissorTop = ((displayH - relTop) * physicalH + displayH - 1) / displayH;
 
 	NativeRenderer_SetScissorRectCached(scissorX, scissorY, scissorRight - scissorX, scissorTop - scissorY);
+#endif
 }
 
 internal void NativeRenderer_SetShader(const ShaderID shader)
@@ -2988,6 +3040,7 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 	}
 
 #ifdef __vita__
+	s_mainLoaded = s_offscreenLoaded = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
@@ -3026,6 +3079,7 @@ void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
 {
     if (w <= 0 || h <= 0)
         return;
+    NativeRenderer_CommitTargets();
     x &= VRAM_WIDTH - 1;
     y &= VRAM_HEIGHT - 1;
     w = SDL_min(w, VRAM_WIDTH);
@@ -3169,6 +3223,7 @@ void NativeRenderer_SaveVRAM(const char *outputFileName, int x, int y, int width
 
 internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 {
+	NativeRenderer_CommitTargets();
 	RECT16 readRect;
 
 	if (!NativeRenderer_ClipVRAMRect(&readRect, x, y, w, h))
@@ -3286,6 +3341,11 @@ internal int NativeRenderer_RectEquals(const RECT16 *a, const RECT16 *b)
 
 internal void NativeRenderer_FlushOffscreenToVRAM(void)
 {
+#ifdef __vita__
+	if (!s_offscreenDirty)
+		return;
+	s_offscreenDirty = 0;
+#endif
 	if (s_previousOffscreen.w <= 0 || s_previousOffscreen.h <= 0)
 	{
 		return;
@@ -3294,6 +3354,26 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	// NOTE(aalhendi): Native offscreen draws produce RGBA pixels. Pack them into the persistent 5:5:5:1 VRAM texture instead of reading them through the CPU.
 	NativeRenderer_GpuPackTextureToVRAM(s_offscreenRenderTarget.texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
 	                                    s_previousOffscreen.h, true);
+#ifdef __vita__
+	/* Returning to main must include any offscreen writes in VRAM. */
+	s_mainLoaded = 0;
+#endif
+}
+
+internal void NativeRenderer_FlushMainToVRAM(void)
+{
+#ifdef __vita__
+	if (s_mainDirty)
+		NativeRenderer_StoreFrameBuffer(s_mainDrawRect.x, s_mainDrawRect.y, s_mainDrawRect.w, s_mainDrawRect.h);
+#endif
+}
+
+internal void NativeRenderer_CommitTargets(void)
+{
+#ifdef __vita__
+	NativeRenderer_FlushMainToVRAM();
+	NativeRenderer_FlushOffscreenToVRAM();
+#endif
 }
 
 internal void NativeRenderer_SetScissorState(int enable)
@@ -3316,6 +3396,43 @@ internal void NativeRenderer_SetScissorState(int enable)
 
 void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 {
+#ifdef __vita__
+	if (offscreenRect->w <= 0 || offscreenRect->h <= 0)
+		return;
+	if (enable)
+	{
+		NativeRenderer_FlushMainToVRAM();
+		if (!s_previousOffscreenState || !s_offscreenLoaded ||
+		    !NativeRenderer_RectEquals(&s_previousOffscreen, offscreenRect))
+		{
+			NativeRenderer_FlushOffscreenToVRAM();
+			s_previousOffscreenState = 1;
+			s_previousOffscreen = *offscreenRect;
+			NativeRenderer_EnsureRenderTarget(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h);
+			s_offscreenRenderTarget.logicalWidth = offscreenRect->w;
+			s_offscreenRenderTarget.logicalHeight = offscreenRect->h;
+			NativeRenderer_LoadRenderTargetFromVRAM(&s_offscreenRenderTarget, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
+			s_offscreenLoaded = 1;
+		}
+		s_offscreenDirty = 1;
+	}
+	else
+	{
+		NativeRenderer_FlushOffscreenToVRAM();
+		s_previousOffscreenState = 0;
+		if (!s_mainLoaded || !NativeRenderer_RectEquals(&s_mainDrawRect, offscreenRect))
+		{
+			NativeRenderer_FlushMainToVRAM();
+			NativeRenderer_BindMainRect(offscreenRect);
+			NativeRenderer_LoadRenderTargetFromVRAM(&s_mainRenderTarget, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
+			s_mainLoaded = 1;
+		}
+		else
+			glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
+		NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
+		s_mainDirty = 1;
+	}
+#else
 	const int sameOffscreenRect = NativeRenderer_RectEquals(&s_previousOffscreen, offscreenRect);
 	if (!enable && !s_previousOffscreenState)
 	{
@@ -3349,10 +3466,16 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 		NativeRenderer_BindMainRenderTarget();
 		NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
 	}
+#endif
 }
 
 void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *displayEnv, int offscreen)
 {
+#ifdef __vita__
+	(void)displayEnv;
+	(void)offscreen;
+	NativeRenderer_Ortho2D(0, drawRect->w, drawRect->h, 0, -1.0f, 1.0f);
+#else
 	if (offscreen)
 	{
 		NativeRenderer_Ortho2D(0, drawRect->w, drawRect->h, 0, -1.0f, 1.0f);
@@ -3362,6 +3485,7 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 	const int displayW = displayEnv->disp.w > 0 ? displayEnv->disp.w : 1;
 	const int displayH = displayEnv->disp.h > 0 ? displayEnv->disp.h : 1;
 	NativeRenderer_Ortho2D(0, displayW, displayH, 0, -1.0f, 1.0f);
+#endif
 }
 
 // NOTE(aalhendi): Pack an RGBA render texture straight into the RG8 VRAM texture on the GPU, no CPU round trip. Restore or invalidate the render-state caches disturbed by this native bridge before the submit run continues.
@@ -3443,6 +3567,15 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 {
+#ifdef __vita__
+	if (!s_mainDirty)
+		return;
+	s_mainDirty = 0;
+	x = s_mainDrawRect.x;
+	y = s_mainDrawRect.y;
+	w = s_mainDrawRect.w;
+	h = s_mainDrawRect.h;
+#endif
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
 	NativeRenderer_TraceFrameGeometry(1, x, y, w, h);
 	static int traceMainSampled;
@@ -3458,7 +3591,7 @@ void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 		glFinish();
 		for (int i = 0; i < 2; i++)
 		{
-			const RECT16 *clip = &NativeGpu_GetRenderDrawEnv()->clip;
+			const RECT16 *clip = &s_mainDrawRect;
 			const int pixelX = (sampleX[i] - clip->x) * s_mainRenderTarget.width / clip->w;
 			const int pixelY = s_mainRenderTarget.height - 1 - (sampleY[i] - clip->y) * s_mainRenderTarget.height / clip->h;
 			vglReadPixels(pixelX, pixelY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
@@ -3478,6 +3611,7 @@ void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 
 void NativeRenderer_CopyVRAM(u16 *src, int x, int y, int w, int h, int dst_x, int dst_y)
 {
+	NativeRenderer_CommitTargets();
 	int stride = w;
 
 	if (!src)
@@ -3545,6 +3679,9 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 		return 0;
 	}
 
+#ifdef __vita__
+	s_mainDirty = s_offscreenDirty = 0;
+#endif
 	SDL_memcpy(s_vram.cpuPixels, src, activeVramBytes);
 	// NOTE(aalhendi): Restored VRAM is authoritative PSX state. Host GL caches are rebuildable, so mark all of VRAM dirty and drop stale bindings.
 	s_vram.cpuDirtyRectCount = 0;
@@ -4436,6 +4573,7 @@ void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, in
     if (src == NULL || w <= 0 || h <= 0)
         return;
 
+    NativeRenderer_CommitTargets();
     for (int row = 0; row < h; row++)
     {
         const int yy = (y + row) & (VRAM_HEIGHT - 1);

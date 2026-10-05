@@ -13,6 +13,8 @@ void NativeRenderer_EndGpuFrame(void);
 void NativeRenderer_FinishGpuMeasurements(void);
 void NativeRenderer_UpdateSwapIntervalState(int swapInterval);
 void NativeRenderer_SwapWindow(void);
+/* Vita commits the target's captured VRAM rect; these legacy arguments do
+ * not retarget a live texture after GP0 draw-area commands change. */
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h);
 void NativeRenderer_PresentVRAMDisplay(void);
 void NativeRenderer_PresentMainRenderTarget(void);
