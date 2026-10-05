@@ -98,7 +98,11 @@ void H8CPU::update_irq_filter() {
     else if(m_CCR&F_I)filter=1;
     int chosen=0,priority=-1;
     unsigned icr=io[0xf8]|(unsigned(io[0xf9])<<8);
-    for(unsigned i=7;i<64;i++) if(candidates&(u64(1)<<i)) {
+    // Visit pending vectors in the original ascending order, preserving ties.
+    candidates &= ~u64(0x7f);
+    while(candidates) {
+        unsigned i=__builtin_ctzll(candidates); // candidates is nonzero
+        candidates &= candidates-1;
         int p=i==7?2:(vector_slot[i]<0?0:(icr>>(vector_slot[i]^7))&1);
         if(p>=filter&&p>priority) {chosen=i;priority=p;}
     }
