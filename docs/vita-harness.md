@@ -439,3 +439,32 @@ identities are recorded in `polygons-evidence.json` under the respective
 build directories. This excludes a general FT3/FT4 or TPAGE/CLUT switching
 failure in these probe cases; it does not explain or clear the remaining
 authentic-game graphics artifacts.
+
+The optional `--texture-window` framebuffer probe appends six reads after
+GP0 E2 mask/offset changes and reset. Mac NEON and native Vita NEON match all
+24 reads. Before the shared shader correction, both native VitaGL and the
+Mac Vita-path GL harness fail the same two masked samples while matching
+the eighteen baseline reads and E2 reset. Reproduction without Vita3K
+establishes an omission in this project's renderer. Commit `bd971f6a` applies
+E2 sampling and preserves its state through batching; `4caa4fa0` adds actual
+OpenGL back-buffer capture to the Mac harness.
+
+Corrected native VitaGL VPK SHA256
+`748b3479162b19a695f1c20c005759fd9fd961be730cdc4b3491f98cbaac44e6`
+passes all 24 reads in `/tmp/pcsx-vitagl-e2-fixed-20261005` and the 48
+texture/palette checks in `/tmp/pcsx-vitagl-e2-fixed-textures-20261005`.
+It also completes 3,600 Soul Calibur frames and 33/33 inputs, reaches shutdown
+PASS and Idle, and closes automatically. Thirteen native PNGs are retained in
+`/tmp/pcsx-vita-system12-vitagl-e2-fixed-20261005`. Manual graphics review
+still fails: captures 11 and 12 have stretched vertical background bands,
+and capture 13 has horizontal bands below Stage 1 combat. The separate
+`graphics-review.json` and frozen `e2-fixed-evidence.json` retain
+`GRAPHICS_FAILED`; successful execution is not whole-game graphics validation.
+
+The Mac GL 3,600-frame capture shows a clean combat scene, but that run uses
+console timing and reaches a different scene from the native Vita replay's
+source timing experiment. It cannot yet assign these remaining artifacts to
+VitaGL or Vita3K. The Mac shim also does not exercise VitaGL's GXM runtime,
+shader compiler, scratch pool or Vita worker scheduling. NEON's matching
+pixel probes and reviewed Vita3K scenes establish the tested emulator path;
+physical Vita graphics and performance remain untested.
