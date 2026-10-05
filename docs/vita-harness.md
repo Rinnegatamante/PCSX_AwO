@@ -590,3 +590,17 @@ scene. The review is retained in `graphics-review.json`. This is an extended
 replay failure with observed artifacts, not complete graphics validation.
 The timeout does not distinguish slow progress from a synchronization stall,
 and the artifacts' origin remains unisolated. Physical Vita is still untested.
+
+The same 177-input file completes a 12,000-frame Mac High Octane/ARM64 DRC
+replay in 115.506 seconds, with zero unsupported H8 instructions, DMA
+truncations or unmapped board accesses. Its actual GL back-buffer capture,
+VRAM dump and binary/input hashes are in
+`/tmp/pcsx-mac-high-octane-12000-20261005/evidence.json`. This proves that the
+Mac path completes that input schedule; the final capture is a different
+scene and does not explain the native artifacts or prove native completion.
+
+Report-producing Vita validation runs now log completed `retro_run` counts,
+elapsed milliseconds and consumed input events every 600 frames
+(`e35ae3b8`); the guarded runner streams these milestones (`f9a3caee`).
+This allows the next native replay to distinguish observed frame progress
+from a missing final report without changing emulated clocks or GPU behavior.
