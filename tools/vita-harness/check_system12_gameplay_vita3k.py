@@ -106,6 +106,8 @@ class ProcessGroupWatchdog:
 
 class CapturedGuest:
     """Drain Vita3K output without retaining its high-volume diagnostic lines."""
+    LIVE_DIAGNOSTIC_PREFIXES = (b"Vita3K lwcond trace", b"Vita3K delay trace")
+    LIVE_DIAGNOSTIC_LIMIT = 8192
     MARKERS = (b"Stopping -> Idle", b"pcsx-vita: smoke PASS",
                b"pcsx-vita: system12-report PASS", b"pcsx-vita: system12-capture PASS",
                b"pcsx-vita: cpu_driver=ari64", b"installed successfully!")
@@ -121,6 +123,7 @@ class CapturedGuest:
                  b"Game started", b"Dynarmic forwarding EXC_BAD_ACCESS",
                  b"Vita3K recovered protected access", b"Vita3K protection miss",
                  b"Vita3K lwcond trace",
+                 b"Vita3K delay trace",
                  b"vitaGL-shutdown stage=")
     FORWARDED = re.compile(rb"Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=(0x[0-9a-fA-F]+)\s*$")
     RECOVERED = re.compile(rb"Vita3K recovered protected access pc=(0x[0-9a-fA-F]+) addr=0x[0-9a-fA-F]+ write=[01]\s*$")
@@ -144,6 +147,7 @@ class CapturedGuest:
         self.pending_faults = Counter()
         self.forwarded_faults = 0
         self.matched_faults = 0
+        self.live_diagnostic_lines = 0
         self.thread = threading.Thread(target=self._pump, daemon=True)
         self.thread.start()
 
@@ -154,6 +158,15 @@ class CapturedGuest:
         if b"pcsx-vita: system12-progress " in encoded:
             # Keep bounded frame milestones visible while the guarded guest runs.
             print(line[:1024], flush=True)
+        if encoded.startswith(self.LIVE_DIAGNOSTIC_PREFIXES):
+            # Private host probes already bound their output. Bound it here too,
+            # and expose snapshots before a stalled guest's watchdog expires.
+            if self.live_diagnostic_lines < self.LIVE_DIAGNOSTIC_LIMIT:
+                print(line[:1024], flush=True)
+            elif self.live_diagnostic_lines == self.LIVE_DIAGNOSTIC_LIMIT:
+                print("Vita3K live diagnostic limit reached; further live probe lines suppressed",
+                      flush=True)
+            self.live_diagnostic_lines += 1
         for token in self.expected_tokens:
             if token in encoded:
                 self.expected_tokens_seen.add(token)

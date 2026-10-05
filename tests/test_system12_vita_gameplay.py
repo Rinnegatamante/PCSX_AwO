@@ -1,4 +1,6 @@
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 MODULE_PATH = (Path(__file__).resolve().parents[1] /
                "tools/vita-harness/check_system12_gameplay_vita3k.py")
@@ -186,6 +189,42 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
                 "[InterpreterFallback] Unimplemented instruction"], 30000)
             self.assertIn("Stopping -> Idle", captured.markers)
             self.assertLess(log.stat().st_size, 2 * 1024 * 1024)
+
+    def test_private_host_snapshots_are_live_and_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "vita.log"
+            code = (
+                "print('Vita3K lwcond trace snapshot=1'); "
+                "print('Vita3K delay trace delay_us=1000000 ' + 'x'*2000); "
+                "[print('Vita3K lwcond trace seq=' + str(i)) for i in range(5)]; "
+                "print('pcsx-vita: system12-report PASS'); print('Stopping -> Idle')")
+            live = io.StringIO()
+            with patch.object(GAMEPLAY.CapturedGuest, "LIVE_DIAGNOSTIC_LIMIT", 2), \
+                    contextlib.redirect_stdout(live):
+                process = subprocess.Popen([sys.executable, "-u", "-c", code],
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                captured = GAMEPLAY.CapturedGuest(process, log, "unit live probes")
+                try:
+                    process.wait(timeout=5)
+                    captured.thread.join(timeout=5)
+                    self.assertFalse(captured.thread.is_alive())
+                    # Probe output is available before final log publication.
+                    self.assertFalse(log.exists())
+                    lines = live.getvalue().splitlines()
+                    self.assertEqual(len(lines), 3)
+                    self.assertIn("snapshot=1", lines[0])
+                    self.assertIn("delay_us=1000000", lines[1])
+                    self.assertLessEqual(len(lines[1]), 1024)
+                    self.assertIn("limit reached", lines[2])
+                    self.assertIn("Stopping -> Idle", captured.markers)
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=5)
+                    captured.close()
+            # Suppressing live output does not suppress the retained evidence.
+            self.assertIn("Vita3K lwcond trace seq=4", log.read_text())
+            self.assertIn("Vita3K delay trace", log.read_text())
 
     def test_ppm_dimensions_and_payload_are_checked(self):
         with tempfile.TemporaryDirectory() as directory:

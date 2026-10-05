@@ -35,6 +35,10 @@ The copied Vita3K process runs in its own process group. A separate watchdog
 process terminates that group at the per-run timeout even if the Python runner
 stops making progress. Logs are streamed with bounded retained output, and ARM
 instruction fallback/unpredictable-instruction diagnostics invalidate a run.
+Private host LwCond snapshots and long-delay probes are also streamed to the
+runner's standard output before the guest finishes, bounded to 8,192 lines of
+1,024 characters per process. Reaching this live-output bound does not suppress
+the normal capture's marker checks or independently bounded retained log.
 Native screenshots and any source report/PPM are copied out even after a guest
 failure or interruption. `capture-evidence-<frames>.json` records whether the
 guest completed and retains diagnostics separately from successful results.
