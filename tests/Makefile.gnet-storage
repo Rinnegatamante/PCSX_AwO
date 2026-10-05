@@ -1,0 +1,36 @@
+CC := xcrun clang
+CXX := xcrun clang++
+PYTHON ?= python3
+BUILD ?= build/gnet-storage-tests
+OPT ?= -O2 -g
+include tools/mac-harness/libchdr.mk
+CFLAGS := -arch arm64 -std=gnu99 $(OPT) -Wall $(LIBCHDR_CFLAGS)
+CXXFLAGS := -arch arm64 -std=c++20 $(OPT) -Wall -Wextra -Werror $(LIBCHDR_CFLAGS) -Ilibpcsxcore/arcade -Ilibpcsxcore/arcade/ata_mame
+ATA := libpcsxcore/arcade/ata_mame
+CPP_SOURCES := libpcsxcore/arcade/gnet_storage.cpp \
+	libpcsxcore/arcade/ata_storage.cpp \
+	libpcsxcore/arcade/gnet_pccard.cpp libpcsxcore/arcade/rf5c296.cpp
+ATA_SOURCES := $(ATA)/atahle_port.cpp $(ATA)/atastorage_port.cpp
+SOURCES := tests/test_gnet_storage.cpp libpcsxcore/arcade/chd_hd.cpp \
+	$(CPP_SOURCES) $(ATA_SOURCES)
+OBJECTS := $(addprefix $(BUILD)/,$(LIBCHDR_SOURCES:.c=.o)) \
+	$(LIBCHDR_EXTRA_OBJECTS)
+TARGET := $(BUILD)/test-gnet-storage
+
+.PHONY: test sanitize clean
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+$(TARGET): $(SOURCES) $(LIBCHDR_EXTRA_OBJECTS) $(OBJECTS)
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SOURCES) $(OBJECTS) -lz -o $@
+
+test: $(TARGET)
+	ASAN_OPTIONS=halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 $(PYTHON) tests/check_gnet_storage.py --test $(TARGET)
+
+sanitize:
+	$(MAKE) -f tests/Makefile.gnet-storage BUILD=$(BUILD)/sanitize OPT='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+
+clean:
+	rm -rf $(BUILD)
+-include $(OBJECTS:.o=.d)
