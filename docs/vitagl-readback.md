@@ -42,3 +42,40 @@ Native captures use Vita3K's own `take_screenshot` hook with
 `VITA3K_AUTO_SCREENSHOT` and PNG output. Each host launch has an independent
 process-group watchdog and the runner closes its owned host even after a
 successful guest leaves the GUI open. The original Vita3K profile is not used.
+
+## Isolated Vulkan readback result
+
+The host correction now compiles and links as an incremental private app. It
+preserves the queued mapped-memory path and handles Disabled mapping through
+a synchronous, on-demand surface copy. Interior source addresses are matched
+against the cached surface extent. The fence completes before staging data is
+invalidated through VMA, copied to guest RAM and consumed by the transfer
+callback; no staging buffer or cache-info pointer is left in the request queue.
+The changed-surface dependency list is cleared each frame. The source checkout
+and original build are not modified.
+
+The final readback host is
+`build/vita-validation-readback2/emulator/Vita3K-fixed.app`, executable SHA256
+`ac5d127190c8ea4cc67d0fe3eb361e599a3a9aceec952f79f5ca1c749638fc66`.
+Its patch SHA256 is
+`10bb23c657f227720bfcd442330afcdfd1190e261a86c66ab996ce1d242633ea`;
+`pcsx-host-build.json` records the reused objects' source inputs and the linked
+Dynarmic archive. The isolated profile uses Disabled mapping, surface sync
+enabled, and asynchronous pipeline compilation disabled.
+
+With that host, main-target reads contain the yellow triangle `(248,248,0,0)`
+and background `(16,32,64,0)`. The remaining VRAM discrepancy was a second Y
+inversion in the renderer: GPU packing stores guest row Y directly, while the
+custom GPU transfer API also addresses raw FBO rows directly. Reading the
+opposite window returned zeros. Using the guest Y produces a strict 180-frame
+smoke PASS: `cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b`.
+All 13 forwarded faults have matching recoveries, shutdown passes, and the
+guest reaches Idle. See `/tmp/pcsx-vitagl-unmapped-direct-y-20261005.log`.
+This is still a diagnostic build with `VITA_CTR_GPU_TRACE=1`; the default
+screen's readback and native captures remain black, so presentation remains
+unverified. Disabling asynchronous pipeline compilation and clearing the
+whole presentation surface instead of its bars did not resolve that failure.
+
+The existing NEON System 12 package also passes its three-frame console
+pixel/signature regression on this host after explicit installation:
+`/tmp/pcsx-vita-neon-readback-host-regression2-20261005.log`.

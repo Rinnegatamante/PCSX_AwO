@@ -29,6 +29,8 @@ parser.add_argument('--fix-host-page-protection', action='store_true',
                     help='Track native host-page coverage for direct guest memory protections')
 parser.add_argument('--trace-protection-recovery', action='store_true',
                     help='Record successful native memory fault recovery and Dynarmic forwarding')
+parser.add_argument('--fix-unmapped-readback', action='store_true',
+                    help='Synchronize Vulkan color surfaces through CPU staging when mapping is disabled')
 options = parser.parse_args()
 ORIG = options.source.resolve()
 BUILD = (options.build or ORIG / 'build/macos').resolve()
@@ -55,6 +57,7 @@ MEMCPY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-memcpy-diagnost
 HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-protection.patch'
 RECOVERY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-macos-recovery-trace.patch'
 FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
+READBACK_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-unmapped-readback.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -70,6 +73,12 @@ if options.diagnose_null_memcpy:
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
 if options.fix_host_page_protection or options.trace_protection_recovery:
     SOURCES.append(('mem', 'src/mem.cpp', 'vita3k/mem/src/mem.cpp', 'mem.cpp.o'))
+if options.fix_unmapped_readback:
+    SOURCES.extend([
+        ('renderer', 'src/vulkan/context.cpp', 'vita3k/renderer/src/vulkan/context.cpp', 'context-vulkan.cpp.o'),
+        ('renderer', 'src/vulkan/surface_cache.cpp', 'vita3k/renderer/src/vulkan/surface_cache.cpp', 'surface_cache-vulkan.cpp.o'),
+        ('renderer', 'src/transfer.cpp', 'vita3k/renderer/src/transfer.cpp', 'transfer.cpp.o'),
+    ])
 
 # Only the patched sources/header are copied. Apply the checked-in patch to
 # these private copies, so even a dirty user's source checkout stays untouched.
@@ -98,6 +107,9 @@ if options.fix_host_page_protection:
 if options.trace_protection_recovery:
     subprocess.run(['git', 'apply', '--check', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.fix_unmapped_readback:
+    subprocess.run(['git', 'apply', '--check', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -141,20 +153,8 @@ for target in ('display', 'modules', 'renderer', *(['mem'] if ('mem', 'src/mem.c
         archive.unlink()
     args = ['/usr/bin/ar', 'qc', str(archive)]
     for obj in object_paths:
-        replacement = None
-        if target == 'display' and obj.as_posix().endswith('src/display.cpp.o'):
-            replacement = compiled[('display', 'src/display.cpp')]
-        elif target == 'modules' and obj.as_posix().endswith('SceDisplay/SceDisplay.cpp.o'):
-            replacement = compiled[('modules', 'SceDisplay/SceDisplay.cpp')]
-        elif (target == 'modules' and options.diagnose_null_memcpy and
-              obj.as_posix().endswith('SceLibKernel/SceLibKernel.cpp.o')):
-            replacement = compiled[('modules', 'SceLibKernel/SceLibKernel.cpp')]
-        elif target == 'renderer' and obj.as_posix().endswith('src/gl/renderer.cpp.o'):
-            replacement = compiled[('renderer', 'src/gl/renderer.cpp')]
-        elif target == 'renderer' and obj.as_posix().endswith('src/vulkan/renderer.cpp.o'):
-            replacement = compiled[('renderer', 'src/vulkan/renderer.cpp')]
-        elif target == 'mem' and obj.as_posix().endswith('src/mem.cpp.o'):
-            replacement = compiled[('mem', 'src/mem.cpp')]
+        replacement = next((output for (compiled_target, source_rel), output in compiled.items()
+                            if compiled_target == target and obj.as_posix().endswith(source_rel + '.o')), None)
         args.append(str(replacement if replacement else target_dir / obj))
     subprocess.run(args, check=True, cwd=BUILD)
     subprocess.run(['/usr/bin/ranlib', str(archive)], check=True)
@@ -246,6 +246,8 @@ manifest = {
                                   if options.trace_protection_recovery else None),
     'forwarded_exception_patch_sha256': (hashlib.sha256(FORWARDED_PATCH.read_bytes()).hexdigest()
                                        if options.trace_protection_recovery else None),
+    'unmapped_readback_patch_sha256': (hashlib.sha256(READBACK_PATCH.read_bytes()).hexdigest()
+                                     if options.fix_unmapped_readback else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),

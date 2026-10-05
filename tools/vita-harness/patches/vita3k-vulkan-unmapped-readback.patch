@@ -1,0 +1,213 @@
+--- a/vita3k/renderer/src/vulkan/context.cpp
++++ b/vita3k/renderer/src/vulkan/context.cpp
+@@ -661,9 +661,8 @@
+     if (context.state.features.enable_memory_mapping) {
+         FrameDoneRequest request = { context.frame_timestamp };
+         context.state.request_queue.push(request);
+-
+-        context.state.surface_cache.clear_surfaces_changed();
+     }
++    context.state.surface_cache.clear_surfaces_changed();
+ 
+     context.frame_timestamp++;
+     context.state.current_frame_idx = context.frame_timestamp % MAX_FRAMES_RENDERING;
+--- a/vita3k/renderer/src/vulkan/surface_cache.cpp
++++ b/vita3k/renderer/src/vulkan/surface_cache.cpp
+@@ -1117,24 +1117,46 @@
+ }
+ 
+ bool VKSurfaceCache::check_for_surface(MemState &mem, Address source_address, CallbackRequestFunction &callback, Address target_address) {
+-    if (!state.features.enable_memory_mapping || state.disable_surface_sync)
++    if (state.disable_surface_sync)
+         return false;
+ 
+-    if (vector_utils::find_index(cpu_surfaces_changed, source_address) != -1) {
+-        // there is a transfer operation pending on this surface, just add the callback after and we are done
+-        state.request_queue.push(CallbackRequest{ new CallbackRequestFunction(std::move(callback)) });
++    const auto defer_callback = [&]() {
++        if (state.features.enable_memory_mapping) {
++            // There is a transfer operation pending on this surface, so keep the callback
++            // behind it in the renderer request queue.
++            state.request_queue.push(CallbackRequest{ new CallbackRequestFunction(std::move(callback)) });
++        } else {
++            // The unmapped fallback resolves readbacks synchronously on this thread.
++            callback();
++        }
+ 
+         if (target_address)
+             cpu_surfaces_changed.push_back(target_address);
++    };
++
++    if (vector_utils::find_index(cpu_surfaces_changed, source_address) != -1) {
++        defer_callback();
+         return true;
+     }
+ 
+-    // for now, only look if the address matches exactly a color surface
+-    auto it = color_address_lookup.find(source_address);
+-    if (it == color_address_lookup.end())
++    auto it = color_address_lookup.upper_bound(source_address);
++    if (it == color_address_lookup.begin())
+         return false;
++    --it;
+ 
+-    auto &surface = *it->second;
++    ColorSurfaceCacheInfo &surface = *it->second;
++    const Address surface_address = surface.data.address();
++    if (source_address < surface_address || source_address - surface_address >= surface.total_bytes)
++        return false;
++
++    const bool surface_was_changed = std::any_of(cpu_surfaces_changed.begin(), cpu_surfaces_changed.end(), [&](Address address) {
++        return address >= surface_address && address - surface_address < surface.total_bytes;
++    });
++    if (surface_was_changed) {
++        defer_callback();
++        return true;
++    }
++
+     VKContext &context = *static_cast<VKContext *>(state.context);
+     // if the frame is already rendered skip
+     // Note: that's not the best behavior but it should be fine
+@@ -1143,7 +1165,7 @@
+         return false;
+ 
+     // we found something
+-    if (!*surface.need_surface_sync) {
++    if (!state.features.enable_memory_mapping || !*surface.need_surface_sync) {
+         // first send the command to sync the surface with the GPU
+         *surface.need_surface_sync = true;
+ 
+@@ -1170,7 +1192,37 @@
+         vk::SubmitInfo submit_info{};
+         submit_info.setCommandBuffers(surface_cmd);
+         state.general_queue.submit(submit_info, fence);
++
++        if (!state.features.enable_memory_mapping) {
++            const vk::Result result = state.device.waitForFences(fence, vk::True, std::numeric_limits<uint64_t>::max());
++            if (result != vk::Result::eSuccess) {
++                LOG_ERROR("Could not wait for surface readback fence.");
++                state.device.destroyFence(fence);
++                std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
++                state.device.freeCommandBuffers(state.multithread_command_pool, surface_cmd);
++                return false;
++            }
++
++            if (returned_info == nullptr) {
++                state.device.destroyFence(fence);
++                std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
++                state.device.freeCommandBuffers(state.multithread_command_pool, surface_cmd);
++                return false;
++            }
+ 
++            perform_post_surface_sync(mem, returned_info);
++            state.device.destroyFence(fence);
++            {
++                std::lock_guard<std::mutex> lock(state.multithread_pool_mutex);
++                state.device.freeCommandBuffers(state.multithread_command_pool, surface_cmd);
++            }
++
++            if (target_address)
++                cpu_surfaces_changed.push_back(target_address);
++            callback();
++            return true;
++        }
++
+         // now we need to wait for the fence, then destroy it along with the command buffer
+         // to prevent memory leaks
+         CallbackRequestFunction vk_callback = [&state = this->state, fence, surface_cmd]() {
+@@ -1200,10 +1252,6 @@
+ }
+ 
+ ColorSurfaceCacheInfo *VKSurfaceCache::perform_surface_sync() {
+-    // surface sync is supported only if memory mapping is enabled
+-    if (!state.features.enable_memory_mapping)
+-        return nullptr;
+-
+     if (last_written_surface == nullptr || !*last_written_surface->need_surface_sync)
+         return nullptr;
+ 
+@@ -1256,14 +1304,21 @@
+ 
+     vk::Buffer buffer;
+     uint32_t offset;
+-    if (format_need_additional_memory(last_written_surface->format)) {
++    const bool needs_staging_buffer = !state.features.enable_memory_mapping || format_need_additional_memory(last_written_surface->format);
++    if (needs_staging_buffer) {
+         if (!last_written_surface->copy_buffer)
+             last_written_surface->copy_buffer = std::make_unique<vkutil::Buffer>();
+ 
+         vkutil::Buffer &copy_buffer = *last_written_surface->copy_buffer;
+ 
++        const uint32_t pixel_stride = (last_written_surface->stride_bytes * 8) / gxm::bits_per_pixel(last_written_surface->format);
++        const uint32_t bytes_per_pixel = format_need_additional_memory(last_written_surface->format) ? 4 : gxm::bits_per_pixel(last_written_surface->format) / 8;
++        const vk::DeviceSize required_size = static_cast<vk::DeviceSize>(pixel_stride) * bytes_per_pixel * last_written_surface->original_height;
++        if (copy_buffer.buffer && copy_buffer.size < required_size && !state.features.enable_memory_mapping)
++            copy_buffer.destroy();
++
+         if (!copy_buffer.buffer) {
+-            copy_buffer.size = last_written_surface->stride_bytes * last_written_surface->original_height;
++            copy_buffer.size = required_size;
+             copy_buffer.init_buffer(vk::BufferUsageFlagBits::eTransferDst, vkutil::vma_mapped_alloc);
+         }
+ 
+@@ -1354,6 +1409,25 @@
+     if (surface == nullptr)
+         return;
+ 
++    if (!state.features.enable_memory_mapping || format_need_additional_memory(surface->format)) {
++        // vma_mapped_alloc only prefers HOST_COHERENT memory. A GPU write to a staging
++        // buffer must be invalidated after its fence and before host reads on non-coherent
++        // heaps; VMA aligns the requested range to nonCoherentAtomSize internally.
++        if (!surface->copy_buffer || !surface->copy_buffer->buffer) {
++            LOG_ERROR("Surface readback staging buffer is missing.");
++            return;
++        }
++#ifdef VULKAN_HPP_NO_EXCEPTIONS
++        const vk::Result result = state.allocator.invalidateAllocation(surface->copy_buffer->allocation, 0, surface->copy_buffer->size);
++        if (result != vk::Result::eSuccess) {
++            LOG_ERROR("Could not invalidate surface readback buffer.");
++            return;
++        }
++#else
++        state.allocator.invalidateAllocation(surface->copy_buffer->allocation, 0, surface->copy_buffer->size);
++#endif
++    }
++
+     const uint32_t pixel_stride = (surface->stride_bytes * 8) / gxm::bits_per_pixel(surface->format);
+     const uint32_t nb_pixels = pixel_stride * surface->original_height;
+     uint8_t *pixels = surface->data.cast<uint8_t>().get(mem);
+@@ -1373,6 +1447,14 @@
+         return;
+     }
+ 
++    if (!state.features.enable_memory_mapping) {
++        // The transfer buffer is mapped host memory, but with memory mapping disabled it
++        // is not aliased to guest memory. Commit the completed GPU copy before swizzling.
++        memcpy(pixels, surface->copy_buffer->mapped_data, surface->total_bytes);
++        if (surface->swizzle.r == vk::ComponentSwizzle::eR)
++            return;
++    }
++
+     switch (vk::componentBits(surface->texture.format, 0)) {
+     case 8:
+         swizzle_text_T<uint8_t>(pixels, nb_pixels, surface);
+--- a/vita3k/renderer/src/transfer.cpp
++++ b/vita3k/renderer/src/transfer.cpp
+@@ -184,7 +184,7 @@
+         delete[] images;
+     };
+ 
+-    if (renderer.current_backend == Backend::Vulkan && renderer.features.enable_memory_mapping && !renderer.disable_surface_sync) {
++    if (renderer.current_backend == Backend::Vulkan && !renderer.disable_surface_sync) {
+         if (dynamic_cast<vulkan::VKState &>(renderer).surface_cache.check_for_surface(mem, images[0].address.address(), copy_operation, images[1].address.address()))
+             // let the vulkan surface cache handle it
+             return;
+@@ -276,7 +276,7 @@
+         delete dst;
+     };
+ 
+-    if (renderer.current_backend == Backend::Vulkan && renderer.features.enable_memory_mapping && !renderer.disable_surface_sync) {
++    if (renderer.current_backend == Backend::Vulkan && !renderer.disable_surface_sync) {
+         if (dynamic_cast<vulkan::VKState &>(renderer).surface_cache.check_for_surface(mem, src->address.address(), downscale_operation, dst->address.address()))
+             // let the vulkan surface cache handle it
+             return;
