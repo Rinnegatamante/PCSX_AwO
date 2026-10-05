@@ -604,3 +604,28 @@ elapsed milliseconds and consumed input events every 600 frames
 (`e35ae3b8`); the guarded runner streams these milestones (`f9a3caee`).
 This allows the next native replay to distinguish observed frame progress
 from a missing final report without changing emulated clocks or GPU behavior.
+
+The progress-only VPK SHA256
+`cd5df339f5db4f7b94b3e10c16aaad7917c43c7f1c20f7a0650e501a39b731da`
+completes 3,600 frames/33 inputs natively in 143,333 ms from the first
+`retro_run`, with the final board report, shutdown PASS and automatic close.
+The guarded runner's twelve unit tests also pass. Evidence is in
+`/tmp/pcsx-vitagl-progress-native-3600-20261005` and the frozen source/build
+manifest is `build/vita-system12-vitagl-teardown/progress-evidence.json`.
+This package keeps the span-fixed GPU/core and adds only frontend progress
+logging. Its separate 12,000-frame/177-input replay still fails within 900
+seconds: the last completed milestone is frame 8,400 at 351,167 ms, with
+116 input events consumed. No frame-9,000 milestone or final report follows.
+All 7,640 forwarded host faults have matching recoveries. Results and
+`progress-review.json` are retained in
+`/tmp/pcsx-vitagl-progress-native-12000-20261005`. Since progress is sampled
+every 600 frames, the exact last completed frame is not established.
+
+A separate private diagnostic VPK SHA256
+`44a6effa06f2a3c0a5dc785a8770b05bfdabf9e2213a082a292bfb642dbd29d3`
+changes only `vglUseLowPrecision(GL_TRUE)` to `GL_FALSE` relative to that
+progress package. Compiler optimization/fast flags remain unchanged. Its
+exact source delta and build identities are recorded in
+`build/vita-system12-vitagl-teardown/fullprecision-evidence.json`.
+Native validation is pending; the public renderer still uses low precision
+and no artifact cause is established by this diagnostic build alone.

@@ -366,6 +366,13 @@ uses the maps, little-endian flash regions, JP1 strap and reset wiring from
 the same pinned `taitogn.cpp` and `taito_zm.cpp` sources. Their BSD-3-Clause
 attribution and terms are retained in `zoom_board_LICENSE.txt`.
 
+The RF5C296 controller in `libpcsxcore/arcade/rf5c296.*` and Taito PC Card
+behavior in `libpcsxcore/arcade/gnet_pccard.*` derive from the pinned MAME
+`src/devices/machine/rf5c296.cpp/.h` and
+`src/devices/bus/pccard/ataflash.cpp/.h`, copyright smf, BSD-3-Clause.
+The full attribution and terms are retained in
+`libpcsxcore/arcade/gnet_pccard_LICENSE.txt`.
+
 ## MAME Konami Twinkle sound board
 
 The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives
