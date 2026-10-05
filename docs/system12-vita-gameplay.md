@@ -170,3 +170,17 @@ experiment alone does not explain this error. The failed replay is retained in
 `/tmp/pcsx-vita-system12-vitagl-production-replay-20261005` and
 `build/vita-system12-vitagl-teardown/production-evidence.json`; the successful
 1800-frame diagnostic run is not a production gameplay validation.
+
+A repeat with the optional protection-miss trace host
+`3bee5d88d3c1fa5c43b348fb980f0d12125a47b7f6abbd58c3e707235bc460d7`
+completes all 12000 frames and 177 input rows, with 9642 paired fault recoveries,
+zero critical protection misses, successful shutdown and Idle. Evidence is in
+`/tmp/pcsx-vita-system12-vitagl-miss-trace-20261005` (23 native PNGs). This is a
+passing execution check, but **graphics review fails**: character selection
+and the Voldo/Astaroth Stage 1 fight contain broad horizontal corrupted bands.
+Later GAME OVER and Sophitia intro captures show substantially cleaner textures.
+The runner's `status=passed` checks completion/report/capture availability, not
+pixel correctness; `graphics-review.json` records the manual failure separately.
+The passing replay does not invalidate the earlier intermittent host critical.
+The frozen production VPK/source delta and both host results are bound in
+`build/vita-system12-vitagl-teardown/production-trace-evidence.json`.
