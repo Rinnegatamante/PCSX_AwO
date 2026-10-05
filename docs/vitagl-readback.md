@@ -100,3 +100,25 @@ under the isolated profile. Their RGB extrema are all `(0,0)` and alpha is
 The console GPU pixel probe is validated; native presentation is not. Turning
 off MSAA in a separate diagnostic copy did not fix presentation and was not
 retained. No physical Vita validation is claimed.
+
+## Display path trace
+
+The private host builder accepts `--trace-display-presentation`. Its optional
+patch records callback entry/return, accepted display parameters and Vulkan's
+surface-cache selection. Each site records its first eight events, then every
+60th event through 240; it does not change callback arguments or frame selection.
+The patch and source hashes are retained in the host manifest.
+
+The production package above passes the same 180-frame probe on this host:
+`/tmp/pcsx-vitagl-display-trace2-20261005.log`. Callback payloads contain the
+three VitaGL display buffers `60aa4000`, `60ca5000`, `60ea6000`; callbacks return
+zero and `sceDisplaySetFrameBuf` accepts those addresses. Vulkan later presents
+the corresponding cached GXM surface (`cached=true`). This excludes a missing
+callback or continued selection of the initial CPU framebuffer `60000000` in
+this run. It does not prove the surface contains the expected picture.
+
+Native screenshots at `034317`, `034318`, `034319` are still black with opaque
+alpha. All 11 forwarded faults match recoveries; shutdown and Idle pass. The
+isolated host is in `build/vita-validation-display-trace2`; its portable
+`vita3k.log` contains the bounded display records. The watchdog closes each
+owned install/run process; no native host remains after the test.

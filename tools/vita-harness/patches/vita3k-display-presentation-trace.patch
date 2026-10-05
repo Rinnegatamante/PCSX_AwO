@@ -1,0 +1,71 @@
+--- a/vita3k/modules/SceGxm/SceGxm.cpp
++++ b/vita3k/modules/SceGxm/SceGxm.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include <modules/module_parent.h>
+ 
++#include <atomic>
+ #include <span>
+ #include <stack>
+ #if defined(__x86_64__) && !defined(__APPLE__)
+@@ -931,8 +932,19 @@
+         emuenv.display.predicting = display_callback->frame_predicted;
+         emuenv.display.current_sync_object = display_callback->new_sync.address();
+ 
+-        // Now run callback
+-        display_thread->run_guest_function(callback_address, display_callback->data);
++        // Bounded private-host diagnostics; callbackData is passed in r0.
++        static std::atomic<uint32_t> trace_count{0};
++        const uint32_t trace_index = ++trace_count;
++        const bool trace = trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0);
++        if (trace) {
++            const auto first_word = emuenv.gxm.params.displayQueueCallbackDataSize >= 4
++                ? *Ptr<uint32_t>(display_callback->data).get(emuenv.mem) : 0;
++            LOG_INFO("PCSX display callback begin n={} pc={:08x} data={:08x} word0={:08x} predicted={}",
++                trace_index, callback_address, display_callback->data, first_word, display_callback->frame_predicted);
++        }
++        const auto callback_result = display_thread->run_guest_function(callback_address, display_callback->data);
++        if (trace)
++            LOG_INFO("PCSX display callback end n={} result={:08x}", trace_index, callback_result);
+ 
+         // Notifies the renderer of the completion of the callback for the display_entry.
+         // The last_display of the entry, when pushed into the queue, is guaranteed to be timestamp_ahead + 1 at the time of the call.
+--- a/vita3k/modules/SceDisplay/SceDisplay.cpp
++++ b/vita3k/modules/SceDisplay/SceDisplay.cpp
+@@ -16,6 +16,8 @@
+ // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ 
+ #include "SceDisplay.h"
++
++#include <atomic>
+ 
+ #include <display/functions.h>
+ #include <display/state.h>
+@@ -154,6 +156,12 @@
+     info.image_size.x = pFrameBuf->width;
+     info.image_size.y = pFrameBuf->height;
+     update_prediction(emuenv, info);
++    static std::atomic<uint32_t> trace_count{0};
++    const uint32_t trace_index = ++trace_count;
++    if (trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0))
++        LOG_INFO("PCSX display accepted n={} base={:08x} pitch={} size={}x{} predicting={} next={:08x}",
++            trace_index, info.base.address(), info.pitch, pFrameBuf->width, pFrameBuf->height,
++            emuenv.display.predicting.load(), emuenv.display.next_rendered_frame.base.address());
+ 
+     emuenv.display.last_setframe_vblank_count = emuenv.display.vblank_count.load();
+     emuenv.frame_count++;
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -1160,6 +1160,12 @@
+         vk::ImageView surface_handle = surface_cache.sourcing_color_surface_for_presentation(
+             frame.base, frame.pitch, viewport);
+ 
++        static uint32_t trace_count = 0;
++        const uint32_t trace_index = ++trace_count;
++        if (trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0))
++            LOG_INFO("PCSX display Vulkan n={} base={:08x} pitch={} size={}x{} cached={}",
++                trace_index, frame.base.address(), frame.pitch, frame.image_size.x, frame.image_size.y,
++                static_cast<bool>(surface_handle));
+         if (!surface_handle) {
+             vkutil::Image &vita_surface = screen_renderer.vita_surface[screen_renderer.swapchain_image_idx];
+             if (frame.image_size.x != vita_surface.width || frame.image_size.y != vita_surface.height) {

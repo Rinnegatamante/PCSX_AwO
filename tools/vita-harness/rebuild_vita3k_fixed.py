@@ -31,6 +31,8 @@ parser.add_argument('--trace-protection-recovery', action='store_true',
                     help='Record successful native memory fault recovery and Dynarmic forwarding')
 parser.add_argument('--fix-unmapped-readback', action='store_true',
                     help='Synchronize Vulkan color surfaces through CPU staging when mapping is disabled')
+parser.add_argument('--trace-display-presentation', action='store_true',
+                    help='Log bounded callback delivery, accepted frames and Vulkan surface selection')
 options = parser.parse_args()
 ORIG = options.source.resolve()
 BUILD = (options.build or ORIG / 'build/macos').resolve()
@@ -58,6 +60,7 @@ HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-pr
 RECOVERY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-macos-recovery-trace.patch'
 FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
 READBACK_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-unmapped-readback.patch'
+DISPLAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-display-presentation-trace.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -68,6 +71,8 @@ SOURCES = [
     ('renderer', 'src/gl/renderer.cpp', 'vita3k/renderer/src/gl/renderer.cpp', 'renderer-gl.cpp.o'),
     ('renderer', 'src/vulkan/renderer.cpp', 'vita3k/renderer/src/vulkan/renderer.cpp', 'renderer-vulkan.cpp.o'),
 ]
+if options.trace_display_presentation:
+    SOURCES.append(('modules', 'SceGxm/SceGxm.cpp', 'vita3k/modules/SceGxm/SceGxm.cpp', 'SceGxm.cpp.o'))
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
@@ -110,6 +115,9 @@ if options.trace_protection_recovery:
 if options.fix_unmapped_readback:
     subprocess.run(['git', 'apply', '--check', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.trace_display_presentation:
+    subprocess.run(['git', 'apply', '--check', str(DISPLAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(DISPLAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -248,6 +256,8 @@ manifest = {
                                        if options.trace_protection_recovery else None),
     'unmapped_readback_patch_sha256': (hashlib.sha256(READBACK_PATCH.read_bytes()).hexdigest()
                                      if options.fix_unmapped_readback else None),
+    'display_presentation_trace_patch_sha256': (hashlib.sha256(DISPLAY_TRACE_PATCH.read_bytes()).hexdigest()
+                                               if options.trace_display_presentation else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),

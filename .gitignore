@@ -178,6 +178,7 @@ __pycache__/
 /build/vita-validation-gxm-gpu-trace/
 /build/vita-harness-readback-patch/
 /build/vita-validation-readback*/
+/build/vita-validation-display-trace*/
 /build/gnet-zoom-tests/
 /build/mac-harness-noboard/
 /build/mac-harness-gv/
