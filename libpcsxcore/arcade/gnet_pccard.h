@@ -1,5 +1,6 @@
 /* G-Net ATA flash PC Card behavior, adapted from MAME ataflash.cpp.
  * Source revision: deb2f54fe7300e7a192690318beb860159bfd52a.
+ * Copyright smf.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #ifndef PCSX_ARCADE_GNET_PCCARD_H

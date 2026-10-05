@@ -124,6 +124,8 @@ void test_cis_config_and_backend_dispatch()
     attr_write(card, 0x101, 0x0056, 0x00ff);
     assert(attr_read(card, 0x100) == 0xcd);
     assert(attr_read(card, 0x101) == 0x56);
+    attr_write(card, 0x100, 0x12ab, 0xff00);
+    assert(attr_read(card, 0x100) == 0xab); // MAME ignores mem_mask here.
     uint16_t identify = 0;
     assert(gnet_pccard_identify_word0(card, &identify) == GNET_PCCARD_OK);
     assert(identify == 0x848a);
@@ -161,6 +163,12 @@ void test_cis_config_and_backend_dispatch()
     assert(attr_read(card, 0) == 0x20 && attr_read(card, 2) == 0x22);
     assert(attr_read(card, 3) == 0xff);
     assert(attr_read(card, 0x100) == 0);
+    assert(gnet_pccard_try_destroy(card) == GNET_PCCARD_OK);
+
+    const uint8_t empty_cis_storage = 0;
+    card = create(GNET_PCCARD_ATA_FLASH, nullptr, 0, nullptr,
+                  &empty_cis_storage, 0);
+    assert(attr_read(card, 0) == 0xff); // Present empty CIS is padded, not defaulted.
     assert(gnet_pccard_try_destroy(card) == GNET_PCCARD_OK);
 }
 
@@ -230,6 +238,12 @@ void test_taito_type2_unlock_and_reset()
     assert(delta.status_set == GNET_PCCARD_STATUS_ERR && delta.error_valid);
     assert(gnet_pccard_is_locked(card));
     buffer[6] = 5;
+    buffer[511] = 0x80; // MAME requires all bytes outside key[0..4] to be zero.
+    assert(gnet_pccard_process_buffer(card, 0xfc, buffer.data(), buffer.size(),
+                                      &delta) == GNET_PCCARD_HOOK_HANDLED);
+    assert(delta.status_set == GNET_PCCARD_STATUS_ERR);
+    assert(gnet_pccard_is_locked(card));
+    buffer[511] = 0;
     assert(gnet_pccard_process_buffer(card, 0xfc, buffer.data(), buffer.size(),
                                       &delta) == GNET_PCCARD_HOOK_HANDLED);
     assert(!gnet_pccard_is_locked(card) && gnet_pccard_is_ready(card));
@@ -240,7 +254,7 @@ void test_taito_type2_unlock_and_reset()
 
 void test_taito_compact_flash_unlock()
 {
-    const uint8_t key[] = {0x11, 0x00, 0x33, 0x44, 0x55};
+    const uint8_t key[] = {0x11, 0x23, 0x33, 0x44, 0x55};
     auto *card = create(GNET_PCCARD_TAITO_COMPACT_FLASH, key, sizeof(key));
     gnet_pccard_taskfile_t tf{};
     gnet_pccard_state_delta_t delta{};
@@ -254,11 +268,16 @@ void test_taito_compact_flash_unlock()
            GNET_PCCARD_HOOK_HANDLED);
     assert(delta.status_clear == GNET_PCCARD_STATUS_DRDY);
     assert(delta.irq_valid && gnet_pccard_is_locked(card));
-    tf.sector_count = 0;
+    tf.sector_count = 0x23;
     tf.cylinder_high = 0x55;
     assert(gnet_pccard_process_command(card, &tf, &delta) ==
            GNET_PCCARD_HOOK_HANDLED);
     assert(!gnet_pccard_is_locked(card) && gnet_pccard_is_ready(card));
+    tf.command = 0x0f;
+    tf.feature ^= 1;
+    assert(gnet_pccard_process_command(card, &tf, &delta) ==
+           GNET_PCCARD_HOOK_HANDLED);
+    assert(gnet_pccard_is_ready(card)); // Bad unlock does not relock an open card.
     tf.command = 0xec;
     assert(gnet_pccard_process_command(card, &tf, &delta) ==
            GNET_PCCARD_HOOK_PASS);

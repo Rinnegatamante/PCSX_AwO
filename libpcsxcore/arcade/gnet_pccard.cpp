@@ -1,5 +1,6 @@
 /* G-Net ATA flash PC Card behavior, adapted from MAME ataflash.cpp.
  * Source revision: deb2f54fe7300e7a192690318beb860159bfd52a.
+ * Copyright smf.
  * SPDX-License-Identifier: BSD-3-Clause
  */
 #include "gnet_pccard.h"
@@ -163,9 +164,9 @@ extern "C" int gnet_pccard_create(const gnet_pccard_config_t *config,
     if (!card) return GNET_PCCARD_NOMEM;
     card->variant = config->variant;
     card->cis.assign(512, 0xff);
-    if (config->cis_size) {
+    if (config->cis || config->cis_size) {
         card->cis.assign(config->cis, config->cis + config->cis_size);
-        if (card->cis.size() < 512) card->cis.resize(512, 0xff);
+        card->cis.resize(512, 0xff);
     } else {
         static constexpr uint8_t default_cis[] = {
             0x01, 0x04, 0xdf, 0x4a, 0x01, 0xff,
