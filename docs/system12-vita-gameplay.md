@@ -184,3 +184,14 @@ pixel correctness; `graphics-review.json` records the manual failure separately.
 The passing replay does not invalidate the earlier intermittent host critical.
 The frozen production VPK/source delta and both host results are bound in
 `build/vita-system12-vitagl-teardown/production-trace-evidence.json`.
+
+Disabling the P4 texture cache in a private diagnostic VPK
+`bca5af21453e5703db0ddd7b0c7d94d840ad1664d2ef9eff2268a0d16fe66833`
+does not remove the horizontal bands. Both cached and direct-sampling
+3600-frame attract runs complete, followed by the same 12000-frame input replay
+for the direct-sampling VPK. The latter is retained in
+`/tmp/pcsx-vita-system12-vitagl-p4-direct-replay-20261005`: 22 native PNGs,
+9642 paired recoveries, clean shutdown, and the same DMA5 bytes (5909108) and
+H8 cycles (3396679944) as the cached replay. Graphics review still fails.
+`p4-direct-source.patch` and `p4-direct-replay-evidence.json` beside the frozen
+VPK record this experiment; the bypass is not applied to repository code.
