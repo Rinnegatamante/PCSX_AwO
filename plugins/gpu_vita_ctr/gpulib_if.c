@@ -16,6 +16,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef PCSX_GP0_ROI_TRACE
+#include "gp0_roi_trace.h"
+#endif
+
 #include <macros.h>
 #include <platform.h>
 #include "platform/native_gpu.h"
@@ -41,6 +45,11 @@ unsigned g_nativeVramHeight = GPU_VRAM_ROWS_CONSOLE;
 static int s_context_ready;
 static int s_frame_started;
 static uint16_t *s_guest_vram;
+
+#ifdef PCSX_GP0_ROI_TRACE
+static void gp0_roi_trace_record_rect(int kind, int x, int y, int w, int h);
+static void gp0_roi_trace_dump(void);
+#endif
 
 void Platform_Log(const char *fmt, ...);
 
@@ -227,6 +236,10 @@ int LoadImage(RECT16 *rect, void *p)
     VitaCtrVramTask task;
     if (!rect || !p)
         return 0;
+#ifdef PCSX_GP0_ROI_TRACE
+    gp0_roi_trace_record_rect(GP0_ROI_TRACE_LOAD_IMAGE,
+        rect->x, rect->y, rect->w, rect->h);
+#endif
     memset(&task, 0, sizeof(task));
     task.pixels = (uint16_t *)p;
     task.w = rect->w;
@@ -297,6 +310,220 @@ static void normalize_gp0_coordinates(uint32_t *words, int count)
     }
 }
 
+#ifdef PCSX_GP0_ROI_TRACE
+static uint32_t gp0_roi_trace_frame(void)
+{
+	return pl_rearmed_cbs.gpu_frame_count != NULL
+		? (uint32_t)*pl_rearmed_cbs.gpu_frame_count : UINT32_MAX;
+}
+
+static int gp0_roi_trace_frame_enabled(uint32_t frame)
+{
+	return frame >= GP0_ROI_TRACE_FIRST_FRAME && frame <= GP0_ROI_TRACE_LAST_FRAME;
+}
+
+static int gp0_roi_trace_point_mask(int x0, int y0, int x1, int y1)
+{
+	static const int points[5][2] = {
+		{ 64, 100 }, { 63, 100 }, { 65, 100 }, { 64, 99 }, { 64, 101 }
+	};
+	int mask = 0;
+	for (int i = 0; i < 5; i++) {
+		if (points[i][0] >= x0 && points[i][0] <= x1 &&
+		    points[i][1] >= y0 && points[i][1] <= y1)
+			mask |= 1 << i;
+	}
+	return mask;
+}
+
+static int gp0_roi_signed11(uint32_t value)
+{
+	value &= 0x7ff;
+	return (value & 0x400) ? (int)value - 0x800 : (int)value;
+}
+
+static int gp0_roi_packet_bounds(const uint32_t *words, int count,
+				 int *x0, int *y0, int *x1, int *y1)
+{
+	const unsigned command = words[0] >> 24;
+	const int ox = gp0_roi_signed11(gpu.ex_regs[5]);
+	const int oy = gp0_roi_signed11(gpu.ex_regs[5] >> 11);
+	int have = 0;
+
+	if (command == 0x02 && count >= 3) {
+		const int x = (int16_t)(words[1] & 0xffff) + ox;
+		const int y = (int16_t)(words[1] >> 16) + oy;
+		int w = (words[2] & 0x3ff) + 0xf;
+		int h = (words[2] >> 16) & 0x1ff;
+		w &= ~0xf;
+		if (w <= 0 || h <= 0) return 0;
+		*x0 = x; *y0 = y; *x1 = x + w - 1; *y1 = y + h - 1;
+		return 1;
+	}
+	if ((command & 0xe0) == 0x20) {
+		const int vertices = (command & 8) ? 4 : 3;
+		const int stride = 1 + !!(command & 4) + !!(command & 16);
+		if (count < 1 + (vertices - 1) * stride + 1) return 0;
+		for (int i = 0; i < vertices; i++) {
+			const uint32_t xy = words[1 + i * stride];
+			const int x = (int16_t)(xy & 0xffff) + ox;
+			const int y = (int16_t)(xy >> 16) + oy;
+			if (!have) { *x0 = *x1 = x; *y0 = *y1 = y; have = 1; }
+			else {
+				if (x < *x0) *x0 = x; if (x > *x1) *x1 = x;
+				if (y < *y0) *y0 = y; if (y > *y1) *y1 = y;
+			}
+		}
+		return have;
+	}
+	if ((command & 0xe0) == 0x40) {
+		const int stride = (command & 16) ? 2 : 1;
+		for (int offset = 1; offset < count; offset += stride) {
+			if ((command & 8) && (words[offset] & 0xf000f000u) == 0x50005000u)
+				break;
+			const uint32_t xy = words[offset];
+			const int x = (int16_t)(xy & 0xffff) + ox;
+			const int y = (int16_t)(xy >> 16) + oy;
+			if (!have) { *x0 = *x1 = x; *y0 = *y1 = y; have = 1; }
+			else {
+				if (x < *x0) *x0 = x; if (x > *x1) *x1 = x;
+				if (y < *y0) *y0 = y; if (y > *y1) *y1 = y;
+			}
+		}
+		return have;
+	}
+	if ((command & 0xe0) == 0x60 && count > 1) {
+		const uint32_t xy = words[1];
+		const int x = (int16_t)(xy & 0xffff) + ox;
+		const int y = (int16_t)(xy >> 16) + oy;
+		int w, h;
+		if (command >= 0x78) w = h = 16;
+		else if (command >= 0x70) w = h = 8;
+		else if (command >= 0x68) w = h = 1;
+		else if (count > ((command & 4) ? 3 : 2)) {
+			const int size_index = (command & 4) ? 3 : 2;
+			w = words[size_index] & 0x3ff;
+			h = (words[size_index] >> 16) & 0x1ff;
+		} else return 0;
+		if (w <= 0 || h <= 0) return 0;
+		*x0 = x; *y0 = y; *x1 = x + w - 1; *y1 = y + h - 1;
+		return 1;
+	}
+	return 0;
+}
+
+static void gp0_roi_trace_record_packet(const uint32_t *raw,
+					const uint32_t *normalized, int count,
+					const uint32_t *ex_regs,
+					unsigned accepted_mask)
+{
+	gp0_roi_trace_record *record;
+	uint32_t frame = gp0_roi_trace_frame();
+	int x0, y0, x1, y1;
+	int mask;
+	unsigned command;
+	if (!gp0_roi_trace_frame_enabled(frame) || count <= 0 ||
+	    !gp0_roi_packet_bounds(normalized, count, &x0, &y0, &x1, &y1))
+		return;
+	mask = gp0_roi_trace_point_mask(x0, y0, x1, y1);
+	if (!mask) return;
+	record = &gp0_roi_trace_ring[gp0_roi_trace_sequence % GP0_ROI_TRACE_CAPACITY];
+	memset(record, 0, sizeof(*record));
+	record->frame = frame;
+	record->sequence = gp0_roi_trace_sequence++;
+	record->kind = GP0_ROI_TRACE_PACKET;
+	record->count = (uint16_t)count;
+	record->stored_words = (uint8_t)(count < GP0_ROI_TRACE_WORDS ? count : GP0_ROI_TRACE_WORDS);
+	record->x0 = (uint16_t)x0; record->y0 = (uint16_t)y0;
+	record->x1 = (uint16_t)x1; record->y1 = (uint16_t)y1;
+	record->point_mask = (uint8_t)mask;
+	record->accepted_mask = (uint8_t)accepted_mask;
+	if (ex_regs != NULL)
+		for (int i = 1; i <= 6; i++) record->regs[i] = ex_regs[i];
+	for (int i = 0; i < record->stored_words; i++) {
+		record->raw[i] = raw[i];
+		record->normalized[i] = normalized[i];
+	}
+	command = normalized[0] >> 24;
+	record->color = normalized[0] & 0x00ffffffu;
+	if ((command & 0xe0) == 0x20) {
+		const int vertices = (command & 8) ? 4 : 3;
+		const int stride = 1 + !!(command & 4) + !!(command & 16);
+		for (int i = 0; i < vertices; i++) {
+			const int uv_index = 1 + i * stride + 1;
+			if ((command & 4) && uv_index < count)
+				record->uv[i] = normalized[uv_index];
+		}
+		if (command & 4) {
+			record->clut = (uint16_t)(record->uv[0] >> 16);
+			record->tpage = (uint16_t)(record->uv[1] >> 16);
+		}
+	} else if ((command & 0xe0) == 0x60 && (command & 4) && count > 2) {
+		record->uv[0] = normalized[2];
+		record->clut = (uint16_t)(normalized[2] >> 16);
+		record->tpage = (uint16_t)record->regs[1];
+	}
+}
+
+static void gp0_roi_trace_record_rect(int kind, int x, int y, int w, int h)
+{
+	gp0_roi_trace_record *record;
+	uint32_t frame = gp0_roi_trace_frame();
+	const int mask = gp0_roi_trace_point_mask(x, y, x + w - 1, y + h - 1);
+	if (!gp0_roi_trace_frame_enabled(frame) || !mask || w <= 0 || h <= 0)
+		return;
+	record = &gp0_roi_trace_ring[gp0_roi_trace_sequence % GP0_ROI_TRACE_CAPACITY];
+	memset(record, 0, sizeof(*record));
+	record->frame = frame;
+	record->sequence = gp0_roi_trace_sequence++;
+	record->kind = (uint8_t)kind;
+	record->x0 = (uint16_t)x; record->y0 = (uint16_t)y;
+	record->x1 = (uint16_t)(x + w - 1); record->y1 = (uint16_t)(y + h - 1);
+	record->point_mask = (uint8_t)mask;
+	for (int i = 1; i <= 6; i++) record->regs[i] = gpu.ex_regs[i];
+}
+
+static void gp0_roi_trace_dump(void)
+{
+	const uint32_t first = gp0_roi_trace_sequence > GP0_ROI_TRACE_CAPACITY
+		? gp0_roi_trace_sequence - GP0_ROI_TRACE_CAPACITY : 0;
+	fprintf(stderr, "GP0 ROI trace frames=%d..%d candidates=%u ring=%u\n",
+		GP0_ROI_TRACE_FIRST_FRAME, GP0_ROI_TRACE_LAST_FRAME,
+		gp0_roi_trace_sequence, GP0_ROI_TRACE_CAPACITY);
+	for (uint32_t sequence = first; sequence < gp0_roi_trace_sequence; sequence++) {
+		const gp0_roi_trace_record *record =
+			&gp0_roi_trace_ring[sequence % GP0_ROI_TRACE_CAPACITY];
+		if (record->sequence != sequence) continue;
+		fprintf(stderr,
+			"GP0 ROI seq=%u frame=%u kind=%u box=%d,%d..%d,%d points=%02x accepted=%02x "
+			"E1=%08x E2=%08x E3=%08x E4=%08x E5=%08x E6=%08x color=%06x CLUT=%04x TPAGE=%04x count=%u\n",
+			record->sequence, record->frame, record->kind,
+			(int16_t)record->x0, (int16_t)record->y0,
+			(int16_t)record->x1, (int16_t)record->y1,
+			record->point_mask, record->accepted_mask,
+			record->regs[1], record->regs[2], record->regs[3], record->regs[4],
+			record->regs[5], record->regs[6], record->color,
+			record->clut, record->tpage, record->count);
+		for (int i = 0; i < record->stored_words; i++)
+			fprintf(stderr, "  w[%02d] raw=%08x normalized=%08x\n",
+				i, record->raw[i], record->normalized[i]);
+		for (int i = 0; i < 4; i++)
+			if (record->uv[i] != 0)
+				fprintf(stderr, "  uv[%d]=%08x\n", i, record->uv[i]);
+	}
+	if (s_guest_vram != NULL) {
+		static const int points[5][2] = {
+			{ 64, 100 }, { 63, 100 }, { 65, 100 }, { 64, 99 }, { 64, 101 }
+		};
+		for (int i = 0; i < 5; i++) {
+			const int x = points[i][0], y = points[i][1];
+			fprintf(stderr, "GP0 ROI witness x=%d y=%d guest_vram=%04x\n",
+				x, y, s_guest_vram[y * VRAM_WIDTH + x]);
+		}
+	}
+}
+#endif
+
 static int gp0_triangle_x_span_valid(const uint32_t *words, int stride,
                                      int a, int b, int c)
 {
@@ -314,7 +541,7 @@ static int gp0_triangle_x_span_valid(const uint32_t *words, int stride,
 /* NEON/MAME reject each polygon triangle whose X span reaches 1024 pixels.
  * Keep this at the GP0 boundary so the renderer sees the same geometry and
  * texture state that the software rasterizer would. */
-static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_regs)
+static unsigned submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_regs)
 {
     const unsigned command = words[0] >> 24;
     const int is_quad = (command & 8) != 0;
@@ -322,7 +549,7 @@ static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_re
     const int gouraud = (command & 16) != 0;
     const int stride = 1 + textured + gouraud;
     if (count < 1 + (is_quad ? 4 : 3) * stride - gouraud)
-        return;
+        return 0;
     const int valid_012 = gp0_triangle_x_span_valid(words, stride, 0, 1, 2);
 
     if (!is_quad) {
@@ -333,13 +560,13 @@ static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_re
             uint32_t draw_env = ex_regs[1];
             ParseTaglessPrimitive((u32 *)&draw_env);
         }
-        return;
+        return valid_012 ? 1u : 0u;
     }
 
     const int valid_123 = gp0_triangle_x_span_valid(words, stride, 1, 2, 3);
     if (valid_012 && valid_123) {
         ParseTaglessPrimitive((u32 *)words);
-        return;
+        return 3u;
     }
 
     if (!valid_012 && !valid_123) {
@@ -347,7 +574,7 @@ static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_re
             uint32_t draw_env = ex_regs[1];
             ParseTaglessPrimitive((u32 *)&draw_env);
         }
-        return;
+        return 0;
     }
 
     /* Rebuild only the valid half. Gouraud colors follow the previous
@@ -381,6 +608,7 @@ static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_re
     }
     triangle[0] = ((uint32_t)(out - 1) << 24) | 0x00ffffffu;
     ParseTaglessPrimitive((u32 *)&triangle[1]);
+    return valid_012 ? 1u : 2u;
 }
 
 static void submit_gp0_packet(const uint32_t *words, int count, const uint32_t *ex_regs)
@@ -396,10 +624,17 @@ static void submit_gp0_packet(const uint32_t *words, int count, const uint32_t *
      * VRAM transfer positions, dimensions, colors and UVs retain their ABI. */
     normalize_gp0_coordinates(packet + 1, count);
     const unsigned command = packet[1] >> 24;
-    if ((command & 0xe0) == 0x20)
-        submit_gp0_polygon(packet + 1, count, ex_regs);
-    else
+    if ((command & 0xe0) == 0x20) {
+        const unsigned accepted = submit_gp0_polygon(packet + 1, count, ex_regs);
+#ifdef PCSX_GP0_ROI_TRACE
+        gp0_roi_trace_record_packet(words, packet + 1, count, ex_regs, accepted);
+#endif
+    } else {
         ParseTaglessPrimitive((u32 *)(packet + 1));
+#ifdef PCSX_GP0_ROI_TRACE
+        gp0_roi_trace_record_packet(words, packet + 1, count, ex_regs, 1);
+#endif
+    }
 }
 
 typedef struct RendererInitTask {
@@ -634,6 +869,9 @@ int renderer_init(void)
 
 void renderer_finish(void)
 {
+#ifdef PCSX_GP0_ROI_TRACE
+    gp0_roi_trace_dump();
+#endif
     if (!s_context_ready)
         return;
 
@@ -667,6 +905,9 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
     (void)state_changed;
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
         return;
+#ifdef PCSX_GP0_ROI_TRACE
+    gp0_roi_trace_record_rect(GP0_ROI_TRACE_VRAM_UPDATE, x, y, w, h);
+#endif
 
     /* A GP0 upload is ordered after any earlier draws even if the frontend
      * has not submitted its frame packet yet. Flush those splits before the
