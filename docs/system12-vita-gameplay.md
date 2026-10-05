@@ -109,7 +109,9 @@ Use `--renderer vitagl --shader-compiler PATH` with an existing local
 `libshacccg.suprx`. VitaGL presents through GXM rather than the libretro video
 callback, so this mode requires native Vita3K PNGs and does not request a PPM.
 The runner additionally requires `vitaGL shutdown PASS (0)` and `Stopping ->
-Idle`. `--frames 1800` selects only that standard milestone; it cannot be
+Idle`. `--frames 1800` selects only that standard milestone. The additional
+`--frames 3600` diagnostic captures beyond the title with the longer screenshot
+schedule, without injecting replay controls; neither selector can be
 combined with `--gameplay-replay`. Cumulative results include `status`,
 completed milestones, and the first failed milestone with its diagnostics.
 

@@ -82,6 +82,7 @@ def main():
     spec.loader.exec_module(gameplay)
     assert gameplay.select_milestones() == (400, 800, 1800)
     assert gameplay.select_milestones(1800) == (1800,)
+    assert gameplay.select_milestones(3600) == (3600,)
     assert gameplay.select_milestones(None, True) == (12000,)
     try:
         gameplay.select_milestones(1800, True)

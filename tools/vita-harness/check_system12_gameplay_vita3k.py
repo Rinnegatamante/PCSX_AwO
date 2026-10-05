@@ -30,6 +30,7 @@ PROFILE = ROOT / "artifacts/system12-profile"
 DRC_CHECK = ROOT / "tools/vita-harness/check_system12_drc_vita3k.py"
 GAME_FILES = ("board.cfg", "main.bin", "banked.bin", "sub.bin", "wave.bin")
 MILESTONES = (400, 800, 1800)
+DIAGNOSTIC_MILESTONES = MILESTONES + (3600,)
 GAMEPLAY_REPLAY_FRAMES = 12000
 AUTO_SCREENSHOT_TIMES = "0.5,1,2,5,10,20,30,45,60"
 GAMEPLAY_SCREENSHOT_TIMES = AUTO_SCREENSHOT_TIMES + ",90,120,150,180,210,240,270,300,330,360,390,420,450,480,540,600"
@@ -505,8 +506,8 @@ def select_milestones(frames=None, gameplay_replay=False):
         return (GAMEPLAY_REPLAY_FRAMES,)
     if frames is None:
         return MILESTONES
-    if frames not in MILESTONES:
-        raise ValueError(f"--frames must be one of {', '.join(map(str, MILESTONES))}")
+    if frames not in DIAGNOSTIC_MILESTONES:
+        raise ValueError(f"--frames must be one of {', '.join(map(str, DIAGNOSTIC_MILESTONES))}")
     return (frames,)
 
 
@@ -543,8 +544,8 @@ def main():
                         help="per-process timeout (replay defaults to 1200 seconds)")
     parser.add_argument("--gameplay-replay", action="store_true",
                         help="replay the 177 deterministic inputs through frame 12,000")
-    parser.add_argument("--frames", type=int, choices=MILESTONES,
-                        help="run only this standard frame milestone (400, 800, or 1800)")
+    parser.add_argument("--frames", type=int, choices=DIAGNOSTIC_MILESTONES,
+                        help="run only this frame milestone (400, 800, 1800, or 3600)")
     parser.add_argument("--reuse-console-smoke", type=Path,
                         help="reuse smoke evidence JSON when VPK and host hashes match")
     args = parser.parse_args()
@@ -588,7 +589,7 @@ def main():
             checker.install_local_shader_compiler(emulator, args.shader_compiler)
         (args.output_dir / "native-screenshot-setup.json").write_text(json.dumps({
             "config_key": "screenshot-format", "config_value": 2,
-            "auto_screenshot_env": (GAMEPLAY_SCREENSHOT_TIMES if args.gameplay_replay
+            "auto_screenshot_env": (GAMEPLAY_SCREENSHOT_TIMES if args.gameplay_replay or args.frames == 3600
                                      else AUTO_SCREENSHOT_TIMES),
             "native_capture_root": "portable/screenshots/<Vita3K title>",
         }, indent=2) + "\n", encoding="utf-8")
@@ -696,7 +697,7 @@ def main():
                 guest_ok, runtime_issues = run_guest(
                     emulator, args_text, log, args.timeout, expected,
                     extra_env={"VITA3K_AUTO_SCREENSHOT": (GAMEPLAY_SCREENSHOT_TIMES
-                        if inputs_path else AUTO_SCREENSHOT_TIMES)})
+                        if inputs_path or frames == 3600 else AUTO_SCREENSHOT_TIMES)})
                 if not guest_ok:
                     raise RuntimeError(f"System12 guest run failed at {frames} frames; log={log}")
                 report_path = guest_data / f"system12-{frames}.txt"
