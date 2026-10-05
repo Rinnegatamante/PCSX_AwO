@@ -219,7 +219,7 @@ void rtc4543_advance_seconds(rtc4543_serial_t *device, uint64_t seconds)
 			days -= remaining;
 			now.month++;
 			now.day = 1;
-			now.day_of_week = now.day_of_week % 7 + 1;
+			now.day_of_week = (now.day_of_week - 1 + (int)(remaining % 7)) % 7 + 1;
 			if (now.month > 12) {
 				now.month = 1;
 				now.year++;

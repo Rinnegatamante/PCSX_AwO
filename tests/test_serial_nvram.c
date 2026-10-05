@@ -134,6 +134,71 @@ static void test_rtc_deterministic_time_advance(void)
 	assert(now.day == 1 && now.month == 3 && now.day_of_week == 5);
 }
 
+static void test_rtc_calendar_boundaries(void)
+{
+	rtc4543_serial_t rtc;
+	rtc4543_datetime_t date;
+	rtc4543_datetime_t now;
+
+	/* Crossing January from the 30th consumes two days before February 1. */
+	date = (rtc4543_datetime_t){ 2023, 1, 30, 1, 12, 0, 0 };
+	rtc4543_init(&rtc, NULL, NULL, &date);
+	rtc4543_advance_seconds(&rtc, 3 * 86400);
+	rtc4543_get_time(&rtc, &now);
+	assert(now.year == 2023 && now.month == 2 && now.day == 2);
+	assert(now.day_of_week == 4);
+
+	/* Leap-day rollover advances the weekday by both elapsed days. */
+	date = (rtc4543_datetime_t){ 2024, 2, 27, 2, 12, 0, 0 };
+	rtc4543_init(&rtc, NULL, NULL, &date);
+	rtc4543_advance_seconds(&rtc, 3 * 86400);
+	rtc4543_get_time(&rtc, &now);
+	assert(now.year == 2024 && now.month == 3 && now.day == 1);
+	assert(now.day_of_week == 5);
+
+	/* The two-digit RTC year wraps from 99 to 00 at the century boundary. */
+	date = (rtc4543_datetime_t){ 2099, 12, 31, 7, 23, 59, 59 };
+	rtc4543_init(&rtc, NULL, NULL, &date);
+	rtc4543_advance_seconds(&rtc, 1);
+	rtc4543_get_time(&rtc, &now);
+	assert(now.year == 2000 && now.month == 1 && now.day == 1);
+	assert(now.day_of_week == 1);
+
+	/* A long advance across February, March, and April keeps weekday in step. */
+	date = (rtc4543_datetime_t){ 2023, 1, 31, 1, 0, 0, 0 };
+	rtc4543_init(&rtc, NULL, NULL, &date);
+	rtc4543_advance_seconds(&rtc, 60 * 86400);
+	rtc4543_get_time(&rtc, &now);
+	assert(now.year == 2023 && now.month == 4 && now.day == 1);
+	assert(now.day_of_week == 5);
+}
+
+static void test_rtc_split_advance_matches_whole(void)
+{
+	rtc4543_serial_t whole;
+	rtc4543_serial_t split;
+	rtc4543_datetime_t date = { 2023, 11, 15, 3, 8, 30, 0 };
+	rtc4543_datetime_t whole_time;
+	rtc4543_datetime_t split_time;
+	rtc4543_init(&whole, NULL, NULL, &date);
+	rtc4543_init(&split, NULL, NULL, &date);
+	rtc4543_advance_seconds(&whole, 80 * 86400);
+	rtc4543_advance_seconds(&split, 16 * 86400);
+	rtc4543_advance_seconds(&split, 31 * 86400);
+	rtc4543_advance_seconds(&split, 33 * 86400);
+	rtc4543_get_time(&whole, &whole_time);
+	rtc4543_get_time(&split, &split_time);
+	assert(whole_time.year == 2024 && whole_time.month == 2 && whole_time.day == 3);
+	assert(whole_time.day_of_week == 6);
+	assert(whole_time.year == split_time.year);
+	assert(whole_time.month == split_time.month);
+	assert(whole_time.day == split_time.day);
+	assert(whole_time.day_of_week == split_time.day_of_week);
+	assert(whole_time.hour == split_time.hour);
+	assert(whole_time.minute == split_time.minute);
+	assert(whole_time.second == split_time.second);
+}
+
 static void test_rtc_full_write_and_data_callback_quiet(void)
 {
 	rtc4543_serial_t rtc;
@@ -168,6 +233,8 @@ int main(void)
 	test_settings_frame_protocol();
 	test_rtc4543_read_order_and_gap();
 	test_rtc_deterministic_time_advance();
+	test_rtc_calendar_boundaries();
+	test_rtc_split_advance_matches_whole();
 	test_rtc_full_write_and_data_callback_quiet();
 	puts("serial NVRAM protocol tests passed");
 	return 0;
