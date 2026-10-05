@@ -188,3 +188,5 @@ __pycache__/
 
 /build/mac-harness-gnet-board0/
 /build/mac-harness-gnet-review/
+/build/mac-harness-gnet-drc/
+/build/vita-system12-vitagl-teardown/

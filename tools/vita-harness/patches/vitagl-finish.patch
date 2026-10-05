@@ -1,0 +1,26 @@
+diff --git a/source/gxm.c b/source/gxm.c
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -1171,12 +1171,16 @@ void glFinish(void) {
+ 	THREAD_SAFE()
+ 
+-	// Waiting for GPU to finish drawing jobs
+-	if (scene_not_flushed) {
+-		dirty_framebuffer = GL_TRUE;
+-		scene_reset();
+-		sceGxmFinish(gxm_context);
+-		scene_not_flushed = GL_FALSE;
++	// Complete all preceding work, including scenes already ended by swap.
++	// Do not start a new scene: the caller may be releasing its framebuffer
++	// and vertex storage immediately after this barrier.
++	if (needs_end_scene) {
++		scene_end();
++		needs_end_scene = GL_FALSE;
+ 	}
++	needs_scene_reset = GL_TRUE;
++	if (gxm_context)
++		sceGxmFinish(gxm_context);
++	scene_not_flushed = GL_FALSE;
+ }
+ 
+ void glReleaseShaderCompiler(void) {

@@ -1,7 +1,7 @@
 # System 12 gameplay run on Vita3K
 
 `tools/vita-harness/check_system12_gameplay_vita3k.py` runs the locally prepared
-Soul Calibur COH-700 profile in the ARMv7/ari64 NEON VPK. It first validates the
+Soul Calibur COH-700 profile in an ARMv7/ari64 NEON or VitaGL VPK. It first validates the
 profile against its pinned MAME manifest and region hashes, then installs a
 console smoke build and the game into a fresh copied Vita3K app with a separate
 portable filesystem. Local Vita firmware is copied into that temporary
@@ -102,3 +102,36 @@ DRC run and Voldo in this ARMv7 run, so timing/game-state equivalence remains
 unverified. `board_execution_verified` remains false in the machine-readable
 result, and this run does not establish physical Vita performance or VitaGL
 support.
+
+## VitaGL title capture and unresolved shutdown
+
+Use `--renderer vitagl --shader-compiler PATH` with an existing local
+`libshacccg.suprx`. VitaGL presents through GXM rather than the libretro video
+callback, so this mode requires native Vita3K PNGs and does not request a PPM.
+The runner additionally requires `vitaGL shutdown PASS (0)` and `Stopping ->
+Idle`. `--frames 1800` selects only that standard milestone; it cannot be
+combined with `--gameplay-replay`. Cumulative results include `status`,
+completed milestones, and the first failed milestone with its diagnostics.
+
+The production type-2 package `25a10718420c436022721ed3699dccdac233b0703558e258e77188605b11df48`
+completed the 400- and 800-frame runs in
+`/tmp/pcsx-vita-system12-vitagl-capture-20261005`. The native 800-frame captures
+show FIRST POWER ON, and the 1800-frame captures show the Soul Calibur title.
+Its H8/C352/DMA report completed without unsupported instructions or unmapped
+board accesses, but the host then failed during shutdown with one unresolved
+forwarded access. The aggregate has been corrected from the original runner's
+partial success record to an explicit failure; the original capture evidence
+and log are unchanged. This is title rendering evidence, not a passing run.
+
+The bounded follow-up in
+`/tmp/pcsx-vita-system12-vitagl-teardown-20261005` uses diagnostic VPK
+`f4513a495455a29ec1a5c70694d2a2eb8038c515f72cc584f8136003cd88fef9`.
+The plugin waits for GPU work before deleting its resources. A separate local
+VitaGL finish patch ends any open scene and waits unconditionally, including
+work already submitted by a swap. All renderer deletion stages complete; the
+same unresolved host access occurs after entering `vglShutdown()`. Nine native
+PNGs and the report are retained, and `results.json` records the failure.
+The native title PNG has the same SHA-256 as the first run:
+`0f5c0e4fc8d77d2caebfdbf5e652cf9222d0cef063d8d8e19e199ef35e7c4951`.
+The diagnostic source delta, library flags/patches, and hashes are retained in
+`build/vita-system12-vitagl-teardown/evidence.json`.

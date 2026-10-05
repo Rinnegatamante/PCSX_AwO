@@ -15,6 +15,7 @@ PATCHES = (
     ROOT / "tools/vita-harness/patches/vitagl-shutdown.patch",
     ROOT / "tools/vita-harness/patches/vitagl-shader-cache.patch",
     ROOT / "tools/vita-harness/patches/vitagl-readback.patch",
+    ROOT / "tools/vita-harness/patches/vitagl-finish.patch",
 )
 
 

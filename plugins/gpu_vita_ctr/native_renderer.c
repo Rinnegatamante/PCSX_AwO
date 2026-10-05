@@ -511,9 +511,15 @@ int NativeRenderer_InitialiseRender(char *windowName, int width, int height, int
 
 void NativeRenderer_Shutdown(void)
 {
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	SysPrintf("pcsx-vita: teardown-trace delete vertex storage\n");
+#endif
 	glDeleteVertexArrays(MAX_NUM_VERTEX_BUFFERS, s_glVertexArray);
 	glDeleteBuffers(MAX_NUM_VERTEX_BUFFERS, s_glVertexBuffer);
 
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	SysPrintf("pcsx-vita: teardown-trace delete render targets\n");
+#endif
 	NativeRenderer_DestroyRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
@@ -536,6 +542,9 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyTexture(s_ghostReplayShoulderTexture[1]);
 #endif
 #ifdef __vita__
+	#ifdef VITA_CTR_GPU_TRACE
+	SysPrintf("pcsx-vita: teardown-trace delete P4 cache\n");
+	#endif
 	for (int cacheIndex = 0; cacheIndex < NATIVE_P4_CACHE_CAPACITY; cacheIndex++)
 	{
 		for (int bufferIndex = 0; bufferIndex < 2; bufferIndex++)
@@ -547,6 +556,9 @@ void NativeRenderer_Shutdown(void)
 		}
 	}
 	NativeRenderer_DestroyTexture(s_presentLutTexture);
+#endif
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	SysPrintf("pcsx-vita: teardown-trace delete shaders\n");
 #endif
 	NativeRenderer_DestroyPSXShaders();
 	if (s_packShader != 0)
@@ -564,11 +576,17 @@ void NativeRenderer_Shutdown(void)
 	glDeleteVertexArrays(1, &s_vramQuadVAO);
 	glDeleteBuffers(1, &s_vramQuadVBO);
 #ifdef __vita__
+	#ifdef VITA_CTR_GPU_TRACE
+	SysPrintf("pcsx-vita: teardown-trace free transfer storage\n");
+	#endif
 	if (s_vitaVramTransferPixels != NULL)
 	{
 		vglFree(s_vitaVramTransferPixels);
 		s_vitaVramTransferPixels = NULL;
 	}
+#endif
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	SysPrintf("pcsx-vita: teardown-trace renderer delete done\n");
 #endif
 }
 

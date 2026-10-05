@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Production 180-frame console pixel/signature probe and native PNGs showing the triangle/background; successful shutdown and paired native fault recovery | Actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Console pixel/signature probe, upper-VRAM fixtures and native Soul Calibur FIRST POWER ON/title captures; game shutdown fails inside `vglShutdown()` | Resolve game shutdown, validate a match, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -26,7 +26,7 @@ HAVE_SHADER_CACHE=1 NO_DEBUG=1 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1
 
 `tools/vita-harness/build_vitagl.py` clones the clean local `../vitaGL` source
 into `build/vita-deps/vitaGL`, builds there, and records the source commit,
-ordered shutdown/shader-cache patch hashes, flags and archive SHA-256 in
+ordered shutdown/shader-cache/readback/finish patch hashes, flags and archive SHA-256 in
 `pcsx-build.json`. It rejects any extra edits in its build copy, including
 changes outside patch hunks in the same files. It does not install over the
 SDK library. The standalone build calls the helper and uses that checkout's

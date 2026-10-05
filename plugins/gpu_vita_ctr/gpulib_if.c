@@ -292,10 +292,22 @@ static void backend_renderer_init(void *arg)
 static void backend_renderer_shutdown(void *arg)
 {
     (void)arg;
+#ifdef VITA_CTR_GPU_TRACE
+    SysPrintf("pcsx-vita: teardown-trace GPU wait begin\n");
+#endif
+    /* The worker being idle does not mean GXM has finished consuming VAOs
+     * and transfer storage. Wait before any of those objects are released. */
+    glFinish();
+#ifdef VITA_CTR_GPU_TRACE
+    SysPrintf("pcsx-vita: teardown-trace renderer delete begin\n");
+#endif
     NativeRenderer_Shutdown();
     /* Destroy plugin GL objects, flush their GXM work, then release vitaGL's
      * context and GXM resources before the guest CRT tears down its heap. */
     glFinish();
+#ifdef VITA_CTR_GPU_TRACE
+    SysPrintf("pcsx-vita: teardown-trace vitaGL shutdown begin\n");
+#endif
     int shutdown_result = vglShutdown();
     if (shutdown_result < 0)
         SysPrintf("pcsx-vita: vitaGL shutdown FAIL (%d)\n", shutdown_result);
@@ -490,7 +502,13 @@ void renderer_finish(void)
     if (!s_context_ready)
         return;
 
+#ifdef VITA_CTR_GPU_TRACE
+    SysPrintf("pcsx-vita: teardown-trace worker sync begin frame_started=%d\n", s_frame_started);
+#endif
     NativeGpu_SyncBackend();
+#ifdef VITA_CTR_GPU_TRACE
+    SysPrintf("pcsx-vita: teardown-trace worker sync done\n");
+#endif
     NativeGpu_RunBackendTaskSync(backend_renderer_shutdown, NULL);
     NativeGpu_ShutdownBackend();
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
