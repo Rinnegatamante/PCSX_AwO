@@ -710,9 +710,6 @@ int main(int argc, char **argv)
   if (gpu_type1_test && (gpu_set_model(1) || gpu_set_vram_height(gpu_type1_test == 2 ? 512 : 1024))) {
     fprintf(stderr, "Rebuild with BOARD=1 for type-1 GPU testing.\n"); return 2;
   }
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-  if (system12_active()) Config.cycle_multiplier = 200;
-#endif
   if (psxInit() || LoadPlugins()) return 1;
   pl_rearmed_cbs.pl_vout_open = video_open;
   pl_rearmed_cbs.pl_vout_close = video_close;

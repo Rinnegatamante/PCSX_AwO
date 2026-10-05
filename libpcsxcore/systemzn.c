@@ -396,6 +396,10 @@ void systemzn_unload(void)
 }
 
 int systemzn_active(void) { return board.active; }
+unsigned int systemzn_main_clock_hz(void)
+{
+    return board.active && board.profile ? board.profile->cpu_clock : 0;
+}
 
 static void map_window(uint32_t base, const uint8_t *data, size_t size, int writable)
 {

@@ -8,6 +8,8 @@
 int systemzn_load(const char *directory);
 void systemzn_unload(void);
 int systemzn_active(void);
+/* Pinned MAME main CPU input clock; zero when the board is inactive. */
+unsigned int systemzn_main_clock_hz(void);
 void systemzn_mem_reset(void);
 void systemzn_reset(void);
 int systemzn_sync(u32 psx_cycle);

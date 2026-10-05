@@ -12,6 +12,7 @@ TARGET := $(BUILD)/pcsx-harness
 BOARD ?= 1
 HAVE_CHD ?= 1
 SYSTEM12_TIMING ?= 0
+ARCADE_TIMING ?= 1
 DRC ?= 0
 CFLAGS := -arch arm64 -O2 -g -std=gnu99 -Wall -Wno-unknown-pragmas \
   -I$(BUILD) -Iinclude -Ifrontend -include stdio.h \
@@ -59,6 +60,9 @@ CFLAGS += -DHAVE_CHD $(LIBCHDR_CFLAGS)
 SOURCES += $(LIBCHDR_SOURCES)
 endif
 ifeq ($(BOARD),1)
+ifeq ($(ARCADE_TIMING),1)
+CFLAGS += -DPCSX_ARCADE_SOURCE_TIMING
+endif
 SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c libpcsxcore/systemzn.c libpcsxcore/systemtaito.c libpcsxcore/systemgnet.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/serial_nvram.c \
   libpcsxcore/arcade/namcos11_board.c libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/pcm_wav.c \
   libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/nor_flash.c \

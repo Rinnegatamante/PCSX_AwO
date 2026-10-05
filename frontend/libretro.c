@@ -2128,9 +2128,8 @@ static bool retro_load_system12_profile(const char *directory)
       return false;
    }
 
-   /* The board source timing configuration uses 50 MHz / multiplier 200.
+   /* Core initialization selects the board's clock domain and multiplier.
     * The choice of CPU backend remains the one selected by the core options. */
-   Config.cycle_multiplier = 200;
    if (psxInit() == -1)
    {
       psxShutdown();
@@ -2228,8 +2227,8 @@ static bool retro_load_systemgnet_profile(const char *directory)
       return false;
    }
 
-   /* The G-Net adapter changes RAM and VRAM geometry before core/plugin init;
-    * core options, including the selected CPU backend, remain untouched. */
+   /* The G-Net adapter selects memory geometry before core/plugin init;
+    * core initialization also applies the selected board's source CPU clock. */
    if (psxInit() == -1)
    {
       psxShutdown();
@@ -2897,7 +2896,7 @@ static void update_variables(bool in_flight)
    {
       int psxclock = atoi(var.value);
 #ifdef ARCADE_SYSTEM12
-      if (system12_active())
+      if (psxArcadeSourceTimingActive())
          Config.cycle_multiplier = 200;
       else
 #endif
