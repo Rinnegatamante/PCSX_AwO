@@ -9,6 +9,7 @@
  */
 #include "system12.h"
 #include "system12_profile.h"
+#include "system12_audio_clock.h"
 #include "system10.h"
 #include "system11.h"
 #include "systemtaito.h"
@@ -49,7 +50,8 @@ static struct {
     u64 rtc_fraction, eeprom_time_us, eeprom_cycle_fraction;
     int eeprom_clock_error;
     u32 last_cycle;
-    u64 h8_fraction, pcm_fraction, pcm_frames, sub_reads, sub_writes;
+    u64 h8_fraction, pcm_fraction, pcm_due, pcm_frames, sub_reads, sub_writes;
+    System12AudioClock pcm_h8_clock;
     unsigned pcm_peak;
     FILE *audio_file;
     system12_audio_cb audio_cb;
@@ -71,6 +73,7 @@ static struct {
     u32 last_unknown_address, last_unknown_pc;
     int active;
 } board;
+static void pcm_sync_h8(void);
 static system12_bus_trace_cb bus_trace_cb;
 static void *bus_trace_opaque;
 
@@ -285,6 +288,7 @@ static u8 sub_read8(void *opaque, u32 address)
         return board.shared[(address - 0x080000) ^ 1];
     }
     if (address >= 0x280000 && address < 0x288000) {
+        pcm_sync_h8();
         u16 word = c352_read(board.pcm, (address - 0x280000) / 2);
         return address & 1 ? word : word >> 8;
     }
@@ -303,6 +307,7 @@ static void sub_write8(void *opaque, u32 address, u8 value)
     }
     else if (address >= 0x280000 && address < 0x288000) {
         unsigned shift = address & 1 ? 0 : 8;
+        pcm_sync_h8();
         c352_write(board.pcm, (address - 0x280000) / 2,
             (u16)value << shift, 0xffu << shift);
     }
@@ -315,9 +320,10 @@ static u16 sub_read16(void *opaque, u32 address)
 
 static void sub_write16(void *opaque, u32 address, u16 value)
 {
-    if (address >= 0x280000 && address < 0x288000)
+    if (address >= 0x280000 && address < 0x288000) {
+        pcm_sync_h8();
         c352_write(board.pcm, (address - 0x280000) / 2, value, 0xffff);
-    else {
+    } else {
         sub_write8(opaque, address, value >> 8);
         sub_write8(opaque, address + 1, value);
     }
@@ -373,6 +379,43 @@ static int eeprom_advance_cycles(u32 elapsed)
     return at28c16_advance_to_us(board.eeprom, board.eeprom_time_us);
 }
 
+/* One monotonic stream cursor for register catch-up and board catch-up. */
+static void pcm_generate_to(u64 target)
+{
+    while (board.pcm_frames < target) {
+        int16_t samples[256 * 4];
+        int16_t stereo[256 * 2];
+        u64 remaining = target - board.pcm_frames;
+        unsigned frames = remaining > 256 ? 256 : (unsigned)remaining, i;
+        uint64_t pcm_started = pcsx_profile_begin(PCSX_PROF_PCM, 1);
+        c352_generate(board.pcm, samples, frames);
+        pcsx_profile_end(PCSX_PROF_PCM, pcm_started);
+        for (i = 0; i < frames; i++) {
+            stereo[i * 2] = samples[i * 4];
+            stereo[i * 2 + 1] = samples[i * 4 + 1];
+        }
+        uint64_t audio_started = pcsx_profile_begin(PCSX_PROF_BOARD_AUDIO, 1);
+        if (board.audio_cb)
+            board.audio_cb(board.audio_opaque, stereo, frames);
+        pcsx_profile_end(PCSX_PROF_BOARD_AUDIO, audio_started);
+        for (i = 0; i < frames * 4; i++) {
+            unsigned amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
+            if (amplitude > board.pcm_peak) board.pcm_peak = amplitude;
+        }
+        if (audio_write_samples(samples, frames))
+            SysPrintf("System12: WAV audio write failed\n");
+        board.pcm_frames += frames;
+    }
+}
+
+static void pcm_sync_h8(void)
+{
+    u64 target;
+    if (system12_audio_clock_advance(&board.pcm_h8_clock,
+            h8_current_cycle(board.h8), &target) == 0)
+        pcm_generate_to(target);
+}
+
 void system12_sync(u32 psx_cycle)
 {
     u32 elapsed;
@@ -395,31 +438,10 @@ void system12_sync(u32 psx_cycle)
     pcsx_profile_end(PCSX_PROF_H8, h8_started);
     board.h8_fraction %= PSXCLK;
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
-    while (board.pcm_fraction >= PSXCLK) {
-        int16_t samples[256 * 4];
-        int16_t stereo[256 * 2];
-        unsigned frames = board.pcm_fraction / PSXCLK, i;
-        if (frames > 256) frames = 256;
-        uint64_t pcm_started = pcsx_profile_begin(PCSX_PROF_PCM, 1);
-        c352_generate(board.pcm, samples, frames);
-        pcsx_profile_end(PCSX_PROF_PCM, pcm_started);
-        for (i = 0; i < frames; i++) {
-            stereo[i * 2] = samples[i * 4];
-            stereo[i * 2 + 1] = samples[i * 4 + 1];
-        }
-        uint64_t audio_started = pcsx_profile_begin(PCSX_PROF_BOARD_AUDIO, 1);
-        if (board.audio_cb)
-            board.audio_cb(board.audio_opaque, stereo, frames);
-        pcsx_profile_end(PCSX_PROF_BOARD_AUDIO, audio_started);
-        for (i = 0; i < frames * 4; i++) {
-            unsigned amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
-            if (amplitude > board.pcm_peak) board.pcm_peak = amplitude;
-        }
-        if (audio_write_samples(samples, frames))
-            SysPrintf("System12: WAV audio write failed\n");
-        board.pcm_frames += frames;
-        board.pcm_fraction -= (u64)frames * PSXCLK;
-    }
+    board.pcm_due += board.pcm_fraction / PSXCLK;
+    board.pcm_fraction %= PSXCLK;
+    /* MAME's stream includes the sample at the current nonzero time. */
+    pcm_generate_to(board.pcm_due + 1);
 }
 
 #ifdef PCSX_SYSTEM12_PROFILE
@@ -660,7 +682,8 @@ void system12_reset(void)
     board.dma_offset = board.alt_bank_offset = board.tektagt_dma_offset = 0;
     board.has_tektagt_dma = 0;
     board.last_cycle = psxRegs.cycle;
-    board.h8_fraction = board.pcm_fraction = board.pcm_frames = 0;
+    board.h8_fraction = board.pcm_fraction = board.pcm_due = board.pcm_frames = 0;
+    memset(&board.pcm_h8_clock, 0, sizeof(board.pcm_h8_clock));
     board.pcm_peak = 0;
     board.sub_reads = board.sub_writes = 0;
     board.port8 = board.porta = 0; board.portb = 0x50;

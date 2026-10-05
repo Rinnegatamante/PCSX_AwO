@@ -1,0 +1,19 @@
+CC ?= clang
+CFLAGS ?= -std=c99 -Wall -Wextra -Werror -O2
+BUILD ?= build/c352-timing-tests
+
+.PHONY: test clean
+$(BUILD)/test-c352-timing: tests/test_c352_mame_timing.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/c352.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) tests/test_c352_mame_timing.c libpcsxcore/arcade/c352.c -o $@
+
+$(BUILD)/test-system12-clock: tests/system12_audio_clock.c libpcsxcore/system12_audio_clock.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) tests/system12_audio_clock.c -o $@
+
+test: $(BUILD)/test-c352-timing $(BUILD)/test-system12-clock
+	$(BUILD)/test-c352-timing
+	$(BUILD)/test-system12-clock
+
+clean:
+	rm -rf $(BUILD)
