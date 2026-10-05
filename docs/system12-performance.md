@@ -242,3 +242,90 @@ cores 0/1/2 yet.
 
 Combined manifests and comparisons:
 `build/vita-system12-h8-irq-20261005/comparison-evidence.json`.
+
+## Presentation and interpreter follow-up: source review only
+
+The final post-change log distinguishes 6,000 video callback entries from
+**4,761 valid image conversions/display waits**. `video_cb` returns immediately
+for null data or zero dimensions. The measured averages are:
+
+| Scope | Calls | Mean per call | Mean per emulated frame |
+| --- | ---: | ---: | ---: |
+| H8 slice | 11,999 | 7.481 ms | 14.962 ms |
+| Display wait | 4,761 | 9.590 ms | 7.610 ms |
+| Capture/copy/scale | 4,761 | 1.542 ms | 1.224 ms |
+| Audio queue wait scope | 35,999 | 0.194 ms | 1.167 ms |
+
+Audio wait scope calls include checks that do not actually sleep. Copy time
+includes the enabled final-frame capture copy; it is not solely RGB conversion.
+The averaging denominator matters: neither display wait nor H8 slice occurs
+exactly once per emulated frame. Evidence is the final `PERF` block in
+`/tmp/pcsx-neon-h8-irq-profile-6000-20261005/vita3k.log`.
+
+The private host source used by this replay is
+`build/vita-validation-mspace-stats-fix2/host-fix-src`. Its display wait and
+vblank sync implementation matches the corresponding functions in `../vita3k`;
+the files as a whole differ because of the private lifetime/teardown fixes and
+display logging. `SceDisplay.cpp::display_wait` chooses at least
+`vblank_count + 1` for `sceDisplayWaitVblankStart`. `display.cpp` increments that
+counter on a host thread with a nominal 60 Hz cadence and suspends the waiting
+guest thread until the target count. Thus the frontend still incurs a next-edge
+wait when emulation is already slower than real time. This explains the
+blocking mechanism, not a statistical prediction of each wait's duration or
+physical Vita behavior.
+
+The frontend fills the alternate framebuffer, submits it with `NEXTFRAME`,
+waits, and then swaps its front index. Removing that wait without a replacement
+buffer-lifetime contract could let the producer overwrite a buffer still being
+displayed. The appropriate pacing study is to distinguish buffer availability
+from real-time throttling, including the host's predicted-frame/display access
+and teardown lifetime. Keep the emulated vblank/IRQ timeline independent of this
+presentation decision. No wait or buffer implementation has been changed.
+
+Audio uses an SDL stream with source 88.2 kHz and device/output 48 kHz, confirmed
+by the replay log after the board AV update. The frontend's queue threshold is
+8,192 bytes (2,048 stereo S16 source frames, nominally 23.22 ms at 88.2 kHz).
+It delays the producer in 1 ms increments while the queue exceeds that limit.
+Removing display waiting can move backpressure to this queue instead of removing
+it. Source sample cadence, device resampling and queue occupancy must be assessed
+together before selecting one pacing policy.
+
+Before changing pacing, a future diagnostic should record presentation return
+codes, buffer identity and vblank count before/after each wait, plus audio queue
+occupancy, wait iterations and maximum blocked interval. Aggregate these into
+periodic summaries rather than per-sample logs. Current gameplay presentation
+return codes are ignored, and an audio queue that stops draining can keep this
+callback waiting without a local timeout or further input polling. Neither
+case should be diagnosed from the FPS number alone. Preserve the existing
+external watchdog and verify clocks/replay signatures in any diagnostic build.
+
+The source review identifies these H8 candidates; their individual cost has
+**not** been measured within the 47.5% H8 scope. That scope also includes bus and
+peripheral callbacks invoked by H8 execution, not only instruction arithmetic:
+
+- `h8_run_cycles`, `prefetch_done` and `tick` all select pending IRQs. The recent
+  optimization made each selection cheaper. Further caching would need to track
+  every pending/enable/priority/CCR change and preserve the original recognition
+  point, latching and acknowledgement; dropping calls is not justified.
+- `tick` checks five timers, two SCI deadlines and ADC after each execution
+  state, including intermediate prefix-decoder states as well as completed
+  instructions and exception states.
+  Active internally clocked timers iterate each timer tick. A future deadline or
+  arithmetic implementation must preserve compare-before-increment semantics,
+  overflow, simultaneous A/B matches, clear modes, fractional divider phase,
+  status/enable transitions and interrupt observation. Timer-specific profiling
+  and differential state/event checks should precede implementation.
+- Instruction dispatch uses the generated decoder, and fetch/data accesses use
+  bus callbacks with side effects and cycle charges. Decode caching or a new H8
+  DRC would need fetch/SMC, atomic C352 word access and precise IRQ/cycle guards.
+  No benefit estimate or implementation is established here.
+- The board's `sub_read16` resolves two byte reads for ROM/shared accesses.
+  A direct word path is another candidate if it retains big-endian assembly,
+  boundary behavior and access counters. C352 atomic word side effects must
+  remain on their existing distinct path.
+
+First investigate timer and IRQ cost while retaining synchronous execution;
+then choose between a faithful interpreter improvement and a larger H8 backend
+change from measurements. A worker would relocate the same interpreter cost and
+introduce shared-memory ordering requirements. Presentation changes, H8 backend
+work and parallel execution remain proposals for review, not runtime changes.

@@ -32,8 +32,9 @@ Implemented peripherals:
 
 Execution accounts for MAME instruction bus/internal cycle costs, completes
 whole instructions and carries scheduling overshoot to the next call.
-Peripherals advance between instructions. Very long EEPMOV instructions can
-therefore postpone externally scheduled events until instruction completion.
+Peripherals advance between execution states, including intermediate prefix
+decoder states and exception states. Very long EEPMOV instructions can
+postpone externally scheduled events until instruction completion.
 
 Remaining limitations: DMA and watchdog execution, external timer clock pins,
 SCI bit/clock waveforms and external serial clock rates, hardware timer output
