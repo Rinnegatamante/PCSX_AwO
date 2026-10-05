@@ -373,6 +373,14 @@ behavior in `libpcsxcore/arcade/gnet_pccard.*` derive from the pinned MAME
 The full attribution and terms are retained in
 `libpcsxcore/arcade/gnet_pccard_LICENSE.txt`.
 
+The source-generated ATA HLE, mass-storage and CompactFlash classes under
+`libpcsxcore/arcade/ata_mame/` derive from the pinned MAME
+`src/devices/machine/atahle.cpp/.h` and `atastorage.cpp/.h`, copyright smf,
+BSD-3-Clause. Their upstream file notices are retained; the full conditions
+and disclaimer in `libpcsxcore/arcade/gnet_pccard_LICENSE.txt` also apply to
+these imported ATA sources. The adjacent `ata_storage.*` files supply the
+standalone media and PC Card adapter.
+
 ## MAME Konami Twinkle sound board
 
 The Twinkle sound-board adapter in `libpcsxcore/arcade/twinkle_board.*` derives

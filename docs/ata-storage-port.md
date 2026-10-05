@@ -75,3 +75,12 @@ real ATA engine:
 make -f tests/Makefile.ata-storage test
 make -f tests/Makefile.ata-storage sanitize
 ```
+
+The Mac harness and optional G-Net libretro build compile the wrapper and both
+source engine translation units. The final `ded9965c` source builds under the
+Mac harness's C++17 flags and all three ATA translation units cross-compile
+with the real VitaSDK Cortex-A9/NEON build flags. Commands and source/object
+hashes are retained in `/tmp/pcsx-gnet-ata-final-vita-objects-20261005/evidence.json`.
+The Mac DRC G-Net MIPS/PCM regression also passes after linking these objects
+(`/tmp/pcsx-gnet-ata-final-mac-drc-20261005.log`). That fixture does not attach
+the storage device and does not establish a G-Net game boot.

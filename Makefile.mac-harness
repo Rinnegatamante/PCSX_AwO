@@ -71,6 +71,9 @@ CFLAGS += -DPCSX_SYSTEM_GNET -I$(BUILD)/gnet-generated -Ilibpcsxcore/arcade/tms5
 SOURCES += libpcsxcore/arcade/zsg2.c
 CXXSOURCES := libpcsxcore/arcade/gnet_zoom.cpp libpcsxcore/arcade/rf5c296.cpp \
  libpcsxcore/arcade/gnet_pccard.cpp \
+ libpcsxcore/arcade/ata_storage.cpp \
+ libpcsxcore/arcade/ata_mame/atahle_port.cpp \
+ libpcsxcore/arcade/ata_mame/atastorage_port.cpp \
   libpcsxcore/arcade/zoom_board.cpp \
   libpcsxcore/arcade/mn10200.cpp libpcsxcore/arcade/tms57002.cpp \
   libpcsxcore/arcade/tms57002/tms57002_core.cpp libpcsxcore/arcade/tms57002/tms57kdec.cpp \

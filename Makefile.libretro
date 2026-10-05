@@ -744,6 +744,9 @@ ifeq ($(ARCADE_SYSTEM_GNET),1)
 OBJS += libpcsxcore/systemgnet.o libpcsxcore/arcade/zsg2.o \
 	libpcsxcore/arcade/gnet_zoom.o libpcsxcore/arcade/rf5c296.o \
 	libpcsxcore/arcade/gnet_pccard.o \
+	libpcsxcore/arcade/ata_storage.o \
+	libpcsxcore/arcade/ata_mame/atahle_port.o \
+	libpcsxcore/arcade/ata_mame/atastorage_port.o \
 	libpcsxcore/arcade/zoom_board.o \
 	libpcsxcore/arcade/mn10200.o libpcsxcore/arcade/tms57002.o \
 	libpcsxcore/arcade/tms57002/tms57002_core.o \
