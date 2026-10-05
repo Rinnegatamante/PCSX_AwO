@@ -122,10 +122,11 @@ static void write_edge_event(HarnessEdgeTrace *trace,
 {
   if (sequence <= trace->printed_sequence) return;
   if (trace->rows >= 20000) { trace->overflow = 1; return; }
-  fprintf(trace->file, "%" PRIu64 ",%s,%u,%u,%u,%" PRIu64 ",%" PRIu64 "\n",
-    sequence, event->kind == SYSTEM12_EDGE_VBLANK ? "vblank" : "portb_input",
+  fprintf(trace->file, "%" PRIu64 ",%s,%u,%u,%u,%" PRIu64 ",%" PRIu64 ",%u,%u\n",
+    sequence, event->kind == SYSTEM12_EDGE_VBLANK ? "vblank" :
+      event->kind == SYSTEM12_EDGE_H8_STORE ? "h8_store" : "portb_input",
     event->value, event->main_cycle, event->synced_main_cycle,
-    (uint64_t)event->h8_cycle, (uint64_t)event->h8_budget);
+    (uint64_t)event->h8_cycle, (uint64_t)event->h8_budget, event->address, event->width);
   trace->printed_sequence = sequence;
   trace->rows++;
 }
@@ -135,7 +136,7 @@ static void harness_system12_edge_event(void *opaque,
 {
   HarnessEdgeTrace *trace = opaque;
   uint64_t sequence = ++trace->sequence;
-  if (event->kind == SYSTEM12_EDGE_VBLANK || !trace->have_read ||
+  if (event->kind != SYSTEM12_EDGE_PORTB_INPUT || !trace->have_read ||
       ((trace->last_read.value ^ event->value) & 0x80)) {
     if (trace->have_read)
       write_edge_event(trace, &trace->last_read, trace->last_read_sequence);
@@ -276,7 +277,7 @@ static void usage(const char *name)
     "[--reset-at-cycle N] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
-    "[--board-bus-trace FILE] [--system12-edge-trace FILE] "
+    "[--board-bus-trace FILE] [--system12-edge-trace FILE] [--system12-trace-shared-writes] "
     "[--max-blocks N] [--icache] [--drc] [--interactive] [--system12-vblank-sync-only]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
@@ -469,6 +470,7 @@ int main(int argc, char **argv)
   const char *bus_trace_path = NULL;
   FILE *bus_trace_file = NULL;
   const char *edge_trace_path = NULL;
+  int trace_shared_writes = 0;
 #ifdef PCSX_SYSTEM12
   harness_bus_trace_bin *bus_trace_bins = NULL;
   int bus_trace_finished = 0;
@@ -554,6 +556,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
     else if (!strcmp(argv[i], "--system12-edge-trace") && i + 1 < argc) edge_trace_path = argv[++i];
+    else if (!strcmp(argv[i], "--system12-trace-shared-writes")) trace_shared_writes = 1;
     else if ((!strcmp(argv[i], "--trace-blocks") || !strcmp(argv[i], "--max-blocks")) && i + 1 < argc) {
       int tracing = !strcmp(argv[i], "--trace-blocks");
       char *tail; unsigned long n;
@@ -634,6 +637,7 @@ int main(int argc, char **argv)
       (snapshot_path && (!board || board_family != 12)) ||
       (bus_trace_path && (!board || board_family != 12)) ||
       (edge_trace_path && (!board || board_family != 12 || board_test)) ||
+      (trace_shared_writes && !edge_trace_path) ||
       (reset_at_cycle && (!board || board_family != 12 || board_test || interactive)) ||
       (inputs_path && !strcmp(inputs_path, output)) ||
       (trace_path && inputs_path && !strcmp(trace_path, inputs_path)) ||
@@ -968,9 +972,10 @@ int main(int argc, char **argv)
     edge_trace.file = fopen(edge_trace_path, "w");
     if (!edge_trace.file) { perror(edge_trace_path); result = 1; }
     else {
-      fputs("sequence,event,value,main_cycle,synced_main_cycle,h8_cycle,h8_budget\n",
+      fputs("sequence,event,value,main_cycle,synced_main_cycle,h8_cycle,h8_budget,address,width\n",
         edge_trace.file);
       system12_set_edge_trace(harness_system12_edge_event, &edge_trace);
+      system12_set_edge_trace_shared(trace_shared_writes);
     }
   }
 #endif

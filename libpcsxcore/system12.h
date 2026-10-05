@@ -17,11 +17,14 @@ typedef void (*system12_bus_trace_cb)(void *opaque, u32 address, unsigned width,
  * PORTB_INPUT is the external input before H8 GPIO masking. VBLANK is emitted
  * after line delivery. Main counters are 32-bit; H8 clocks are absolute across
  * soft reset. This synchronous observer must not re-enter/reset the core. */
-enum { SYSTEM12_EDGE_PORTB_INPUT = 1, SYSTEM12_EDGE_VBLANK = 2 };
+enum { SYSTEM12_EDGE_PORTB_INPUT = 1, SYSTEM12_EDGE_VBLANK = 2,
+       SYSTEM12_EDGE_H8_STORE = 3 };
 typedef struct {
 	unsigned kind, value;
 	u32 main_cycle, synced_main_cycle;
 	u64 h8_cycle, h8_budget;
+	u32 address;
+	unsigned width;
 } system12_edge_event;
 typedef void (*system12_edge_trace_cb)(void *opaque,
 		const system12_edge_event *event);
@@ -51,6 +54,8 @@ int system12_close_audio(void);
 void system12_set_audio_output(system12_audio_cb callback, void *opaque);
 void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque);
 void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque);
+/* Opt-in shared H8 stores; disabled by default and cleared on unload. */
+void system12_set_edge_trace_shared(int enable);
 unsigned char system12_jamma_read(unsigned offset);
 void system12_audio_test_fixture(void);
 int system12_read(u32 address, unsigned width, u32 *value);

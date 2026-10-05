@@ -80,18 +80,32 @@ static system12_bus_trace_cb bus_trace_cb;
 static void *bus_trace_opaque;
 static system12_edge_trace_cb edge_trace_cb;
 static void *edge_trace_opaque;
+static int edge_trace_shared;
 
 void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque)
 {
     edge_trace_cb = callback;
     edge_trace_opaque = opaque;
 }
+void system12_set_edge_trace_shared(int enable)
+{
+    edge_trace_shared = enable != 0;
+}
 
 static void trace_edge(unsigned kind, unsigned value)
 {
     if (edge_trace_cb) {
         system12_edge_event event = {kind, value, psxRegs.cycle,
-            board.last_cycle, h8_current_cycle(board.h8), board.h8_requested};
+            board.last_cycle, h8_current_cycle(board.h8), board.h8_requested, 0, 0};
+        edge_trace_cb(edge_trace_opaque, &event);
+    }
+}
+static void trace_h8_store(u32 address, unsigned width, u32 value)
+{
+    if (edge_trace_cb && edge_trace_shared) {
+        system12_edge_event event = {SYSTEM12_EDGE_H8_STORE, value,
+            psxRegs.cycle, board.last_cycle, h8_current_cycle(board.h8),
+            board.h8_requested, address, width};
         edge_trace_cb(edge_trace_opaque, &event);
     }
 }
@@ -323,6 +337,7 @@ static void sub_write8(void *opaque, u32 address, u8 value)
     if (address >= 0x080000 && address < 0x090000) {
         board.shared[(address - 0x080000) ^ 1] = value;
         board.sub_writes++;
+        trace_h8_store(address, 8, value);
     }
     else if (address >= 0x280000 && address < 0x288000) {
         unsigned shift = address & 1 ? 0 : 8;
@@ -342,6 +357,11 @@ static void sub_write16(void *opaque, u32 address, u16 value)
     if (address >= 0x280000 && address < 0x288000) {
         pcm_sync_h8();
         c352_write(board.pcm, (address - 0x280000) / 2, value, 0xffff);
+    } else if (address >= 0x080000 && address < 0x08ffff) {
+        board.shared[(address - 0x080000) ^ 1] = value >> 8;
+        board.shared[((address + 1) - 0x080000) ^ 1] = value;
+        board.sub_writes += 2;
+        trace_h8_store(address, 16, value);
     } else {
         sub_write8(opaque, address, value >> 8);
         sub_write8(opaque, address + 1, value);
@@ -694,6 +714,7 @@ void system12_unload(void)
     bus_trace_opaque = NULL;
     edge_trace_cb = NULL;
     edge_trace_opaque = NULL;
+    edge_trace_shared = 0;
     psxRcntSourceScreenUnload();
 #ifndef DRC_DISABLE
     new_dynarec_set_code_span_provider(NULL);
