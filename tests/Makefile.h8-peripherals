@@ -1,0 +1,25 @@
+CXX ?= clang++
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/h8-peripheral-tests
+TARGET := $(BUILD)/h8-mame-peripheral-fixture
+SOURCES := libpcsxcore/arcade/h8.cpp \
+	libpcsxcore/arcade/h8_adc.cpp \
+	libpcsxcore/arcade/h8_sci.cpp \
+	libpcsxcore/arcade/h8_timer16.cpp \
+	tests/h8_mame_peripheral_fixture.cpp
+HEADERS := libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_adc.h \
+	libpcsxcore/arcade/h8_sci.h libpcsxcore/arcade/h8_timer16.h \
+	libpcsxcore/arcade/h8_instructions.inc
+
+.PHONY: all test clean
+all: $(TARGET)
+
+$(TARGET): $(SOURCES) $(HEADERS)
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) $(SOURCES) -o $@
+
+test: $(TARGET)
+	python3 tests/check_mame_h8_peripherals.py
+
+clean:
+	rm -rf $(BUILD)
