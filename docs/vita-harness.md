@@ -489,3 +489,47 @@ runtime configuration difference from Mac; its contribution to native
 artifacts remains untested. NEON's matching pixel probes and reviewed
 Vita3K scenes establish the tested emulator path; physical Vita graphics
 and performance remain untested.
+
+Two subsequent fixtures isolate additional renderer defects. The GP0
+coordinate-alias probe submits FT3, FT4 and sprite coordinates with the same
+low eleven bits and different upper bits. NEON matches all nine reads; the
+old native path fails the six alias reads. Commit `ef6d4573` sign-extends GP0
+geometry at the bridge before submission, leaving transfer coordinates,
+dimensions and the separate PsyQ entry points unchanged. The corrected Mac
+GL and native ari64 paths match all nine reads. Native evidence is retained
+in `/tmp/pcsx-vitagl-coords-clut-alias-20261005/evidence.json`.
+
+The VRAM-X probe isolates a P8 CLUT starting at `(1008,400)`: index 20 must
+read `(4,401)`. Wrapping the texture X coordinate alone previously read the
+wrong row. Commit `3137d62b` carries the palette overflow into the following
+VRAM row. All nine P8/P16 seam and control samples pass on Mac GL and native
+ari64; native evidence is in
+`/tmp/pcsx-vitagl-coords-clut-seam-20261005/evidence.json`. Both native probes
+use VPK SHA256
+`a7d6ccdffa8d30b9cddd610e4efbaeef87f73281211abfd07eaf1dfac4298542`,
+reach shutdown PASS and Idle, and close automatically. The frozen private
+source delta and build identities are recorded in
+`build/vita-system12-vitagl-teardown/coords-clut-fixed-evidence.json`.
+The same package also preserves all 24 baseline and texture-window reads in
+`/tmp/pcsx-vitagl-coords-clut-e2-20261005/evidence.json`, with shutdown PASS
+and Idle. The seven framebuffer-runner unit tests pass.
+
+A corrected Mac source-timing replay removes the vertical sky streaks but
+retains a plain blue region in the lake. The defect is also present in the
+exported PSX VRAM, before final display capture. Evidence is in
+`/tmp/pcsx-mac-vitagl-like-fixed-source-timing-vram-20261005`. Controlled
+replays disabling P4 caching, split reordering, or depth testing do not clear
+the tested residual defect. These observations narrow this replay's renderer
+failure; they do not establish complete native graphics validation or rule
+out separate Vita3K failures.
+
+The corrected native VPK also completes the guarded 3,600-frame/33-input
+replay in `/tmp/pcsx-vita-system12-vitagl-coords-clut-fixed-20261005`, with
+zero unsupported H8 instructions, DMA truncations or unmapped board accesses.
+All 2,519 forwarded host faults have matching recoveries. Shutdown PASS and
+Idle close the host automatically. Twelve native PNGs are retained. Review of
+capture 11 (The Edge of Chaos) and capture 12 (Stage 1 Voldo/Astaroth) finds
+the old vertical background streaks and broad bottom horizontal bands absent.
+The package is recorded as `PARTIAL_GRAPHICS_VALIDATION`, with review details
+in `graphics-review.json`: the screenshots are not frame-matched references,
+the Mac water defect remains open, and physical Vita is still untested.
