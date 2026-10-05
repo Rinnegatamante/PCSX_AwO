@@ -204,10 +204,32 @@ interpreter passes all eighteen pixels in
 `/tmp/pcsx-mac-framebuffer-runner-neon-fixed-20261005`. This probe does not
 establish whole-game graphics compatibility.
 
+An experimental `GPU=vitagl-like` build compiles the Vita-path GPU parser,
+batching, shader selection and VRAM code against macOS OpenGL, using a small
+SDL/OpenGL compatibility shim for VitaGL entry points. It keeps its objects and
+binary in `build/mac-harness-vitagl-like/`, so it can be compared with the
+default NEON harness without changing that build:
+
+```sh
+make -f Makefile.mac-harness GPU=vitagl-like all
+python3 tools/mac-harness/check_framebuffer_guest.py \
+  --harness build/mac-harness-vitagl-like/pcsx-harness \
+  --output-dir /tmp/pcsx-mac-framebuffer-vitagl-like-check
+```
+
+The Vita-path GL build currently matches all eighteen framebuffer probe
+readbacks; one run is recorded in
+`/tmp/pcsx-mac-framebuffer-vitagl-like-current-20261005`. The probe validates
+GPU readback and rasterization, while the harness PPM may still come from its
+CPU VRAM fallback when no frontend presentation occurs. Treat it as a
+readback comparison, not a captured GL presentation or whole-game result.
+
 Add `--texture-window` for six further reads after setting GP0 E2 mask/offset
 and resetting E2. Mac NEON passes this 24-pixel probe in
 `/tmp/pcsx-mac-framebuffer-e2-neon-20261005`; Vita NEON also passes its native
-version. The segmented VitaGL version preserves the original eighteen reads
-but fails the E2 remapped samples, returning the unwindowed colors. This is a
-demonstrated missing texture-window operation in the PCSX native backend;
-it does not establish that Soul Calibur's remaining artifacts use E2.
+version. The Vita-path GL compatibility build passes all 24 readbacks in
+`/tmp/pcsx-mac-framebuffer-vitagl-like-final-e2-20261005`. Its shaders apply
+the E2 mask and offset to indexed and direct-color PSX textures; Vita hardware
+validation is still pending. This proves the native backend had omitted
+texture-window sampling in the tested render path, but does not establish that
+Soul Calibur's remaining artifacts use E2.

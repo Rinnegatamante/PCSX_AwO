@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <macros.h>
 #include "../../libpcsxcore/system.h"
+#include "platform/native_vita_path.h"
 #include "platform/native_renderer_types.h"
 #include "namespace_Gamepad.h"
 
@@ -21,6 +22,8 @@ extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX,
 #include <GLES3/gl3.h>
 #elif defined(__vita__)
 #include <vitaGL.h>
+#elif defined(PCSX_NATIVE_VITA_PATH)
+#include "platform/mac_vita_compat.h"
 #else
 #include "platform/native_glad.h"
 #endif
@@ -31,7 +34,7 @@ extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX,
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #include <png.h>
 #include "vita_rgb24.h"
 #else
@@ -52,7 +55,7 @@ __declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
 
 #endif // def WIN32
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define VRAM_FORMAT          GL_RGBA
 #define VRAM_INTERNAL_FORMAT GL_RGBA
 #else
@@ -68,7 +71,7 @@ extern SDL_Window *g_window;
 #define NATIVE_RENDERER_LOG(fmt, ...)   Platform_Log("[CTR Renderer] " fmt, __VA_ARGS__)
 #define NATIVE_RENDERER_ERROR(fmt, ...) Platform_LogError("[CTR Renderer] [%s] - " fmt, __func__, __VA_ARGS__)
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define MAX_NUM_VERTEX_BUFFERS (1)
 #else
 #define MAX_NUM_VERTEX_BUFFERS (2)
@@ -113,7 +116,7 @@ internal void NativeRenderer_SetScissorRectCached(int x, int y, int width, int h
 }
 
 global_variable TextureID s_rgLutTexture = (TextureID)-1;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable TextureID s_presentLutTexture = (TextureID)-1;
 #endif
 // NOTE(penta3): Single persistent VRAM texture, matching real PS1's single 1MB VRAM. PS1 page-flips two windows *inside* one VRAM; it never keeps two full copies. The old double buffer existed only to orphan the texture on the per-frame full re-upload, which no longer happens (we upload dirty rects).
@@ -136,7 +139,7 @@ struct NativeVramState
 
 global_variable struct NativeVramState s_vram;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define NATIVE_VITA_VRAM_TRANSFER_BYTES (VRAM_WIDTH * VRAM_MAX_HEIGHT * 4u)
 global_variable u8 *s_vitaVramTransferPixels;
 
@@ -263,7 +266,7 @@ struct NativeRenderTarget
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
 global_variable struct NativeRenderTarget s_offscreenRenderTarget;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 /* A target owns one absolute VRAM rect. GP0 state may change after binding;
  * never repack that texture using a later draw environment. */
 global_variable RECT16 s_mainDrawRect;
@@ -317,7 +320,7 @@ global_variable TextureID s_lastBoundTexture = (TextureID)-1;
 
 global_variable TextureID s_ghostReplayControllerTexture;
 global_variable TextureID s_ghostReplayHighlightTexture;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable TextureID s_ghostReplayShoulderTexture[2];
 #endif
 global_variable int s_ghostReplayControllerWidth;
@@ -443,7 +446,7 @@ global_variable int s_curVertexBuffer = 0;
 global_variable int s_boundVertexBuffer = -1;
 
 global_variable GLuint s_glVramFramebuffer;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable TextureID s_vramUploadTexture;
 global_variable ShaderID s_vramUploadShader;
 global_variable GLint s_vramUploadRectLoc;
@@ -507,7 +510,7 @@ internal int NativeRenderer_InitialiseGLContext(char *windowName, int fullscreen
 
 internal int NativeRenderer_InitialiseGLExt(void)
 {
-#if !defined(__vita__) && !defined(__EMSCRIPTEN__)
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH) && !defined(__EMSCRIPTEN__)
 	GLenum err = gladLoadGL();
 
 	if (err == 0)
@@ -567,7 +570,7 @@ void NativeRenderer_Shutdown(void)
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
 	SysPrintf("pcsx-vita: teardown-trace delete vertex storage\n");
 #endif
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	/* vglBufferData borrows each batch from vitaGL's scratch pool. It does
 	 * not transfer ownership to the VBO, but glDeleteBuffers otherwise frees
 	 * its current pointer as an allocation. Detach the borrowed slices first;
@@ -593,7 +596,7 @@ void NativeRenderer_Shutdown(void)
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
 	NativeRenderer_DestroyTexture(s_vram.texture);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_DestroyTexture(s_vramUploadTexture);
 	if (s_vramUploadShader != 0)
 	{
@@ -605,11 +608,11 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyTexture(s_rgLutTexture);
 	NativeRenderer_DestroyTexture(s_ghostReplayControllerTexture);
 	NativeRenderer_DestroyTexture(s_ghostReplayHighlightTexture);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_DestroyTexture(s_ghostReplayShoulderTexture[0]);
 	NativeRenderer_DestroyTexture(s_ghostReplayShoulderTexture[1]);
 #endif
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	#ifdef VITA_CTR_GPU_TRACE
 	SysPrintf("pcsx-vita: teardown-trace delete P4 cache\n");
 	#endif
@@ -643,7 +646,7 @@ void NativeRenderer_Shutdown(void)
 	}
 	glDeleteVertexArrays(1, &s_vramQuadVAO);
 	glDeleteBuffers(1, &s_vramQuadVBO);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	#ifdef VITA_CTR_GPU_TRACE
 	SysPrintf("pcsx-vita: teardown-trace free transfer storage\n");
 	#endif
@@ -669,7 +672,7 @@ void NativeRenderer_UpdateSwapIntervalState(int swapInterval)
 void NativeRenderer_BeginScene(void)
 {
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (++s_p4FrameSerial == 0)
 	{
 		s_p4FrameSerial = 1;
@@ -684,7 +687,7 @@ void NativeRenderer_BeginScene(void)
 	s_lastBoundTexture = 0;
 
 	NativeRenderer_UpdatePresentationViewport();
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainLoaded = s_mainDirty = s_offscreenLoaded = s_offscreenDirty = 0;
 	s_previousOffscreenState = 0;
 #endif
@@ -706,7 +709,7 @@ void NativeRenderer_BeginScene(void)
 	{
 		const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
 		glDisable(GL_SCISSOR_TEST);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		glClear(GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #else
 		glClear(GL_STENCIL_BUFFER_BIT);
@@ -716,7 +719,7 @@ void NativeRenderer_BeginScene(void)
 			glEnable(GL_SCISSOR_TEST);
 		}
 	}
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainLoaded = 1;
 #endif
 	NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
@@ -732,7 +735,7 @@ void NativeRenderer_BeginScene(void)
 
 void NativeRenderer_EndScene(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_CommitTargets();
 	s_previousOffscreenState = 0;
 	if (s_mainRenderTarget.framebuffer)
@@ -839,7 +842,7 @@ internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target)
 
 	glGenRenderbuffers(1, &target->stencilBuffer);
 	glBindRenderbuffer(GL_RENDERBUFFER, target->stencilBuffer);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 1, 1);
 #else
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, 1, 1);
@@ -849,7 +852,7 @@ internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target)
 	glGenFramebuffers(1, &target->framebuffer);
 	glBindFramebuffer(GL_FRAMEBUFFER, target->framebuffer);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target->texture, 0);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, target->stencilBuffer);
 #else
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, target->stencilBuffer);
@@ -893,7 +896,7 @@ internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *targe
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glBindRenderbuffer(GL_RENDERBUFFER, target->stencilBuffer);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
 #else
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, width, height);
@@ -936,7 +939,7 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 	NativeRenderer_EnsureRenderTarget(&s_mainRenderTarget, physicalWidth, physicalHeight);
 	s_mainRenderTarget.logicalWidth = logicalWidth;
 	s_mainRenderTarget.logicalHeight = logicalHeight;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainDrawRect = *rect;
 #endif
 	glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
@@ -972,7 +975,7 @@ internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget 
 	glViewport(0, 0, target->width, target->height);
 	NativeRenderer_DrawVRAMRegion(x, y, logicalWidth, logicalHeight);
 	glClear(GL_STENCIL_BUFFER_BIT);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	glClear(GL_DEPTH_BUFFER_BIT);
 #endif
 	if (previousStencilEnabled)
@@ -1079,7 +1082,8 @@ typedef struct
 	GLint texelSizeLoc;
 	GLint texLoc;
 	GLint lutLoc;
-#ifndef __vita__
+	GLint textureWindowLoc;
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	GLint psxSemiTransPassLoc;
 	GLint psxDitherEnabledLoc;
 #endif
@@ -1087,7 +1091,7 @@ typedef struct
 	GLint psxTextureOutputStpLoc;
 } GTEShader;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 enum NativePsxShaderVariant
 {
 	NATIVE_PSX_SHADER_OPAQUE,
@@ -1117,7 +1121,7 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h);
 internal void NativeRenderer_ResolveVRAMRead(int x, int y, int w, int h);
 internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable GTEShader s_gteShaderVariants[4][NATIVE_PSX_SHADER_VARIANT_COUNT];
 global_variable GTEShader s_gteCachedP4ShaderVariants[NATIVE_PSX_SHADER_VARIANT_COUNT];
 global_variable GTEShader s_gteFullyOpaqueShaderVariants[2][3];
@@ -1135,7 +1139,7 @@ global_variable GTEShader s_gteShader32Rgba;
 GLint u_projectionLoc;
 GLint u_bilinearFilterLoc;
 GLint u_texelSizeLoc;
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 GLint u_psxSemiTransPassLoc;
 GLint u_psxDitherEnabledLoc;
 #endif
@@ -1144,7 +1148,7 @@ GLint u_psxTextureOutputStpLoc;
 
 internal void NativeRenderer_DestroyPSXShaders(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	for (int format = TF_4_BIT; format <= TF_32_BIT_RGBA; format++)
 	{
 		for (int variant = 0; variant < NATIVE_PSX_SHADER_VARIANT_COUNT; variant++)
@@ -1211,9 +1215,10 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #endif
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_SAMPLE_TEXTURE_4BIT_FUNC                                                                                \
 	"\tvec2 samplePSX(vec2 tc) {\n"                                                                               \
+	"\t\ttc = applyTextureWindow(tc);\n"                                                                              \
 	"\t\tvec2 texel = floor(tc);\n"                                                             \
 	"\t\tfloat texelX = texel.x;\n"                                                                            \
 	"\t\tfloat lanePhase = fract(texelX * 0.25);\n"                                                        \
@@ -1243,9 +1248,10 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"	}\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_SAMPLE_TEXTURE_8BIT_FUNC                                                                                \
 	"\tvec2 samplePSX(vec2 tc) {\n"                                                                               \
+	"\t\ttc = applyTextureWindow(tc);\n"                                                                              \
 	"\t\tfloat highByte = step(0.5, fract(floor(tc.x) * 0.5 + 0.25));\n"                                      \
 	"\t\tvec2 packedRg = VRAM((v_page_clut.xy + vec2(floor(tc.x) * 0.5 + 0.25, floor(tc.y) + 0.5)) * c_VRAMTexel);\n" \
 	"\t\tfloat paletteIndex = floor(mix(packedRg.x, packedRg.y, highByte) * 255.0 + 0.5);\n"              \
@@ -1265,9 +1271,10 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"	}\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_SAMPLE_TEXTURE_16BIT_FUNC                                                       \
 	"	vec2 samplePSX(vec2 tc) {\n"                                                          \
+	"\t\ttc = applyTextureWindow(tc);\n"                                                       \
 	"\t\treturn VRAM((v_page_clut.xy + floor(tc) + vec2(0.5)) * c_VRAMTexel);\n"             \
 	"	}\n"
 #else
@@ -1283,7 +1290,36 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"	uniform sampler2D s_texture;\n"                              \
 	"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n"
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+#define GPU_TEXTURE_WINDOW_FUNC                                                                    \
+	"\tuniform vec4 s_textureWindow;\n"                                                           \
+	"\tfloat textureWindowBit(float texel, float mask, float offset, float bitValue) {\n" \
+	"\t\tfloat sourceBit = mod(floor(texel / bitValue), 2.0);\n"                          \
+	"\t\tfloat offsetBit = mod(floor(offset / (bitValue / 8.0)), 2.0);\n"                          \
+	"\t\tfloat maskSet = mod(floor(mask / (bitValue / 8.0)), 2.0);\n"                            \
+	"\t\treturn mix(sourceBit, offsetBit, maskSet) * bitValue;\n"                          \
+	"\t}\n"                                                                                         \
+	"\tvec2 applyTextureWindow(vec2 tc) {\n"                                                        \
+	"\t\tvec2 texel = floor(tc);\n"                                                            \
+	"\t\tvec2 result = mod(texel, 8.0);\n"                                                     \
+	"\t\tresult += floor(texel / 256.0) * 256.0;\n"                                              \
+	"\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 8.0);\n" \
+	"\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 16.0);\n" \
+	"\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 32.0);\n" \
+	"\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 64.0);\n" \
+	"\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 128.0);\n" \
+	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 8.0);\n" \
+	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 16.0);\n" \
+	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 32.0);\n" \
+	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 64.0);\n" \
+	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 128.0);\n" \
+	"\t\treturn result + fract(tc);\n"                                                           \
+	"\t}\n"
+#else
+#define GPU_TEXTURE_WINDOW_FUNC "vec2 applyTextureWindow(vec2 tc) { return tc; }\n"
+#endif
+
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_STP_PASS_FUNC                                                                                 \
 	"	float texelVisible(vec2 rg) { return step(0.5 / 255.0, rg.x + rg.y); }\n"                       \
 	"	float stpWeight(vec2 rg) { return step(0.5, rg.y); }\n"                                           \
@@ -1307,7 +1343,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #define GPU_SEMI_TRANS_UNIFORM "\tuniform int psxSemiTransPass;\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_DITHERING "\tvec4 dither(vec4 color) { return color; }\n"
 #else
 #define GPU_DITHERING                                             \
@@ -1324,7 +1360,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"	}\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_PSX_COLOR_UNIFORM
 #define GPU_PSX_COLOR_DECODE                                                                                   \
 	"	vec4 decodePSX(vec2 rg) {\n"                                                                         \
@@ -1354,7 +1390,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"		gl_FragColor.a = max(psxDrawMaskSet, psxTextureOutputStp * sampledStp);\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 // This is used to simulate GL_CONSTANT_COLOR blending since sceGxm has no equivalents for them
 #define GPU_PSX_BLEND_APPLY                                                                        \
 	"#ifdef PSX_BLEND_AVERAGE\n		gl_FragColor.a = (127.0 + gl_FragColor.a) / 255.0;\n#endif\n" \
@@ -1365,7 +1401,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #define GPU_PSX_BLEND_APPLY
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_TEXTURE_SAMPLE_MAIN "		vec4 color = nearestTextureSample(v_texcoord.xy);\n"
 #else
 #define GPU_TEXTURE_SAMPLE_MAIN \
@@ -1374,6 +1410,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 
 #define GPU_FRAGMENT_SAMPLE_SHADER(bit)                                                                                                               \
 	GPU_FETCH_VRAM_FUNC                                                                                                                               \
+	GPU_TEXTURE_WINDOW_FUNC                                                                                                                          \
 	GPU_SAMPLE_TEXTURE_##bit##BIT_FUNC                                                                                                                \
 	    GPU_PSX_COLOR_UNIFORM                                                                                                                         \
 	    "#ifndef VITA_NEAREST_ONLY\n\tuniform int bilinearFilter;\n#endif\n"                                                                                 \
@@ -1436,9 +1473,31 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	    GPU_PSX_BLEND_APPLY                                                                                                                            \
 	    "	}\n"
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable const char *gte_shader_cached_p4 =
     "\tuniform sampler2D s_texture;\n"
+    "\tuniform vec4 s_textureWindow;\n"
+    "\tfloat textureWindowBit(float texel, float mask, float offset, float bitValue) {\n"
+    "\t\tfloat sourceBit = mod(floor(texel / bitValue), 2.0);\n"
+    "\t\tfloat offsetBit = mod(floor(offset / (bitValue / 8.0)), 2.0);\n"
+    "\t\tfloat maskSet = mod(floor(mask / (bitValue / 8.0)), 2.0);\n"
+    "\t\treturn mix(sourceBit, offsetBit, maskSet) * bitValue;\n"
+    "\t}\n"
+    "\tvec2 applyTextureWindow(vec2 tc) {\n"
+    "\t\tvec2 texel = floor(tc);\n"
+    "\t\tvec2 result = mod(texel, 8.0) + floor(texel / 256.0) * 256.0;\n"
+    "\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 8.0);\n"
+    "\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 16.0);\n"
+    "\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 32.0);\n"
+    "\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 64.0);\n"
+    "\t\tresult.x += textureWindowBit(texel.x, s_textureWindow.x, s_textureWindow.z, 128.0);\n"
+    "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 8.0);\n"
+    "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 16.0);\n"
+    "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 32.0);\n"
+    "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 64.0);\n"
+    "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 128.0);\n"
+    "\t\treturn result + fract(tc);\n"
+    "\t}\n"
     "\tuniform float psxDrawMaskSet;\n"
     "\tuniform float psxTextureOutputStp;\n"
     "\tfloat sampledStp = 0.0;\n"
@@ -1449,7 +1508,7 @@ global_variable const char *gte_shader_cached_p4 =
     "\t\treturn false;\n"
     "\t}\n"
     "\tvec4 nearestTextureSample(vec2 P) {\n"
-    "\t\tvec2 texel = floor(P);\n"
+    "\t\tvec2 texel = floor(applyTextureWindow(P));\n"
     "\t\tvec4 t = texture2D(s_texture, (texel + vec2(0.5)) * (1.0 / 256.0));\n"
     "\t\tfloat visible = step(0.25, t.a);\n"
     "\t\tsampledStp = step(0.75, t.a);\n"
@@ -1473,7 +1532,7 @@ global_variable const char *gpu_shader_common = "	centroid varying vec4 v_texcoo
 const char *gte_shader_4 = GPU_FRAGMENT_SAMPLE_SHADER(4);
 const char *gte_shader_8 = GPU_FRAGMENT_SAMPLE_SHADER(8);
 const char *gte_shader_16 = GPU_FRAGMENT_SAMPLE_SHADER(16);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 const char *gte_shader_untextured = "\tuniform float psxDrawMaskSet;\n"
                                     "\tvoid main() {\n"
                                     "\t\tgl_FragColor.rgb = v_color.rgb * (248.0 / 255.0);\n"
@@ -1497,7 +1556,7 @@ const char *gte_shader_32_rgba = "	uniform sampler2D s_texture;\n"
                                  "	void main() {\n"
                                  "		vec2 tc = v_texcoord.xy * texelSize + texelSize * 0.5;\n"
                                  "		vec4 color = texture2D(s_texture, tc);\n"
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
                                  "#if defined(PSX_PASS_NON_STP) || defined(PSX_PASS_STP)\n"
                                  "		if (color.a < 0.25) { discard; }\n"
                                  "		float sampledStp = step(0.75, color.a);\n"
@@ -1520,7 +1579,7 @@ const char *gte_shader_32_rgba = "	uniform sampler2D s_texture;\n"
                                  GPU_PSX_BLEND_APPLY
                                  "	}\n";
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GTE_ORDER_DEPTH_ATTRIBUTE   "\tattribute float a_orderDepth;\n"
 #define GTE_PERSPECTIVE_CORRECTION                                                                 \
 	"\tgl_Position = Projection * vec4(a_position.xy, 0.0, 1.0);\n"                           \
@@ -1530,7 +1589,7 @@ const char *gte_shader_32_rgba = "	uniform sampler2D s_texture;\n"
 #define GTE_PERSPECTIVE_CORRECTION "\tgl_Position = Projection * vec4(a_position.xy, 0.0, 1.0);\n"
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GTE_PAGE_CLUT_SETUP                                                                                     \
 	"\t\tv_page_clut.x = fract(a_position.z / 16.0) * 1024.0;\n"                                           \
 	"\t\tv_page_clut.y = floor(a_position.z / 16.0) * 256.0;\n"                                            \
@@ -1626,36 +1685,56 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	const char *GLSL_HEADER_VERT =
 #ifdef __EMSCRIPTEN__
 	                               "	#version 300 es\n"
-#else
+#elif defined(__vita__)
 	                               "	#version 140\n"
-#endif
 	                               "	precision lowp  int;\n"
 	                               "	precision highp float;\n"
-#ifndef __vita__
+#elif defined(PCSX_NATIVE_VITA_PATH)
+	                               "	#version 140\n"
+	                               "	#define varying   out\n"
+	                               "	#define attribute in\n"
+	                               "	#define texture2D texture\n"
+	                               "	#define lowp\n"
+	                               "	#define mediump\n"
+	                               "	#define highp\n"
+#else
+	                               "	#version 140\n"
+	                               "	precision lowp  int;\n"
+	                               "	precision highp float;\n"
 	                               "	#define varying   out\n"
 	                               "	#define attribute in\n"
 	                               "	#define texture2D texture\n"
 #endif
-								   ;
+	                               ;
 
 	const char *GLSL_HEADER_FRAG =
 #ifdef __EMSCRIPTEN__
 	                               "	#version 300 es\n"
-#else
+#elif defined(__vita__)
 	                               "	#version 140\n"
-#endif
 	                               "	precision lowp  int;\n"
 	                               "	precision highp float;\n"
-#ifndef __vita__
+#elif defined(PCSX_NATIVE_VITA_PATH)
+	                               "	#version 140\n"
+	                               "	#define varying     in\n"
+	                               "	#define texture2D   texture\n"
+	                               "	#define lowp\n"
+	                               "	#define mediump\n"
+	                               "	#define highp\n"
+	                               "	out vec4 fragColor;\n"
+	                               "	#define gl_FragColor fragColor\n"
+#else
+	                               "	#version 140\n"
+	                               "	precision lowp  int;\n"
+	                               "	precision highp float;\n"
 	                               "	#define varying     in\n"
 	                               "	#define texture2D   texture\n"
 	                               "	out vec4 fragColor;\n"
 #ifdef __EMSCRIPTEN__
-	                               "\t#define gl_FragColor fragColor\n"
+	                               "	#define gl_FragColor fragColor\n"
 #endif
 #endif
 	                               ;
-
 	char extra_vs_defines[1024];
 	char extra_fs_defines[1024];
 	char vramHeightDefine[64];
@@ -1671,7 +1750,7 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	{
 		strcat(extra_fs_defines, fragmentDefines);
 	}
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	strcat(extra_fs_defines, "#define VITA_NEAREST_ONLY\n");
 #endif
 	if (g_cfg_bilinearFiltering)
@@ -1755,7 +1834,7 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	glBindAttribLocation(program, a_texcoord, "a_texcoord");
 	glBindAttribLocation(program, a_color, "a_color");
 	glBindAttribLocation(program, a_extra, "a_extra");
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	glBindAttribLocation(program, a_order_depth, "a_orderDepth");
 #endif
 
@@ -1772,7 +1851,7 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 	GLint presentLutSampler = 2;
 	glUseProgram(program);
 	glUniform1iv(glGetUniformLocation(program, "s_texture"), 1, &textureSampler);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	GLint lutSampler = 1;
 	glUniform1iv(glGetUniformLocation(program, "s_rgLut"), 1, &lutSampler);
 #endif
@@ -1799,7 +1878,7 @@ internal void NativeRenderer_GenerateCommonTextures(void)
 		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glGenTextures(1, &s_rgLutTexture);
 	{
 		// Texture unit 1 is reserved for the immutable PSX color lookup table.
@@ -1816,7 +1895,7 @@ internal void NativeRenderer_GenerateCommonTextures(void)
 	}
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	for (u16 y = 0; y < LUT_HEIGHT; y++)
 	{
 		u8 *row = rgLUT + y * (LUT_WIDTH * 4);
@@ -1859,7 +1938,8 @@ internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, 
 	sh->texelSizeLoc = glGetUniformLocation(sh->shader, "texelSize");
 	sh->texLoc = glGetUniformLocation(sh->shader, "s_texture");
 	sh->lutLoc = glGetUniformLocation(sh->shader, "s_rgLut");
-#ifndef __vita__
+	sh->textureWindowLoc = glGetUniformLocation(sh->shader, "s_textureWindow");
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	sh->psxSemiTransPassLoc = glGetUniformLocation(sh->shader, "psxSemiTransPass");
 	sh->psxDitherEnabledLoc = glGetUniformLocation(sh->shader, "psxDitherEnabled");
 #endif
@@ -1870,7 +1950,7 @@ internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, 
 
 internal int NativeRenderer_InitialisePSXShaders(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	local_persist const char *variantDefines[NATIVE_PSX_SHADER_VARIANT_COUNT] = {
 	    "",
 	    "#define PSX_BLEND_AVERAGE\n",
@@ -1942,7 +2022,7 @@ internal int NativeRenderer_InitialisePSXShaders(void)
 	return 1;
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable const char *ctr_pack_shader = "#ifdef VERTEX\n"
                                               "attribute vec2 a_position;\n"
                                               "varying vec2 v_uv;\n"
@@ -2034,7 +2114,7 @@ global_variable const char *ctr_present_vram_shader = "#ifdef VERTEX\n"
                                                       "#endif\n";
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable const char *ctr_present_rgba_shader = "#ifdef VERTEX\n"
                                                        "attribute vec2 a_position;\n"
                                                        "varying vec2 v_uv;\n"
@@ -2092,7 +2172,7 @@ global_variable const char *ctr_present_rgba_shader = "#ifdef VERTEX\n"
                                                        "#endif\n";
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable const char *ctr_vram_upload_shader = "#ifdef VERTEX\n"
                                                     "attribute vec2 a_position;\n"
                                                     "uniform vec4 targetRect;\n"
@@ -2139,7 +2219,7 @@ internal int NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(s_presentRgbaShader);
 	const GLint presentRgbaSrcLoc = glGetUniformLocation(s_presentRgbaShader, "s_src");
 	s_presentRgbaFlipYLoc = glGetUniformLocation(s_presentRgbaShader, "flipY");
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	s_presentRgbaTexelSizeLoc = glGetUniformLocation(s_presentRgbaShader, "texelSize");
 	s_presentRgbaFxaaLoc = glGetUniformLocation(s_presentRgbaShader, "fxaaEnabled");
 #endif
@@ -2147,7 +2227,7 @@ internal int NativeRenderer_InitVRAMPipelines(void)
 	glUniform1f(s_presentRgbaFlipYLoc, 0.0f);
 	glUseProgram(0);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_vramUploadShader = NativeRenderer_Shader_Compile(ctr_vram_upload_shader, false, NULL);
 	if (s_vramUploadShader == 0)
 	{
@@ -2190,7 +2270,7 @@ internal void NativeRenderer_InitRG8LUT(void)
 
 int NativeRenderer_InitialisePSX(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainLoaded = s_mainDirty = s_offscreenLoaded = s_offscreenDirty = 0;
 	s_previousOffscreenState = 0;
 #endif
@@ -2201,7 +2281,7 @@ int NativeRenderer_InitialisePSX(void)
 	s_vram.cpuDirtyRects[0].h = VRAM_HEIGHT;
 	s_vram.cpuDirtyRectCount = 1;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	SDL_memset(s_p4Cache, 0, sizeof(s_p4Cache));
 	s_p4CacheUseCounter = 0;
 	s_p4FrameSerial = 1;
@@ -2223,7 +2303,7 @@ int NativeRenderer_InitialisePSX(void)
 
 	glDepthFunc(GL_LEQUAL);
 	glEnable(GL_STENCIL_TEST);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glBlendColor(0.5f, 0.5f, 0.5f, 0.25f);
 #endif
 
@@ -2250,7 +2330,7 @@ int NativeRenderer_InitialisePSX(void)
 		{
 			glBindFramebuffer(GL_FRAMEBUFFER, s_glVramFramebuffer);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_vram.texture, 0);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 #else
@@ -2275,7 +2355,7 @@ int NativeRenderer_InitialisePSX(void)
 		{
 			glBindVertexArray(s_glVertexArray[i]);
 			glBindBuffer(GL_ARRAY_BUFFER, s_glVertexBuffer[i]);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 			// Initialise vitaGL's VBO metadata. Each submitted batch later replaces this pointer with mapped scratch storage, without a copy.
 			glBufferData(GL_ARRAY_BUFFER, sizeof(GrVertex), NULL, GL_STREAM_DRAW);
 #else
@@ -2285,7 +2365,7 @@ int NativeRenderer_InitialisePSX(void)
 			glEnableVertexAttribArray(a_texcoord);
 			glEnableVertexAttribArray(a_color);
 			glEnableVertexAttribArray(a_extra);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 			glEnableVertexAttribArray(a_order_depth);
 #endif
 
@@ -2293,7 +2373,7 @@ int NativeRenderer_InitialisePSX(void)
 			glVertexAttribPointer(a_texcoord, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof(GrVertex), &((GrVertex *)NULL)->u);
 			glVertexAttribPointer(a_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(GrVertex), &((GrVertex *)NULL)->r);
 			glVertexAttribPointer(a_extra, 4, GL_BYTE, GL_FALSE, sizeof(GrVertex), &((GrVertex *)NULL)->tcx);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 			glVertexAttribPointer(a_order_depth, 1, GL_UNSIGNED_SHORT, GL_FALSE, sizeof(GrVertex), &((GrVertex *)NULL)->orderDepth);
 #endif
 		}
@@ -2302,7 +2382,7 @@ int NativeRenderer_InitialisePSX(void)
 	}
 
 	NativeRenderer_ResetDevice();
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_vitaVramTransferPixels == NULL)
 	{
 		s_vitaVramTransferPixels = (u8 *)vglMemalign(64, NATIVE_VITA_VRAM_TRANSFER_BYTES);
@@ -2336,7 +2416,7 @@ internal void NativeRenderer_Ortho2D(float left, float right, float bottom, floa
 
 void NativeRenderer_SetupClipMode(const RECT16 *rect, const DISPENV *displayEnv, int enable)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	(void)displayEnv;
 	NativeRenderer_SetScissorState(enable != 0);
 	if (enable)
@@ -2417,9 +2497,9 @@ internal void NativeRenderer_SetShader(const ShaderID shader)
 }
 
 void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiTransPass, BlendMode blendMode, int textured, int superTurboTint,
-                               int textureFullyOpaque, int cachedP4)
+                               int textureFullyOpaque, int cachedP4, const RECT16 *textureWindow)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	(void)superTurboTint;
 	int variant;
 	if (semiTransPass == 1)
@@ -2498,12 +2578,17 @@ void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiT
 	u_bilinearFilterLoc = shader->bilinearFilterLoc;
 	u_projectionLoc = shader->projectionLoc;
 	u_texelSizeLoc = texFormat == TF_32_BIT_RGBA ? shader->texelSizeLoc : -1;
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	u_psxSemiTransPassLoc = shader->psxSemiTransPassLoc;
 	u_psxDitherEnabledLoc = shader->psxDitherEnabledLoc;
 #endif
 	u_psxDrawMaskSetLoc = shader->psxDrawMaskSetLoc;
 	u_psxTextureOutputStpLoc = shader->psxTextureOutputStpLoc;
+	if (shader->textureWindowLoc >= 0 && textureWindow != NULL)
+	{
+		glUniform4f(shader->textureWindowLoc, (float)textureWindow->w, (float)textureWindow->h,
+		            (float)textureWindow->x, (float)textureWindow->y);
+	}
 
 	if (g_dbg_texturelessMode)
 	{
@@ -2515,7 +2600,7 @@ void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiT
 	{
 		glUniform1i(u_bilinearFilterLoc, g_cfg_bilinearFiltering);
 	}
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	if (u_psxSemiTransPassLoc >= 0)
 	{
 		glUniform1i(u_psxSemiTransPassLoc, semiTransPass);
@@ -2622,7 +2707,7 @@ internal int NativeRenderer_ClipVRAMRect(RECT16 *out, int x, int y, int w, int h
 	return 1;
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal int NativeRenderer_HasGpuNewerVRAMTiles(int x, int y, int w, int h)
 {
 	const int tileX0 = x / NATIVE_VRAM_TILE_SIZE;
@@ -2776,8 +2861,12 @@ internal void NativeRenderer_UpdateP4Buffer(struct NativeP4CacheEntry *entry, in
 
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, entry->texture[bufferIndex]);
+#if defined(PCSX_NATIVE_VITA_PATH) && !defined(__vita__)
+	PCSXMacVitaGL_UploadP4Texture(TPAGE_WIDTH, TPAGE_HEIGHT, s_p4UploadData);
+#else
 	glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_PALETTE4_RGBA8_OES, TPAGE_WIDTH, TPAGE_HEIGHT, 0,
 	                       NATIVE_P4_UPLOAD_BYTES, s_p4UploadData);
+#endif
 	s_lastBoundTexture = (TextureID)-1;
 	entry->bufferPageVersion[bufferIndex] = entry->pageVersion;
 	entry->bufferPaletteVersion[bufferIndex] = entry->paletteVersion;
@@ -3039,7 +3128,7 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 		return;
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainLoaded = s_offscreenLoaded = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
@@ -3056,7 +3145,7 @@ internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h)
 		return;
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
@@ -3264,18 +3353,18 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	NativeRenderer_UpdateVRAM();
 
 	GLint previousReadFramebuffer;
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	GLint previousPackRowLength;
 	GLint previousPackAlignment;
 #endif
 	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glGetIntegerv(GL_PACK_ROW_LENGTH, &previousPackRowLength);
 	glGetIntegerv(GL_PACK_ALIGNMENT, &previousPackAlignment);
 #endif
 
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, s_glVramFramebuffer);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glPixelStorei(GL_PACK_ROW_LENGTH, VRAM_WIDTH);
 	glPixelStorei(GL_PACK_ALIGNMENT, sizeof(u16));
 	glReadPixels(readRect.x, readRect.y, readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE,
@@ -3290,6 +3379,7 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	/* The pack viewport stores guest Y directly in this FBO. With VitaGL's
 	 * default flipped FBOs, GPU transfer readback also addresses those rows
 	 * directly; converting Y again selects the opposite VRAM window. */
+	#if !defined(__vita__)
 	if (!vglReadPixelsChecked(readRect.x, readRect.y,
 	                          readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels))
 	{
@@ -3297,6 +3387,9 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previousReadFramebuffer);
 		return;
 	}
+	#else
+	vglReadPixels(readRect.x, readRect.y, readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
+	#endif
 	for (int row = 0; row < readRect.h; row++)
 	{
 		const u8 *src = s_vitaVramTransferPixels + (size_t)row * readRect.w * 4;
@@ -3317,7 +3410,7 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 		}
 	}
 
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glPixelStorei(GL_PACK_ROW_LENGTH, previousPackRowLength);
 	glPixelStorei(GL_PACK_ALIGNMENT, previousPackAlignment);
 #endif
@@ -3341,7 +3434,7 @@ internal int NativeRenderer_RectEquals(const RECT16 *a, const RECT16 *b)
 
 internal void NativeRenderer_FlushOffscreenToVRAM(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (!s_offscreenDirty)
 		return;
 	s_offscreenDirty = 0;
@@ -3354,7 +3447,7 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	// NOTE(aalhendi): Native offscreen draws produce RGBA pixels. Pack them into the persistent 5:5:5:1 VRAM texture instead of reading them through the CPU.
 	NativeRenderer_GpuPackTextureToVRAM(s_offscreenRenderTarget.texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
 	                                    s_previousOffscreen.h, true);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	/* Returning to main must include any offscreen writes in VRAM. */
 	s_mainLoaded = 0;
 #endif
@@ -3362,7 +3455,7 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 
 internal void NativeRenderer_FlushMainToVRAM(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_mainDirty)
 		NativeRenderer_StoreFrameBuffer(s_mainDrawRect.x, s_mainDrawRect.y, s_mainDrawRect.w, s_mainDrawRect.h);
 #endif
@@ -3370,7 +3463,7 @@ internal void NativeRenderer_FlushMainToVRAM(void)
 
 internal void NativeRenderer_CommitTargets(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_FlushMainToVRAM();
 	NativeRenderer_FlushOffscreenToVRAM();
 #endif
@@ -3396,7 +3489,7 @@ internal void NativeRenderer_SetScissorState(int enable)
 
 void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (offscreenRect->w <= 0 || offscreenRect->h <= 0)
 		return;
 	if (enable)
@@ -3471,7 +3564,7 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 
 void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *displayEnv, int offscreen)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	(void)displayEnv;
 	(void)offscreen;
 	NativeRenderer_Ortho2D(0, drawRect->w, drawRect->h, 0, -1.0f, 1.0f);
@@ -3567,7 +3660,7 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (!s_mainDirty)
 		return;
 	s_mainDirty = 0;
@@ -3679,7 +3772,7 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 		return 0;
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainDirty = s_offscreenDirty = 0;
 #endif
 	SDL_memcpy(s_vram.cpuPixels, src, activeVramBytes);
@@ -3702,7 +3795,7 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 	return 1;
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal void NativeRenderer_UploadVRAMRects(s32 rectCount)
 {
 	GLint previousFramebuffer;
@@ -3788,7 +3881,7 @@ void NativeRenderer_UpdateVRAM(void)
 	const s32 rectCount = s_vram.cpuDirtyRectCount;
 	s_vram.cpuDirtyRectCount = 0;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_UploadVRAMRects(rectCount);
 #else
 	glActiveTexture(GL_TEXTURE0);
@@ -3877,7 +3970,7 @@ void NativeRenderer_PresentMainRenderTarget(void)
 
 	glUseProgram(s_presentRgbaShader);
 	glUniform1f(s_presentRgbaFlipYLoc, 0.0f);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	if (s_presentRgbaTexelSizeLoc >= 0)
 	{
 		glUniform2f(s_presentRgbaTexelSizeLoc, 1.0f / (float)s_mainRenderTarget.width, 1.0f / (float)s_mainRenderTarget.height);
@@ -3889,14 +3982,14 @@ void NativeRenderer_PresentMainRenderTarget(void)
 #endif
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, s_mainRenderTarget.texture);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	// FXAA uses subpixel samples from the final native-resolution render target.
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 #endif
 	glBindVertexArray(s_vramQuadVAO);
 	NativeRenderer_DrawTriangles(0, 2);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 #endif
@@ -3930,13 +4023,13 @@ internal b32 NativeRenderer_LoadGhostReplayOverlay(void)
 {
 	u8 *pixels = NULL;
 	u8 highlight[32 * 32 * 4];
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	u8 shoulder[2][48 * 16 * 4];
 #endif
 
 	if (s_ghostReplayOverlayLoadAttempted)
 	{
-	#ifdef __vita__
+	#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		return (s_ghostReplayControllerTexture != 0) && (s_ghostReplayHighlightTexture != 0) &&
 		       (s_ghostReplayShoulderTexture[0] != 0) && (s_ghostReplayShoulderTexture[1] != 0);
 	#else
@@ -3945,7 +4038,7 @@ internal b32 NativeRenderer_LoadGhostReplayOverlay(void)
 	}
 	s_ghostReplayOverlayLoadAttempted = true;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	png_image image;
 	memset(&image, 0, sizeof(image));
 	image.version = PNG_IMAGE_VERSION;
@@ -4004,7 +4097,7 @@ internal b32 NativeRenderer_LoadGhostReplayOverlay(void)
 	}
 	s_ghostReplayHighlightTexture = NativeRenderer_CreateGhostReplayTexture(32, 32, highlight);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	const int shoulderImageX[2] = {16, 237};
 	for (int side = 0; side < 2; side++)
 	{
@@ -4029,14 +4122,14 @@ internal b32 NativeRenderer_LoadGhostReplayOverlay(void)
 	}
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	free(pixels);
 	png_image_free(&image);
 #else
 	stbi_image_free(pixels);
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	return (s_ghostReplayControllerTexture != 0) && (s_ghostReplayHighlightTexture != 0) &&
 	       (s_ghostReplayShoulderTexture[0] != 0) && (s_ghostReplayShoulderTexture[1] != 0);
 #else
@@ -4054,7 +4147,7 @@ internal void NativeRenderer_DrawGhostReplayQuad(TextureID texture, int x, int y
 	NativeRenderer_SetViewPort(x, y, width, height);
 	glUseProgram(s_presentRgbaShader);
 	glUniform1f(s_presentRgbaFlipYLoc, 1.0f);
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	if (s_presentRgbaFxaaLoc >= 0)
 	{
 		glUniform1i(s_presentRgbaFxaaLoc, 0);
@@ -4076,7 +4169,7 @@ internal void NativeRenderer_DrawGhostReplayHighlight(int overlayX, int overlayY
 	NativeRenderer_DrawGhostReplayQuad(s_ghostReplayHighlightTexture, centerX - scaledW / 2, centerY - scaledH / 2, scaledW, scaledH);
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal void NativeRenderer_DrawGhostReplayImageRegion(TextureID texture, int overlayX, int overlayY, int overlayW, int overlayH,
 	                                                     int imageX, int imageY, int imageW, int imageH)
 {
@@ -4101,7 +4194,7 @@ void NativeRenderer_DrawGhostReplayOverlay(void)
 		return;
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	const int overlayW = (s_presentViewport.w * 23) / 100;
 #else
 	const int overlayW = (s_presentViewport.w * 25) / 100;
@@ -4113,7 +4206,7 @@ void NativeRenderer_DrawGhostReplayOverlay(void)
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	NativeRenderer_SetScissorState(0);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_EnableDepth(0);
 	NativeRenderer_SetBlendMode(BM_AVERAGE);
 #else
@@ -4128,7 +4221,7 @@ void NativeRenderer_DrawGhostReplayOverlay(void)
 
 	NativeRenderer_DrawGhostReplayQuad(s_ghostReplayControllerTexture, overlayX, overlayY, overlayW, overlayH);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if ((buttonsHeld & BTN_UP) != 0)       NativeRenderer_DrawGhostReplayHighlight(overlayX, overlayY, overlayW, overlayH, 28, 39, 14, 14);
 	if ((buttonsHeld & BTN_DOWN) != 0)     NativeRenderer_DrawGhostReplayHighlight(overlayX, overlayY, overlayW, overlayH, 28, 62, 14, 14);
 	if ((buttonsHeld & BTN_LEFT) != 0)     NativeRenderer_DrawGhostReplayHighlight(overlayX, overlayY, overlayW, overlayH, 17, 51, 14, 14);
@@ -4189,7 +4282,7 @@ void NativeRenderer_DrawGhostReplayOverlay(void)
 	{
 		glEnable(GL_STENCIL_TEST);
 	}
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_SetBlendMode(BM_NONE);
 #else
 	glDisable(GL_BLEND);
@@ -4237,7 +4330,7 @@ void NativeRenderer_PresentStreamingTexture(TextureID texture, int contentHeight
 	s_lastBoundTexture = (TextureID)-1;
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 static void NativeRenderer_PresentRGB24(const DISPENV *display)
 {
 	static TextureID texture;
@@ -4272,7 +4365,7 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 void NativeRenderer_PresentVRAMDisplay(void)
 {
 	const DISPENV *display = NativeGpu_GetRenderDispEnv();
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (display->isrgb24)
 	{
 		NativeRenderer_PresentRGB24(display);
@@ -4284,7 +4377,7 @@ void NativeRenderer_PresentVRAMDisplay(void)
 
 void NativeRenderer_SwapWindow(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	#if defined(VITA_CTR_GPU_TRACE)
 	static int traceSwapCount;
 	if (traceSwapCount++ < 2 && s_vitaVramTransferPixels != NULL && s_presentViewport.w > 0 && s_presentViewport.h > 0)
@@ -4313,7 +4406,7 @@ void NativeRenderer_SetDepthState(int enable, int write)
 	if (s_previousDepthMode != enable)
 	{
 		s_previousDepthMode = enable;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		if (enable)
 		{
 			glEnable(GL_DEPTH_TEST);
@@ -4327,7 +4420,7 @@ void NativeRenderer_SetDepthState(int enable, int write)
 #endif
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_previousDepthWrite != write)
 	{
 		s_previousDepthWrite = write;
@@ -4375,7 +4468,7 @@ void NativeRenderer_SetBlendMode(BlendMode blendMode)
 	{
 		if (s_previousBlendMode == BM_NONE)
 		{
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 			glBlendColor(0.25f, 0.25f, 0.25f, 0.5f);
 #endif
 			glEnable(GL_BLEND);
@@ -4389,7 +4482,7 @@ void NativeRenderer_SetBlendMode(BlendMode blendMode)
 	case BM_NONE:
 		if (s_previousBlendMode != BM_NONE)
 		{
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 			glBlendColor(1.f, 1.f, 1.f, 1.f);
 #endif
 			glDisable(GL_BLEND);
@@ -4399,7 +4492,7 @@ void NativeRenderer_SetBlendMode(BlendMode blendMode)
 		break;
 	case BM_AVERAGE:
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
 #else
 		// NOTE(aalhendi): keep RGB blend weight constant so alpha can carry the PS1 mask bit.
@@ -4416,7 +4509,7 @@ void NativeRenderer_SetBlendMode(BlendMode blendMode)
 		break;
 	case BM_ADD_QUATER_SOURCE:
 		glBlendEquationSeparate(GL_FUNC_ADD, GL_FUNC_ADD);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		glBlendFuncSeparate(GL_ONE, GL_ONE, GL_ONE, GL_ZERO);
 #else
 		glBlendFuncSeparate(GL_CONSTANT_COLOR, GL_ONE, GL_ONE, GL_ZERO);
@@ -4430,7 +4523,7 @@ void NativeRenderer_SetBlendMode(BlendMode blendMode)
 
 void NativeRenderer_SetMixedSTPBlendMode(BlendMode blendMode)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_previousBlendMode == blendMode && s_previousMixedSTPBlend)
 	{
 		return;
@@ -4484,13 +4577,13 @@ void NativeRenderer_UpdateVertexBuffer(const GrVertex *vertices, int num_vertice
 	}
 
 	const int bufferIndex = s_curVertexBuffer;
-#ifndef __vita__
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	s_curVertexBuffer = (s_curVertexBuffer + 1) % MAX_NUM_VERTEX_BUFFERS;
 #endif
 	s_boundVertexBuffer = bufferIndex;
 	glBindVertexArray(s_glVertexArray[bufferIndex]);
 	glBindBuffer(GL_ARRAY_BUFFER, s_glVertexBuffer[bufferIndex]);
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	GrVertex *gpuVertices = NativeRenderer_AllocateVertexBuffer(num_vertices);
 	if (gpuVertices == NULL)
 	{
@@ -4506,7 +4599,7 @@ void NativeRenderer_UpdateVertexBuffer(const GrVertex *vertices, int num_vertice
 
 GrVertex *NativeRenderer_AllocateVertexBuffer(int count)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (count <= 0 || (u32)count > MAX_VERTEX_BUFFER_SIZE)
 	{
 		return NULL;
@@ -4542,7 +4635,7 @@ void NativeRenderer_DrawTriangles(int start_vertex, int triangles)
 
 void NativeRenderer_PushDebugLabel(const char *label)
 {
-#if !defined(__vita__) && !defined(__EMSCRIPTEN__)
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH) && !defined(__EMSCRIPTEN__)
 	if (!GLAD_GL_KHR_debug)
 	{
 		return;
@@ -4553,7 +4646,7 @@ void NativeRenderer_PushDebugLabel(const char *label)
 
 void NativeRenderer_PopDebugLabel(void)
 {
-#if !defined(__vita__) && !defined(__EMSCRIPTEN__)
+#if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH) && !defined(__EMSCRIPTEN__)
 	if (!GLAD_GL_KHR_debug)
 	{
 		return;

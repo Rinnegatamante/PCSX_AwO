@@ -41,7 +41,7 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 void NativeRenderer_SetupClipMode(const RECT16 *clipRect, const DISPENV *displayEnv, int enable);
 void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiTransPass,
                                BlendMode blendMode, int textured, int superTurboTint,
-                               int textureFullyOpaque, int cachedP4);
+                               int textureFullyOpaque, int cachedP4, const RECT16 *textureWindow);
 void NativeRenderer_SetOverrideTextureSize(int width, int height);
 void NativeRenderer_SetPSXTextureSemiTransPass(int pass);
 void NativeRenderer_SetPSXTextureOutputSTP(int enabled);

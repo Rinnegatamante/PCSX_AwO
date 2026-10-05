@@ -2,14 +2,19 @@
 CC := xcrun clang
 .DEFAULT_GOAL := all
 CXX := xcrun clang++
+GPU ?= neon
+ifeq ($(GPU),vitagl-like)
+BUILD ?= build/mac-harness-vitagl-like
+else
 BUILD ?= build/mac-harness
+endif
 TARGET := $(BUILD)/pcsx-harness
 BOARD ?= 1
 HAVE_CHD ?= 1
 SYSTEM12_TIMING ?= 0
 DRC ?= 0
 CFLAGS := -arch arm64 -O2 -g -std=gnu99 -Wall -Wno-unknown-pragmas \
-  -I$(BUILD) -Iinclude -Ifrontend -include stdio.h -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD \
+  -I$(BUILD) -Iinclude -Ifrontend -include stdio.h \
   -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP -DP_HAVE_MMAP=1 \
   -DP_HAVE_POSIX_MEMALIGN=1 -DDISABLE_MEM_LUTS=0 \
   -ffunction-sections -fdata-sections
@@ -21,8 +26,25 @@ SOURCES := $(addprefix libpcsxcore/,$(addsuffix .c,$(CORE))) \
   plugins/dfsound/dma.c plugins/dfsound/freeze.c plugins/dfsound/registers.c \
   plugins/dfsound/spu.c plugins/dfsound/out.c plugins/dfsound/nullsnd.c \
   plugins/gpulib/gpu.c plugins/gpulib/vout_pl.c plugins/gpulib/prim.c \
-  plugins/gpu_neon/psx_gpu_if.c plugins/gpu_neon/psx_gpu/psx_gpu_simd.c \
-  frontend/plugin.c frontend/mac_harness.c frontend/mac_harness_gpu.c
+  frontend/plugin.c frontend/mac_harness.c
+ifeq ($(GPU),neon)
+CFLAGS += -DGPU_NEON -DNEON_BUILD -DSIMD_BUILD
+SOURCES += plugins/gpu_neon/psx_gpu_if.c plugins/gpu_neon/psx_gpu/psx_gpu_simd.c \
+  frontend/mac_harness_gpu.c
+else ifeq ($(GPU),vitagl-like)
+SDL3_CFLAGS := $(shell pkg-config --cflags sdl3)
+SDL3_LIBS := $(shell pkg-config --libs sdl3)
+LIBPNG_CFLAGS := $(shell pkg-config --cflags libpng)
+LIBPNG_LIBS := $(shell pkg-config --libs libpng)
+CFLAGS += -DPCSX_NATIVE_VITA_PATH=1 -DGPU_VITA_CTR $(SDL3_CFLAGS) $(LIBPNG_CFLAGS) \
+  -DGL_SILENCE_DEPRECATION -Iplugins/gpu_vita_ctr/include
+SOURCES += plugins/gpu_vita_ctr/gpulib_if.c plugins/gpu_vita_ctr/native_gpu.c \
+  plugins/gpu_vita_ctr/native_renderer.c plugins/gpu_vita_ctr/mac_vita_compat.c \
+  frontend/mac_harness_gpu.c
+GPU_LIBS += $(SDL3_LIBS) $(LIBPNG_LIBS) -framework OpenGL
+else
+$(error Unsupported GPU '$(GPU)'; choose neon or vitagl-like)
+endif
 ifeq ($(DRC),1)
 CFLAGS += -DBASE_ADDR_DYNAMIC
 SOURCES += libpcsxcore/new_dynarec/new_dynarec.c libpcsxcore/new_dynarec/pcsxmem.c
@@ -81,7 +103,7 @@ $(BUILD)/libpcsxcore/arcade/tms57002/tmsops.o: $(GNET_TMS_HEADER)
 .PHONY: all clean smoke board-test system11-test system10-test systemgv-test capcom-zn-test taito-fx1-test systemgnet-test gpu-type1-test devices-test FORCE
 all: $(TARGET)
 $(TARGET): $(OBJECTS)
-	$(CXX) -arch arm64 -Wl,-dead_strip -o $@ $^ -lz -lm
+	$(CXX) -arch arm64 -Wl,-dead_strip -o $@ $^ -lz -lm $(GPU_LIBS)
 $(BUILD)/revision.h:
 	@mkdir -p $(BUILD)
 	@echo '#define REV "mac-harness"' > $@

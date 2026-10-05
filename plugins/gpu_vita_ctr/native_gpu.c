@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 #include <macros.h>
+#include "platform/native_vita_path.h"
 #include "platform/native_gpu.h"
 
 #include <platform.h>
@@ -83,7 +84,7 @@ typedef struct
 	TextureID textureId;
 
 	int drawPrimMode;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	RECT16 clearRect;
 	u8 clearR;
 	u8 clearG;
@@ -93,13 +94,15 @@ typedef struct
 	bool psxTextureOutputSTP;
 	bool psxDrawMaskSet;
 	bool superTurboTint;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	bool psxTextureFullyOpaque;
 	bool p4CacheEligible;
 	bool p4SuperTurboTint;
 	s16 p4Page;
 	u16 p4Clut;
 #endif
+	s16 overrideTextureWidth;
+	s16 overrideTextureHeight;
 	u8 psxSemiTransPassMask;
 
 	u16 startVertex;
@@ -121,12 +124,12 @@ typedef struct
 	int drawPrimMode;
 	bool psxDrawMaskSet;
 	bool framebufferFeedbackRunActive;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	u32 primitiveOrder;
 	u16 currentPrimitiveOrder;
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	GrVertex *vertexBuffer;
 	GPUDrawSplit *splits;
 #else
@@ -137,7 +140,7 @@ typedef struct
 	int splitIndex;
 } NativeGpuState;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 typedef struct
 {
 	GrVertex vertices[MAX_VERTEX_BUFFER_SIZE];
@@ -155,6 +158,7 @@ global_variable NativeGpuFramePacket s_gpuFramePackets[NATIVE_GPU_FRAME_PACKET_C
 global_variable int s_gpuFrontendPacketIndex;
 global_variable int s_gpuFrontendFramePrepared;
 global_variable int s_gpuSynchronousFrame;
+#ifdef __vita__
 global_variable NativeGpuFramePacket *s_gpuBackendPacket;
 global_variable NativeGpuBackendTaskFn s_gpuBackendTask;
 global_variable void *s_gpuBackendTaskArg;
@@ -174,6 +178,7 @@ global_variable int s_gpuBackendInitWidth;
 global_variable int s_gpuBackendInitHeight;
 global_variable int s_gpuBackendInitSucceeded;
 #endif
+#endif
 
 global_variable GrVertex *s_gpuDrawVertices;
 global_variable GPUDrawSplit *s_gpuDrawSplits;
@@ -186,20 +191,22 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 
 void NativeGpu_ResetOrderDepth(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_gpu.primitiveOrder = 0;
 	s_gpu.currentPrimitiveOrder = 0;
 #endif
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal void NativeGpu_BindFrontendPacket(void)
 {
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
 	s_gpu.vertexBuffer = packet->vertices;
 	s_gpu.splits = packet->splits;
 }
+#endif
 
+#ifdef __vita__
 internal void NativeGpu_BackendLock(void)
 {
 	sceKernelLockLwMutex(&s_gpuBackendMutex, 1, NULL);
@@ -417,6 +424,14 @@ int NativeGpu_InitBackend(int width, int height)
 	}
 	s_gpuBackendEnabled = 1;
 	return 1;
+#elif defined(PCSX_NATIVE_VITA_PATH)
+	(void)width;
+	(void)height;
+	s_gpuFrontendPacketIndex = 0;
+	s_gpuFrontendFramePrepared = 0;
+	s_gpuSynchronousFrame = 0;
+	NativeGpu_BindFrontendPacket();
+	return 1;
 #else
 	(void)width;
 	(void)height;
@@ -502,7 +517,7 @@ void NativeGpu_ShutdownBackend(void)
 
 void NativeGpu_BeginFrontendFrame(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeGpu_BindFrontendPacket();
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
 	packet->drawEnv = activeDrawEnv;
@@ -517,7 +532,7 @@ void NativeGpu_BeginFrontendFrame(void)
 
 void NativeGpu_SetFrontendDrawEnv(const DRAWENV *env)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpuFrontendFramePrepared && env != NULL)
 	{
 		s_gpuFramePackets[s_gpuFrontendPacketIndex].drawEnv = *env;
@@ -529,7 +544,7 @@ void NativeGpu_SetFrontendDrawEnv(const DRAWENV *env)
 
 void NativeGpu_SetFrontendDispEnv(const DISPENV *env)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpuFrontendFramePrepared && env != NULL)
 	{
 		s_gpuFramePackets[s_gpuFrontendPacketIndex].dispEnv = *env;
@@ -540,7 +555,7 @@ void NativeGpu_SetFrontendDispEnv(const DISPENV *env)
 }
 void NativeGpu_SetFrontendDisplayBlank(int blank)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpuFrontendFramePrepared)
 	{
 		s_gpuFramePackets[s_gpuFrontendPacketIndex].blankDisplay = blank != 0;
@@ -586,6 +601,12 @@ void NativeGpu_ForceSynchronousFrame(void)
         NativeGpu_RunBackendTaskSync(NativeGpu_BackendBeginSceneTask, NULL);
         s_gpuSynchronousFrame = 1;
     }
+#elif defined(PCSX_NATIVE_VITA_PATH)
+	if (!s_gpuSynchronousFrame)
+	{
+		Platform_BeginScene();
+		s_gpuSynchronousFrame = 1;
+	}
 #endif
 }
 
@@ -603,6 +624,8 @@ void NativeGpu_FlushFrontendSplitsSync(void)
 	task.splitCount = s_gpu.splitIndex;
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendDrawTaskMain, &task);
 	ClearSplits();
+	#elif defined(PCSX_NATIVE_VITA_PATH)
+	DrawAllSplits();
 #else
 	DrawAllSplits();
 #endif
@@ -619,12 +642,20 @@ void NativeGpu_FinishSynchronousFrame(void)
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendEndSceneTask, NULL);
 	s_gpuSynchronousFrame = 0;
 	s_gpuFrontendFramePrepared = 0;
+#elif defined(PCSX_NATIVE_VITA_PATH)
+	if (s_gpuSynchronousFrame)
+	{
+		NativeGpu_FlushFrontendSplitsSync();
+		Platform_EndScene();
+		s_gpuSynchronousFrame = 0;
+		s_gpuFrontendFramePrepared = 0;
+	}
 #endif
 }
 
 int NativeGpu_IsSynchronousFrame(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	return s_gpuSynchronousFrame;
 #else
 	return 1;
@@ -633,7 +664,7 @@ int NativeGpu_IsSynchronousFrame(void)
 
 int NativeGpu_IsFrontendFrameActive(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	return s_gpuFrontendFramePrepared;
 #else
 	return 0;
@@ -642,7 +673,7 @@ int NativeGpu_IsFrontendFrameActive(void)
 
 int NativeGpu_SubmitFrontendFrame(void)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (!s_gpuFrontendFramePrepared)
 	{
 		return 0;
@@ -652,6 +683,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 	packet->vertexCount = s_gpu.vertexIndex;
 	packet->splitCount = s_gpu.splitIndex;
 
+#ifdef __vita__
 	if (!s_gpuBackendEnabled)
 	{
 		Platform_BeginScene();
@@ -690,6 +722,17 @@ int NativeGpu_SubmitFrontendFrame(void)
 	sceKernelSignalLwCond(&s_gpuBackendCond);
 	NativeGpu_BackendUnlock();
 	return 1;
+#else
+	Platform_BeginScene();
+	if (s_gpu.splitIndex > 0)
+		DrawAllSplits();
+	else
+		ClearSplits();
+	Platform_EndScene();
+	s_gpuFrontendFramePrepared = 0;
+	s_gpuSynchronousFrame = 0;
+	return 1;
+#endif
 #else
 	return 0;
 #endif
@@ -734,7 +777,7 @@ int NativeGpu_HasPendingSplits(void)
 
 internal void NativeGpu_SetVertexOrderDepth(GrVertex *vertex, int count)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	for (int i = 0; i < count; i++)
 	{
 		vertex[i].orderDepth = s_gpu.currentPrimitiveOrder;
@@ -748,7 +791,7 @@ internal void NativeGpu_SetVertexOrderDepth(GrVertex *vertex, int count)
 void ClearSplits(void)
 {
 	s_gpu.currentSplitDebugText = NULL;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpu.vertexBuffer == NULL || s_gpu.splits == NULL)
 	{
 		NativeGpu_BindFrontendPacket();
@@ -761,7 +804,7 @@ void ClearSplits(void)
 	s_gpu.splits[0].psxTextureOutputSTP = false;
 	s_gpu.splits[0].psxDrawMaskSet = false;
 	s_gpu.splits[0].superTurboTint = false;
-#ifdef __vita__
+	#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_gpu.splits[0].psxTextureFullyOpaque = false;
 	s_gpu.splits[0].p4CacheEligible = false;
 	s_gpu.splits[0].p4SuperTurboTint = false;
@@ -1445,7 +1488,7 @@ internal void NativeGpu_PrepareFramebufferFeedback(int tpage)
 	s_gpu.framebufferFeedbackRunActive = true;
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 {
 	GPUDrawSplit *current = &s_gpu.splits[s_gpu.splitIndex];
@@ -1472,7 +1515,7 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 {
 	int tpage = activeDrawEnv.tpage;
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpu.primitiveOrder < 0xffffu)
 	{
 		s_gpu.primitiveOrder++;
@@ -1506,7 +1549,7 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 		textureId = s_gpu.overrideTexture;
 	}
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	const bool p4CacheEligible = textured && s_gpu.overrideTexture == 0 && texFormat == TF_4_BIT && !framebufferFeedback;
 	const bool p4SuperTurboTint = p4CacheEligible && superTurboTint;
 	const s16 p4Page = p4CacheEligible ? GetTPageBase(tpage) : -1;
@@ -1518,7 +1561,11 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 	    curSplit->drawPrimMode == s_gpu.drawPrimMode && curSplit->psxTexturedSemiTrans == psxTexturedSemiTrans &&
 	    curSplit->psxTextureOutputSTP == psxTextureOutputSTP && curSplit->psxDrawMaskSet == s_gpu.psxDrawMaskSet &&
 	    curSplit->superTurboTint == superTurboTint &&
-#ifdef __vita__
+	    curSplit->drawenv.tw.x == activeDrawEnv.tw.x && curSplit->drawenv.tw.y == activeDrawEnv.tw.y &&
+	    curSplit->drawenv.tw.w == activeDrawEnv.tw.w && curSplit->drawenv.tw.h == activeDrawEnv.tw.h &&
+	    curSplit->overrideTextureWidth == s_gpu.overrideTextureWidth &&
+	    curSplit->overrideTextureHeight == s_gpu.overrideTextureHeight &&
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	    curSplit->p4CacheEligible == p4CacheEligible &&
 	    (!p4CacheEligible || (curSplit->p4Page == p4Page && curSplit->p4Clut == p4Clut && curSplit->p4SuperTurboTint == p4SuperTurboTint)) &&
 #endif
@@ -1546,7 +1593,7 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 	split->psxTextureOutputSTP = psxTextureOutputSTP;
 	split->psxDrawMaskSet = s_gpu.psxDrawMaskSet;
 	split->superTurboTint = superTurboTint;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	split->psxTextureFullyOpaque = false;
 	split->p4CacheEligible = p4CacheEligible;
 	split->p4SuperTurboTint = p4SuperTurboTint;
@@ -1558,8 +1605,8 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 	split->dispenv = activeDispEnv;
 	split->debugText = s_gpu.currentSplitDebugText;
 
-	split->drawenv.tw.w = s_gpu.overrideTextureWidth;
-	split->drawenv.tw.h = s_gpu.overrideTextureHeight;
+	split->overrideTextureWidth = (s16)s_gpu.overrideTextureWidth;
+	split->overrideTextureHeight = (s16)s_gpu.overrideTextureHeight;
 
 	split->startVertex = s_gpu.vertexIndex;
 	split->numVerts = 0;
@@ -1569,7 +1616,7 @@ internal void NativeGpu_SetSplitShaderState(const GPUDrawSplit *split, int semiT
 {
 	TextureID texture = split->textureId;
 	int cachedP4 = 0;
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (split->p4CacheEligible)
 	{
 		const TextureID cachedTexture = NativeRenderer_GetCachedP4Texture(split->p4Page, split->p4Clut, split->p4SuperTurboTint);
@@ -1590,22 +1637,22 @@ internal void NativeGpu_SetSplitShaderState(const GPUDrawSplit *split, int semiT
 	}
 	NativeRenderer_SetTexture(texture, split->texFormat, semiTransPass, blendMode,
 	                          texture != NativeRenderer_GetWhiteTexture(), split->superTurboTint,
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	                          split->psxTextureFullyOpaque,
 #else
 	                          false,
 #endif
-	                          cachedP4);
+		                          cachedP4, &split->drawenv.tw);
 	if (split->texFormat == TF_32_BIT_RGBA)
 	{
-		NativeRenderer_SetOverrideTextureSize(split->drawenv.tw.w, split->drawenv.tw.h);
+		NativeRenderer_SetOverrideTextureSize(split->overrideTextureWidth, split->overrideTextureHeight);
 	}
 	NativeRenderer_SetPSXDrawMaskSet(split->psxDrawMaskSet);
 	NativeRenderer_SetPSXTextureOutputSTP(split->psxTextureOutputSTP);
 	NativeRenderer_SetProjection(&split->drawenv.clip, &split->dispenv, offscreen);
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 typedef enum
 {
 	NATIVE_GPU_PASS_OPAQUE,
@@ -1748,8 +1795,10 @@ internal bool NativeGpu_DepthPassStateCompatible(const GPUDrawSplit *first, int 
 		return false;
 	}
 
-	if (first->texFormat == TF_32_BIT_RGBA &&
-	    (first->drawenv.tw.w != second->drawenv.tw.w || first->drawenv.tw.h != second->drawenv.tw.h))
+	if (first->drawenv.tw.x != second->drawenv.tw.x || first->drawenv.tw.y != second->drawenv.tw.y ||
+	    first->drawenv.tw.w != second->drawenv.tw.w || first->drawenv.tw.h != second->drawenv.tw.h ||
+	    first->overrideTextureWidth != second->overrideTextureWidth ||
+	    first->overrideTextureHeight != second->overrideTextureHeight)
 	{
 		return false;
 	}
@@ -1801,22 +1850,26 @@ internal void NativeGpu_DrawSplitPass(const GPUDrawSplit *split, int semiTransPa
 
 void DrawSplit(const GPUDrawSplit *split)
 {
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (split->drawPrimMode == 2)
 	{
+#ifdef __vita__
 		const DRAWENV savedDrawEnv = s_gpuBackendDrawEnv;
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
 		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv);
-        NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
-        NativeRenderer_UpdateVRAM();
+#endif
+		NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
+		NativeRenderer_UpdateVRAM();
+#ifdef __vita__
 		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv);
+#endif
 		return;
 	}
 #endif
 
 	if (split->psxTexturedSemiTrans)
 	{
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 		if (NativeGpu_CanUseMixedSTPPass(split))
 		{
 			NativeGpu_DrawSplitPass(split, 3, split->blendMode, true);
@@ -1840,7 +1893,7 @@ void DrawSplit(const GPUDrawSplit *split)
 	}
 }
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal bool NativeGpu_SplitsShareReorderDomain(const GPUDrawSplit *first, const GPUDrawSplit *second)
 {
 	if (first->drawPrimMode || second->drawPrimMode || first->drawenv.dfe != second->drawenv.dfe)
@@ -1884,10 +1937,9 @@ internal u32 NativeGpu_GetDepthStateHash(const GPUDrawSplit *split, int semiTran
 	hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->dispenv.disp.x | ((u32)(u16)split->dispenv.disp.y << 16));
 	hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->dispenv.disp.w | ((u32)(u16)split->dispenv.disp.h << 16));
 	hash = NativeGpu_DepthHashMix(hash, (u32)split->dispenv.isinter);
-	if (split->texFormat == TF_32_BIT_RGBA)
-	{
-		hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->drawenv.tw.w | ((u32)(u16)split->drawenv.tw.h << 16));
-	}
+	hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->drawenv.tw.x | ((u32)(u16)split->drawenv.tw.y << 16));
+	hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->drawenv.tw.w | ((u32)(u16)split->drawenv.tw.h << 16));
+	hash = NativeGpu_DepthHashMix(hash, (u32)(u16)split->overrideTextureWidth | ((u32)(u16)split->overrideTextureHeight << 16));
 	return hash;
 }
 
@@ -2108,8 +2160,10 @@ internal bool NativeGpu_BlendPassStateCompatible(const GPUDrawSplit *first, int 
 		return false;
 	}
 
-	if (first->texFormat == TF_32_BIT_RGBA &&
-	    (first->drawenv.tw.w != second->drawenv.tw.w || first->drawenv.tw.h != second->drawenv.tw.h))
+	if (first->drawenv.tw.x != second->drawenv.tw.x || first->drawenv.tw.y != second->drawenv.tw.y ||
+	    first->drawenv.tw.w != second->drawenv.tw.w || first->drawenv.tw.h != second->drawenv.tw.h ||
+	    first->overrideTextureWidth != second->overrideTextureWidth ||
+	    first->overrideTextureHeight != second->overrideTextureHeight)
 	{
 		return false;
 	}
@@ -2357,7 +2411,7 @@ internal void NativeGpu_DrawReorderedSplits(void)
 }
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal bool NativeGpu_GetSplitBounds(const GPUDrawSplit *split, struct NativeGpuSplitBounds *bounds)
 {
 	if (split->numVerts == 0)
@@ -2581,7 +2635,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 	}
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeGpu_CoalesceNonOverlappingSemiTransSplits();
 	NativeGpu_ClassifyOpaqueTextureSplits();
 	const bool depthBatchingReady = NativeGpu_BuildDepthBatches();
@@ -2591,7 +2645,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 	NativeRenderer_UpdateVertexBuffer(s_gpuDrawVertices, s_gpuDrawVertexCount);
 #endif
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (depthBatchingReady)
 	{
 		NativeGpu_DrawReorderedSplits();
@@ -3438,7 +3492,7 @@ int ParsePrimitive(P_TAG *polyTag)
 			rect.w = (s16)(rectSize & 0xffff);
 			rect.h = (s16)(rectSize >> 16);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 			NativeGpu_ForceSynchronousFrame();
 			NativeGpu_FlushFrontendSplitsSync();
 #else
@@ -3461,13 +3515,18 @@ int ParsePrimitive(P_TAG *polyTag)
 			rect.w = (((u16)fill->w & 0x3ff) + 15) & ~15;
 			rect.h = (u16)fill->h & (VRAM_HEIGHT - 1);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
                 if (!NativeGpu_AppendClearSplit(&rect, fill->r0, fill->g0, fill->b0))
                 {
                     NativeGpu_ForceSynchronousFrame();
                     NativeGpu_FlushFrontendSplitsSync();
+#ifdef __vita__
                     NativeGpuBackendRectTask task = {rect.x, rect.y, rect.w, rect.h, fill->r0, fill->g0, fill->b0};
                     NativeGpu_RunBackendTaskSync(NativeGpu_BackendClearTask, &task);
+#else
+					NativeRenderer_ClearVRAM(rect.x, rect.y, rect.w, rect.h, fill->r0, fill->g0, fill->b0);
+					NativeRenderer_UpdateVRAM();
+#endif
                 }
 #else
                 const bool fillTargetsFrameBuffer =
@@ -3529,7 +3588,7 @@ int ParsePrimitive(P_TAG *polyTag)
 			rect.w = (s16)(rectSize & 0xffff);
 			rect.h = (s16)(rectSize >> 16);
 
-#ifdef __vita__
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 			if (NativeGpu_HasPendingSplits())
 			{
 				NativeGpu_ForceSynchronousFrame();

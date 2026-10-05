@@ -1,10 +1,15 @@
 /* PlayStation Vita hardware GPU backend for PCSX-ReARMed. The native renderer is derived from REDRIVER2/PsyCross MIT code through CTR Native / the PSXRecomp Vita integration. Keep the corresponding third-party notices when redistributing this backend. */
 
 #include <SDL3/SDL.h>
+#include "platform/native_vita_path.h"
+#if defined(__vita__)
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <vitaGL.h>
+#elif defined(PCSX_NATIVE_VITA_PATH)
+#include "platform/mac_vita_compat.h"
+#endif
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -333,8 +338,10 @@ static int init_context(void)
         g_nativeVramHeight != GPU_VRAM_ROWS_SYSTEM12)
         return 0;
 
+#ifdef __vita__
     sceIoMkdir("ux0:data/pcsx-rearmed", 0777);
     sceIoMkdir("ux0:data/pcsx-rearmed/shader_cache", 0777);
+#endif
 
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         SysPrintf("pcsx-vita: SDL video init failed: %s\n", SDL_GetError());

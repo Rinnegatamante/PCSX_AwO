@@ -158,7 +158,7 @@ static const HarnessBoard *selected_board;
 #if !defined(__APPLE__) || !defined(__aarch64__)
 #error This harness targets native macOS ARM64.
 #endif
-#if !defined(__ARM_NEON) && !defined(__ARM_NEON__)
+#if defined(GPU_NEON) && !defined(__ARM_NEON) && !defined(__ARM_NEON__)
 #error GPU_NEON needs ARM Advanced SIMD.
 #endif
 
@@ -856,12 +856,16 @@ int main(int argc, char **argv)
       fprintf(stderr, "smoke FAILED: triangle=%04x background=%04x sentinel=%08x\n",
         center, corner, psxMemRead32(&psxRegs, 0x8000f000)); result = 1;
     }
-    else fprintf(stderr, "smoke PASS: MIPS MMIO -> GPU_NEON triangle + RAM sentinel\n");
+    else fprintf(stderr, "smoke PASS: MIPS MMIO -> native GPU triangle + RAM sentinel\n");
   }
 #ifdef PCSX_SYSTEM12
   if (!result && !interrupted && nvram_path && save_nvram(nvram_path)) result = 1;
 #endif
+#if defined(GPU_VITA_CTR)
+  fprintf(stderr, "host=macOS-arm64 renderer=Vita-path GL compatibility cpu=%s "
+#else
   fprintf(stderr, "host=macOS-arm64 renderer=GPU_NEON SIMD cpu=%s "
+#endif
     "frames=%u cycles=%" PRIu64 " blocks=%lu pc=%08x flips=%u elapsed=%.3fs output=%s\n",
 #ifndef DRC_DISABLE
     psxCpu == &psxRec ? "ari64" : "interpreter",
