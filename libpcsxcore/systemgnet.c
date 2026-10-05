@@ -117,6 +117,7 @@ typedef struct GnetBoard {
     uint8_t *zoomprog, *waves[3];
     gnet_zoom_board *zoom;
     gnet_storage_t *storage;
+    int test_storage_fixture;
     zn_board_t zn;
     ZNMCU *mcu;
     psx_sio_t *sio[2];
@@ -128,6 +129,7 @@ typedef struct GnetBoard {
     uint64_t reads, writes, unsupported;
 } GnetBoard;
 static GnetBoard board;
+static const char *test_storage_chd_path;
 static systemgnet_audio_frame_fn audio_output;
 static void *audio_output_opaque;
 
@@ -136,6 +138,122 @@ static void zoom_audio_frame(void *opaque, float left, float right,
 {
     (void)opaque;
     if (audio_output) audio_output(audio_output_opaque, left, right, zsg_cycle);
+}
+
+static int open_test_storage(const char *chd_path)
+{
+    gnet_storage_config_t config;
+    char overlay_path[PATH_BYTES], error[256];
+    int length;
+    memset(&config, 0, sizeof(config));
+    length = snprintf(overlay_path, sizeof(overlay_path), "%s.overlay", chd_path);
+    if (length < 0 || length >= (int)sizeof(overlay_path)) return -1;
+    config.chd_path = chd_path;
+    config.overlay_path = overlay_path;
+    config.card_variant = GNET_PCCARD_TAITO_TYPE1;
+    if (gnet_storage_open(&config, &board.storage, error, sizeof(error)) !=
+        GNET_STORAGE_OK) {
+        fprintf(stderr, "G-Net synthetic fixture CHD failed: %s\n", error);
+        return -1;
+    }
+    board.test_storage_fixture = 1;
+    return 0;
+}
+
+static void install_storage_guest_program(void)
+{
+    static const uint8_t key[5] = {0x10, 0x21, 0x32, 0x43, 0x54};
+    uint32_t program[128];
+    unsigned count = 0, i;
+#define EMIT(x) do { program[count++] = (x); } while (0)
+#define I(op, rs, rt, imm) (((uint32_t)(op) << 26) | ((uint32_t)(rs) << 21) | \
+                            ((uint32_t)(rt) << 16) | ((uint16_t)(imm)))
+#define LUI(rt, imm) EMIT(I(0x0f, 0, (rt), (imm)))
+#define ORI(rt, rs, imm) EMIT(I(0x0d, (rs), (rt), (imm)))
+#define ADDIU(rt, rs, imm) EMIT(I(0x09, (rs), (rt), (imm)))
+#define SB(rt, off, rs) EMIT(I(0x28, (rs), (rt), (off)))
+#define SH(rt, off, rs) EMIT(I(0x29, (rs), (rt), (off)))
+#define LH(rt, off, rs) EMIT(I(0x21, (rs), (rt), (off)))
+#define LBU(rt, off, rs) EMIT(I(0x24, (rs), (rt), (off)))
+#define SW(rt, off, rs) EMIT(I(0x2b, (rs), (rt), (off)))
+#define ANDI(rt, rs, imm) EMIT(I(0x0c, (rs), (rt), (imm)))
+#define BEQ(rs, rt, imm) EMIT(I(0x04, (rs), (rt), (imm)))
+#define BNE(rs, rt, imm) EMIT(I(0x05, (rs), (rt), (imm)))
+#define NOP() EMIT(0)
+#define LI(rt, value) do { LUI((rt), ((uint32_t)(value) >> 16)); \
+                           ORI((rt), (rt), (uint32_t)(value)); } while (0)
+    /* Type-1 card key through the PSX's PC Card memory window. */
+    LUI(8, 0x1f20);
+    for (i = 0; i < 9; ++i) {
+        ADDIU(9, 0, i < 5 ? key[i] : 0);
+        SH(9, 0x0500 + (int)i * 2, 8);
+    }
+    LI(8, 0x1f200000);
+    LI(11, 0x80000100);
+    EMIT(I(0x25, 8, 10, 0x0402)); /* lhu locked-register */
+    NOP(); /* R3000 load delay */
+    SW(10, 0, 11);
+
+    /* ATA IDENTIFY PIO, then retain raw word 0 and the final word. */
+    LI(8, 0x1fb00000);
+    ADDIU(9, 0, 0xec); SB(9, 7, 8);
+    LBU(10, 7, 8); NOP(); ANDI(10, 10, 8); BEQ(10, 0, -4); NOP();
+    LI(11, 0x80000200); ADDIU(12, 0, 256);
+    LH(13, 0, 8); NOP(); SH(13, 0, 11); ADDIU(11, 11, 2); ADDIU(12, 12, -1);
+    BNE(12, 0, -6); NOP();
+    LI(11, 0x80000200); LH(13, 0, 11); LI(14, 0x80000104); SW(13, 0, 14);
+    ADDIU(11, 11, 510); LH(13, 0, 11); LI(14, 0x80000108); SW(13, 0, 14);
+
+    /* ATA READ SECTOR 3 into a separate buffer and capture its first word. */
+    ADDIU(9, 0, 0x0301); SH(9, 2, 8);
+    ADDIU(9, 0, 0); SH(9, 4, 8);
+    ADDIU(9, 0, 0x0040); SH(9, 6, 8);
+    ADDIU(9, 0, 0x20); SB(9, 7, 8);
+    /* Poll DRQ with a real guest loop. */
+    LBU(10, 7, 8); NOP(); ANDI(10, 10, 8); BEQ(10, 0, -4); NOP();
+    LI(11, 0x80000400); ADDIU(12, 0, 256);
+    /* read_loop: LH, SH, pointer++, count--, BNE(-5), delay slot */
+    LH(13, 0, 8); NOP(); SH(13, 0, 11); ADDIU(11, 11, 2); ADDIU(12, 12, -1);
+    BNE(12, 0, -6); NOP();
+    LI(11, 0x80000400); LH(13, 0, 11); LI(14, 0x80000110); SW(13, 0, 14);
+
+    /* ATA WRITE the same sector with a recognizable pattern for overlay
+     * reopen. The host advances board time and flushes on owner teardown. */
+    ADDIU(9, 0, 0x0301); SH(9, 2, 8);
+    ADDIU(9, 0, 0); SH(9, 4, 8);
+    ADDIU(9, 0, 0x0040); SH(9, 6, 8);
+    ADDIU(9, 0, 0x30); SB(9, 7, 8);
+    LBU(10, 7, 8); NOP(); ANDI(10, 10, 8); BEQ(10, 0, -4); NOP();
+    LI(13, 0x5aa5); ADDIU(12, 0, 256);
+    /* write_loop: SH, count--, BNE(-3), delay slot */
+    SH(13, 0, 8); ADDIU(12, 12, -1); BNE(12, 0, -3); NOP();
+    /* Publish success sentinel and stop. */
+    LI(11, 0x8000010c); ADDIU(10, 0, 0x4750); SW(10, 0, 11);
+    /* MIPS J uses the high region of PC+4; encode the BFC00000 ROM alias. */
+    program[count] = 0x0bf00000u | (count & 0x03ffffffu);
+    count++;
+    NOP();
+    for (i = 0; i < count; ++i) {
+        board.bios[i * 4 + 0] = (uint8_t)program[i];
+        board.bios[i * 4 + 1] = (uint8_t)(program[i] >> 8);
+        board.bios[i * 4 + 2] = (uint8_t)(program[i] >> 16);
+        board.bios[i * 4 + 3] = (uint8_t)(program[i] >> 24);
+    }
+#undef LI
+#undef NOP
+#undef BNE
+#undef BEQ
+#undef ANDI
+#undef SW
+#undef LBU
+#undef LH
+#undef SH
+#undef SB
+#undef ADDIU
+#undef ORI
+#undef LUI
+#undef I
+#undef EMIT
 }
 
 #ifndef DRC_DISABLE
@@ -564,8 +682,6 @@ bad:
 
 int systemgnet_test_load(void)
 {
-    static const GnetProfile *unused;
-    (void)unused;
     if (board.active || psxRegs.ptrs.psxM || systemtaito_active() || systemzn_active() ||
         system10_active() || system11_active() || system12_active()) return -1;
     board.profile = find_profile("coh3002t");
@@ -581,7 +697,9 @@ int systemgnet_test_load(void)
     memset(board.bios, 0xff, BIOS_BYTES);
     /* Real guest code: select G-Net bank 1, read MAME's fixed ID register,
      * and publish the result to PSX RAM. */
-    {
+    if (test_storage_chd_path) {
+        install_storage_guest_program();
+    } else {
         const uint32_t program[] = {
             0x3c081fb4, 0x24090004, 0xa1090000, 0x3c0a1f00,
             0x954b0000, 0x3c0c8000, 0xad8b0104, 0x3c0a1fb7,
@@ -626,11 +744,22 @@ int systemgnet_test_load(void)
 #undef GNET_TEST_STORE8
     }
     board.waves[0][0] = 0x34; board.waves[0][1] = 0x12;
+    if (test_storage_chd_path && open_test_storage(test_storage_chd_path)) goto bad;
     if (create_devices()) goto bad;
     return 0;
 bad:
     systemgnet_unload();
     return -1;
+}
+
+int systemgnet_test_load_storage_fixture(const char *chd_path)
+{
+    int result;
+    if (!chd_path || !*chd_path || test_storage_chd_path) return -1;
+    test_storage_chd_path = chd_path;
+    result = systemgnet_test_load();
+    test_storage_chd_path = NULL;
+    return result;
 }
 
 void systemgnet_unload(void)
@@ -650,6 +779,13 @@ void systemgnet_unload(void)
     }
 }
 int systemgnet_active(void) { return board.active; }
+uint32_t systemgnet_main_clock_hz(void)
+{
+    if (!board.active || !board.bios_root) return 0;
+    if (!strcmp(board.bios_root->set, "coh1002t")) return 67737600u;
+    if (!strcmp(board.bios_root->set, "coh3002t")) return 100000000u;
+    return 0;
+}
 void systemgnet_set_audio_output(systemgnet_audio_frame_fn callback, void *opaque)
 {
     audio_output = callback;
@@ -805,14 +941,22 @@ void systemgnet_report(FILE *out)
                       &model, &cpu, &cpu_hz, &gpu);
     (void)cpu; (void)cpu_hz; (void)gpu;
     fprintf(out, "SystemGNet set=%s model=%s ram=4194304 vram=2097152 gpu=type2 BIOS=512KiB "
-        "reads=%" PRIu64 " writes=%" PRIu64 " unsupported=%" PRIu64 " bank=%u fault=%u execution_verified=false\n",
+        "main_clock_input_hz=%u reads=%" PRIu64 " writes=%" PRIu64 " unsupported=%" PRIu64 " bank=%u fault=%u execution_verified=false\n",
         board.profile ? board.profile->set : "fixture", model,
+        systemgnet_main_clock_hz(),
         board.reads, board.writes, board.unsupported, gnet_zoom_selected_bank(board.zoom), (unsigned)board.fault);
-    fprintf(out, "SystemGNet media bios=%s option=%s card=%s chd=%s auth_boot=false\n",
+    fprintf(out, "SystemGNet media bios=%s option=%s card=%s chd=%s auth_boot=false%s\n",
         board.bios_root ? board.bios_root->set : "fixture",
         board.bios_option ? board.bios_option->name : "fixed",
-        board.profile && board.profile->card_kind ? board.profile->card_kind : "NONE",
-        board.profile && board.profile->chd ? board.profile->chd : "none");
+        board.test_storage_fixture ? "TYPE1_TEST" :
+            (board.profile && board.profile->card_kind ? board.profile->card_kind : "NONE"),
+        board.test_storage_fixture ? "synthetic" :
+            (board.profile && board.profile->chd ? board.profile->chd : "none"),
+        board.test_storage_fixture ? " fixture=true" : "");
+    if (board.test_storage_fixture)
+        fprintf(out, "SystemGNet storage fixture locked=%d ata_status=%02x overlay=explicit\n",
+            gnet_storage_is_locked(board.storage),
+            gnet_storage_ata_status(board.storage));
     if (board.profile)
         fprintf(out, "SystemGNet source parent=%s bios_model=%s machine=%s input=%s init=%s rotation=%s flags=%s\n",
             board.profile->parent ? board.profile->parent : "none",

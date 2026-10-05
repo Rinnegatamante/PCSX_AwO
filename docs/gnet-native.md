@@ -62,8 +62,8 @@ The adapter configures the source 4 MiB PSX RAM and 2 MiB VRAM, Sony ZN CAT702,
 EEPROM and SIO devices, then routes CPU accesses through `gnet_zoom_bus_*` and
 the shared ZN map. Game profiles attach CHD-backed ATA/PC Card storage to the
 RF5C296 callbacks; BIOS-root profiles have no card. Core cycles advance Zoom
-and storage timers on monotonic board time. The executed fixture still has no
-card, and no real G-Net media is available locally.
+and storage timers on monotonic board time. No authentic G-Net CHD/key package
+is available locally.
 
 The 6.25 MHz adapter clock is the MN10200's effective execution-cycle rate:
 the pinned MAME device is configured at 12.5 MHz and converts external clocks
@@ -83,8 +83,9 @@ The public G-Net adapter API can now deliver Zoom PCM frames to an optional
 callback. The sink is disabled by default and persists across board resets;
 the libretro frontend still routes generic PSX SPU audio only and does not yet
 mix or resample Zoom PCM. The EEPROM API is not connected to frontend save
-storage. G-Net card/PCMCIA media, game-specific input variations, and other
-game-specific device extensions remain unsupported.
+storage. The native profile loader and board expose the source PC Card/ATA
+path, but frontend save-state and authentic-media boot coverage remain open;
+per-game input variations and game-specific extensions are not applied yet.
 
 The audio callback receives normalized stereo floats and a ZSG timestamp in
 the 25 MHz chip-clock domain. It runs synchronously while `systemgnet_sync`
@@ -101,13 +102,13 @@ timestamps, and identical output for one-shot versus split cycle synchronization
 This validates the emulator's PCM path with test data; it does not supply the
 missing authenticated game sound program or sample media.
 
-The general PSX core still advances in its existing PSX cycle domain. MAME's
-ZN1 CPU is 67.7376 MHz with a divide-by-two interface clock (33.8688 MHz); ZN2
-is 100 MHz with a divide-by-two interface clock (50 MHz). This adapter does not
-change CPU execution or vblank scheduling to those board-specific rates. ATA
-and Zoom timers use monotonic nanoseconds derived from core cycles, so the ZN2
-CPU-to-peripheral timing ratio remains a known limitation. The source clock
-values in `board.ini` are profile checks, not proof that CPU timing is applied.
+The selected BIOS root reports its MAME main-CPU input clock through
+`systemgnet_main_clock_hz()` and `systemgnet_report()`. The shared arcade source
+timing option uses the corresponding half-rate PSX cycle clock for COH1002T
+(67.7376 MHz input, 33.8688 MHz PSX clock) or COH3002T (100 MHz input, 50 MHz
+PSX clock). Device clocks remain independently configured; see
+[`arcade-source-timing.md`](arcade-source-timing.md) for the timing model and
+its limits.
 
 `--system-gnet-fixture` is test-only and uses generated in-memory data. Its
 executed MIPS program selects flash bank 1, reads the banked flash and constant
@@ -121,9 +122,12 @@ lifecycle, and 4 MiB RAM path, not MAME assets, startup firmware, game boot, or
 real-board compatibility. Registry and synthetic storage tests do not
 establish an authentic G-Net boot; no BIOS/CHD/key set has been loaded here.
 
-After the RF5C296 and byte/dword card-window changes (`7bbdde2b`, `0423695f`,
-`62bb5605`), the complete Mac NEON harness regression still passes with both
-CPU backends. Evidence, build flags and source/binary hashes are retained in
-`/tmp/gnet-rf5c296-widths-20261005T100220Z`. The standalone card callback
-transactions pass normal and ASan/UBSan checks; the executed MIPS/PCM fixture
-continues to use no card and does not demonstrate an authenticated game boot.
+`--system-gnet-storage-fixture <chd>` is a separate test-only path. It uses a
+generated synthetic CHD and bypasses neither `systemgnet_load()` nor its
+profile/hash checks. Executed PSX MIPS unlocks a synthetic Type-1 card through
+RF5C296 memory space, reads ATA IDENTIFY and a sector through PIO, writes the
+same sector through the PSX bus, and verifies the overlay after reopening.
+Reset relocks the card. The fixture passes with the interpreter and ARM64 DRC;
+it verifies the synthetic path and does not claim game startup or authentic
+boot. Component tests cover both ATA CompactFlash and IDE HDD callback bridges
+through the C API and RF5C296, including ASan/UBSan.

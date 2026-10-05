@@ -15,8 +15,14 @@ typedef void (*systemgnet_audio_frame_fn)(void *opaque, float left, float right,
 int systemgnet_load(const char *directory);
 /* Test-only in-memory BIOS fixture; never accepted by the production loader. */
 int systemgnet_test_load(void);
+/* Test-only synthetic-media fixture. It accepts a locally generated CHD and
+ * deliberately has no retail-profile hash; never used by systemgnet_load. */
+int systemgnet_test_load_storage_fixture(const char *chd_path);
 void systemgnet_unload(void);
 int systemgnet_active(void);
+/* MAME-configured main CPU input clock for the selected BIOS root; zero when
+ * no native G-Net board is active. This reports source clock, not CPU rate. */
+uint32_t systemgnet_main_clock_hz(void);
 /* Install an optional Zoom PCM sink. The sink is disabled by default and is
  * retained across board reset, unload, and subsequent loads until replaced.
  * Frames are stereo normalized floats with a ZSG timestamp in its 25 MHz

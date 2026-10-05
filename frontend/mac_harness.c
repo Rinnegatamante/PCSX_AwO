@@ -438,6 +438,9 @@ int main(int argc, char **argv)
   int i, board_test = 0, audio_test_fixture = 0, verify = 0, result = 0, gpu_type1_test = 0;
   int gv_fixture = 0;
   int gnet_fixture = 0;
+  int gnet_storage_fixture = 0;
+  int gnet_storage_reopen = 0;
+  const char *gnet_storage_fixture_chd = NULL;
   int board_load_result = 0;
   int board_family = 12;
   int icache = 0;
@@ -460,6 +463,14 @@ int main(int argc, char **argv)
       if (board) { usage(argv[0]); return 2; }
       board = argv[++i]; board_family = 102; gv_fixture = 1; board_test = 1;
     }
+    else if (!strcmp(argv[i], "--system-gnet-storage-fixture") && i + 1 < argc) {
+      if (board) { usage(argv[0]); return 2; }
+      gnet_storage_fixture_chd = argv[++i];
+      board = "<synthetic-gnet-storage-fixture>"; board_family = 103;
+      gnet_fixture = gnet_storage_fixture = board_test = 1;
+    }
+    else if (!strcmp(argv[i], "--storage-reopen-check"))
+      gnet_storage_reopen = 1;
     else if (!strcmp(argv[i], "--system-gnet-fixture")) {
       if (board) { usage(argv[0]); return 2; }
       board = "<synthetic-gnet-fixture>"; board_family = 103;
@@ -674,7 +685,9 @@ int main(int argc, char **argv)
       /* Register before fixture load and the subsequent psxReset() so this
        * exercises sink persistence through the normal board reset path. */
       systemgnet_set_audio_output(harness_gnet_audio_frame, &gnet_audio);
-      board_load_result = systemgnet_test_load();
+      board_load_result = gnet_storage_fixture
+        ? systemgnet_test_load_storage_fixture(gnet_storage_fixture_chd)
+        : systemgnet_test_load();
 #else
       board_load_result = -1;
 #endif
@@ -762,13 +775,53 @@ int main(int argc, char **argv)
   if (gnet_fixture) {
     unsigned step;
     uint64_t captured_audio_frames;
-    for (step = 0; step < (use_drc ? 1024u : 600u); step++) {
+    if (gnet_storage_fixture) {
+      psxRegs.cycle += 1000000;
+      if (systemgnet_sync(psxRegs.cycle)) result = 1;
+    }
+    for (step = 0; step < (gnet_storage_fixture ?
+        (use_drc ? 10000u : 6000u) : (use_drc ? 1024u : 600u)); step++) {
       if (use_drc)
         psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
       else {
         psxRegs.branchSeen = 0;
         execI(&psxRegs);
       }
+    }
+    if (gnet_storage_fixture) {
+      uint32_t locked = psxMemRead32(&psxRegs, 0x80000100);
+      uint32_t identify_first = psxMemRead32(&psxRegs, 0x80000104);
+      uint32_t last = psxMemRead32(&psxRegs, 0x80000108);
+      uint32_t sector_first = psxMemRead32(&psxRegs, 0x80000110);
+      uint32_t signature = psxMemRead32(&psxRegs, 0x8000010c);
+      uint32_t expected_sector = gnet_storage_reopen ? 0x5aa5 : 0x1407;
+      psxRegs.cycle += 10000000;
+      if (systemgnet_sync(psxRegs.cycle) || locked != 0 ||
+          signature != 0x4750 ||
+          (identify_first & 0xffff) != 0x848a ||
+          (sector_first & 0xffff) != expected_sector) {
+        fprintf(stderr, "SystemGNet storage MIPS fixture: FAIL cpu=%s locked=%08x identify_first=%08x identify_last=%08x sector_first=%08x signature=%08x\n",
+          use_drc ? "drc" : "interpreter", locked, identify_first, last,
+          sector_first, signature);
+        result = 1;
+      } else fprintf(stderr, "SystemGNet storage MIPS fixture: PASS cpu=%s type1_unlock=1 ata_identify_first=%04x ata_pio_sector_first=%04x identify_last=%04x overlay_write=1 reopen=%d\n",
+          use_drc ? "drc" : "interpreter", identify_first & 0xffff,
+          sector_first & 0xffff,
+          last, gnet_storage_reopen);
+      systemgnet_report(stderr);
+      systemgnet_reset();
+      {
+        uint32_t locked_after_reset = 0;
+        if (systemgnet_read(0x1f200402, 2, &locked_after_reset) != 1 ||
+            locked_after_reset != 1) {
+          fprintf(stderr, "SystemGNet storage reset fixture: FAIL locked=%08x\n",
+            locked_after_reset);
+          result = 1;
+        } else fprintf(stderr, "SystemGNet storage reset fixture: PASS type1_relocked=1\n");
+      }
+      systemgnet_unload();
+      GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
+      return result;
     }
     if (psxMemRead32(&psxRegs, 0x80000100) != 2 ||
         psxMemRead32(&psxRegs, 0x80000104) != 0x1234) {

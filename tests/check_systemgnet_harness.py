@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import shutil
 import subprocess
 import tempfile
 
@@ -111,6 +112,64 @@ def main() -> int:
             text + "\nchd_file=chaosheat.chd\noverlay_file=../outside.overlay\n",
             encoding="ascii")
         reject(unsafe_overlay, "invalid or unsupported G-Net board.ini")
+
+    chdman = shutil.which("chdman")
+    if not chdman:
+        raise RuntimeError("MAME chdman is required for the G-Net storage bus fixture")
+    with tempfile.TemporaryDirectory(prefix="pcsx-systemgnet-storage-fixture-") as temp:
+        root = pathlib.Path(temp)
+        raw = root / "fixture.raw"
+        source = root / "fixture-source.chd"
+        chd = root / "fixture.chd"
+        raw.write_bytes(bytes((n * 13 + 7) & 0xff for n in range(20 * 512)))
+        subprocess.run([chdman, "createhd", "-i", str(raw), "-o", str(source),
+                        "-chs", "2,2,5", "-ss", "512", "-hs", "1536",
+                        "-c", "none"], check=True, stdout=subprocess.DEVNULL)
+        for tag, payload in (("CIS ", b"\x01\x02\xfe\xff"),
+                             ("KEY ", bytes((0x10, 0x21, 0x32, 0x43, 0x54)) )):
+            metadata = root / f"{tag.strip()}.meta"
+            metadata.write_bytes(payload)
+            subprocess.run([chdman, "addmeta", "-i", str(source), "-t", tag,
+                            "-vf", str(metadata)], check=True,
+                           stdout=subprocess.DEVNULL)
+        subprocess.run([chdman, "copy", "-i", str(source), "-o", str(chd),
+                        "-c", "zlib"], check=True, stdout=subprocess.DEVNULL)
+        command = [str(args.harness), "--system-gnet-storage-fixture", str(chd)]
+        if args.drc:
+            command.append("--drc")
+        storage_run = subprocess.run(command, text=True, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, timeout=60)
+        expected_storage = (
+            "SystemGNet storage MIPS fixture: PASS",
+            "type1_unlock=1 ata_identify_first=848a ata_pio_sector_first=1407",
+            "SystemGNet storage reset fixture: PASS type1_relocked=1",
+            "card=TYPE1_TEST chd=synthetic auth_boot=false fixture=true",
+            "main_clock_input_hz=100000000",
+        )
+        missing_storage = [item for item in expected_storage
+                           if item not in storage_run.stdout]
+        if storage_run.returncode or missing_storage:
+            raise RuntimeError(
+                f"G-Net storage MIPS fixture failed; missing {missing_storage}:\n"
+                f"{storage_run.stdout}")
+        print(storage_run.stdout, end="")
+        reopen_run = subprocess.run(
+            command + ["--storage-reopen-check"], text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+        expected_reopen = (
+            "SystemGNet storage MIPS fixture: PASS",
+            "ata_pio_sector_first=5aa5",
+            "overlay_write=1 reopen=1",
+            "card=TYPE1_TEST chd=synthetic auth_boot=false fixture=true",
+            "main_clock_input_hz=100000000",
+        )
+        missing_reopen = [item for item in expected_reopen
+                          if item not in reopen_run.stdout]
+        if reopen_run.returncode or missing_reopen:
+            raise RuntimeError(
+                f"G-Net ATA overlay reopen failed; missing {missing_reopen}:\n"
+                f"{reopen_run.stdout}")
+        print(reopen_run.stdout, end="")
     return 0
 
 
