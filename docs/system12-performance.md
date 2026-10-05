@@ -528,3 +528,86 @@ Full scheduler/shared-mailbox/vblank and H8 partial-state/peripheral equivalence
 remain open. No new Vita or vitaGL execution is claimed, and no worker or H8 DRC
 has been introduced. The scope remains all ten PSX-derived driver families;
 these are System12 fidelity gates, not completion of a whole family.
+
+## Measured Mac vblank discrepancy, 2026-10-05
+
+`2d953d84` adds passive pin diagnostics, without changing device clocks or the
+scheduler. `--system12-edge-trace FILE` records vblank delivery and H8 port-B
+input observations before GPIO masking. It retains the last old and first new
+poll around each transition. Rows include the 32-bit main counter, its last
+synchronized value, absolute H8 access cycles and accumulated H8 budget. The
+main counter is not an instruction-exact PC/time trace under every DRC path.
+Reset/unload ownership and output truncation are explicit; overflow or file
+errors fail the harness run.
+
+The native and MAME fixtures use identical H8 firmware, words
+`6a08 ffd6 40fa`: read port B at `0xffffd6`, then branch back. Reset prefetch
+places the first read at H8 cycle 12; subsequent reads are ten cycles apart.
+Both fixtures replace MIPS startup with a jump/delay-slot-NOP loop. The native
+coarse case inserts 1024 NOPs before that jump to expose block-dependent event
+delivery. No authentic ROM archive is modified.
+
+The MAME oracle taps actual CPU program-space reads, normalizes the high byte
+of the 16-bit big-endian bus, and retains integer attosecond timestamps. Its
+reset notifier establishes epoch zero. Screen API targets bracket each last-old
+and first-new read; the initial start target is reconstructed from consecutive
+exact start targets, rather than treating `frame_done` as a vblank timestamp.
+The first read and every reported read gap are checked against the truncated
+H8 attosecond period. The installed MAME still reports **0.287 (unknown)**;
+source reasoning uses the pinned tree, not a verified matching executable.
+
+The first four transition observations are:
+
+| Port-B bit 7 becomes | MAME first new H8 read | Mac fine-block first new read | Mac coarse-block first new read |
+| --- | ---: | ---: | ---: |
+| 1 | 283062 | 240702 | 241172 |
+| 0 | 325402 | 283012 | 283562 |
+| 1 | 566122 | 523792 | 524032 |
+| 0 | 608462 | 566102 | 566422 |
+
+Native MIPS interpreter and ARI64 produce the same table. The observer-on/off
+controls have identical board reports and framebuffers in each native case.
+Those controls validate passive capture, not MAME fidelity: the strict
+`compare_system12_vblank.py` gate **fails** for both backends and both block
+sizes, with no timing tolerance.
+
+MAME's first scheduled start is `0:16715113233669674` attoseconds, followed by
+its end exactly 2.5 ms later. The fine native case instead delivers start at
+main cycle 710756 (14.21512 ms) and end at 835756 (16.71512 ms). This reveals a
+phase discrepancy of about 2.5 ms, in addition to synchronization granularity.
+The fine case leaves main-cycle tails `[100, 172, 16, 88, 188, 4]` pending when
+delivering its six edges. Coarse block delivery removes that tail but is late
+relative to the native counter deadlines; its first start is cycle 712044.
+
+Source inspection explains the phase discrepancy. Our source-timing
+`scheduleRcntBase` places the rising edge at `frameCycles - PSXCLK/400` and the
+falling edge at `frameCycles`. Pinned `screen.cpp` starts its vblank timeline at
+zero and schedules the next start a full period later, then the end after its
+configured blank duration. `psx.cpp` configures a 2500 us blank duration, which
+the source explicitly labels approximate. Fidelity to this MAME model requires
+its phase as well as its average refresh rate; this capture does not establish
+physical arcade timing accuracy.
+
+The next correction must cover source screen phase/deadlines, fractional frame
+periods, mode changes and reset continuity, then order H8 execution and external
+edges at those deadlines. Merely forcing the sub-256 tail or shifting one
+callback does not establish partial-instruction/bus ordering. Timed shared-RAM
+protocol and IRQ/ADC fixtures remain separate requirements. No scheduler fix,
+worker, H8 DRC, Vita or graphics validation is claimed by this measurement.
+
+Reproduction:
+
+```sh
+python3 tests/check_mame_system12_vblank.py --output /tmp/mame-vblank.json
+python3 tests/check_system12_vblank.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --output /tmp/mac-vblank-interpreter.json
+python3 tests/check_system12_vblank.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --drc --output /tmp/mac-vblank-drc.json
+python3 tests/compare_system12_vblank.py --mame /tmp/mame-vblank.json --native /tmp/mac-vblank-interpreter.json /tmp/mac-vblank-drc.json
+```
+
+The capture fixtures pass; the last command currently returns 1 for the known
+fidelity failure. Frozen native binary/evidence are under
+`/tmp/pcsx-mac-vblank-fidelity-20261005/`, binary SHA-256
+`320f9386de8e9ca4d71294df0dccb5dd421bb746f10c9726e447f27bb5e70feb`.
+Root MAME evidence is `/tmp/pcsx-mame-system12-vblank-root-20261005.json`
+with adjacent stdout log. Comparison evidence is
+`/tmp/pcsx-system12-vblank-comparison-20261005.{json,log}`.

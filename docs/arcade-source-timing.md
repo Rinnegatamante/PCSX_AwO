@@ -48,6 +48,14 @@ runtime MAME traces remain follow-up work. Unsupported families without an
 active native profile (including Twinkle, System 573, and GQ) retain the
 console timing fallback; this does not claim those boards are source-timed.
 
+The first System12 runtime vblank comparison now demonstrates that matching
+refresh and blank duration does not match screen phase. Native source timing
+places start 2.5 ms before its frame boundary; MAME's initial start occurs at
+the frame-period boundary, with end 2.5 ms later. See the measured failing gate
+in [system12-performance.md](system12-performance.md#measured-mac-vblank-discrepancy-2026-10-05).
+Other families using the common counter bridge have not been validated by that
+System12 capture; their screen/device contracts need corresponding fixtures.
+
 Focused timing checks can be run without building a frontend:
 
 ```sh
