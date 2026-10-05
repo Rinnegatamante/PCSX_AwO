@@ -70,6 +70,9 @@ timers have overhead, so use a same-source profiler-off control for throughput.
 
 ## Frontend architecture
 
+The broader board/frontend coverage and existing optional workers are recorded
+in [pcsx-arcade-architecture.md](pcsx-arcade-architecture.md).
+
 The validated NEON VPK uses ARI64 for PSX MIPS-to-ARMv7 translation. Vita3K uses
 Dynarmic outside it to execute the Vita ARMv7 application on the Mac. H8 remains
 a separate interpreter. The GPU uses the C SIMD implementation with actual ARM
