@@ -74,6 +74,8 @@ def main():
                         help="Build bounded diagnostic logs for fragment sampler selection")
     parser.add_argument("--trace-shutdown", action="store_true",
                         help="Build bounded diagnostic logs for vitaGL shutdown phases")
+    parser.add_argument("--trace-allocator-failures", action="store_true",
+                        help="Build a private archive with bounded mapped-allocation retry logs")
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()
     if source == output or source in output.parents or output in source.parents:
@@ -87,6 +89,8 @@ def main():
         optional_patches += (ROOT / "tools/vita-harness/patches/vitagl-sampler-trace.patch",)
     if args.trace_shutdown:
         optional_patches += (ROOT / "tools/vita-harness/patches/vitagl-shutdown-trace.patch",)
+    if args.trace_allocator_failures:
+        optional_patches += (ROOT / "tools/vita-harness/patches/vitagl-allocator-failure-trace.patch",)
     patches = PATCHES + optional_patches
     for patch in patches:
         if not patch.is_file():
@@ -103,7 +107,7 @@ def main():
     try:
         apply_patch_series(output, patch_series)
     except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
-        parser.error("cannot prepare isolated shutdown build copy: " + str(exc))
+        parser.error("cannot prepare isolated VitaGL build copy: " + str(exc))
     archive = output / "libvitaGL.a"
     record = output / "pcsx-build.json"
     if archive.is_file() and record.is_file():

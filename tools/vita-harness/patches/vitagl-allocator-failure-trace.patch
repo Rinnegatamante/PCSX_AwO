@@ -1,0 +1,59 @@
+diff --git a/source/utils/gpu_utils.c b/source/utils/gpu_utils.c
+--- a/source/utils/gpu_utils.c
++++ b/source/utils/gpu_utils.c
+@@ -152,10 +152,27 @@
+ }
+ #endif
+ 
++#define PCSX_ALLOCATOR_TRACE_LIMIT 12
++static int pcsx_allocator_trace_events = 0;
++
++static void pcsx_trace_allocator(const char *stage, const char *route,
++		size_t alignment, size_t size, int retry_count) {
++	int event = __sync_fetch_and_add(&pcsx_allocator_trace_events, 1);
++	if (event >= PCSX_ALLOCATOR_TRACE_LIMIT)
++		return;
++	sceClibPrintf("pcsx-vita: VGL_ALLOC event=%d stage=%s route=%s size=%u align=%u unsafe=%d free(vram=%u ram=%u phycont=%u budget=%u external=unknown)\n",
++			event, stage, route, (unsigned)size, (unsigned)alignment, retry_count,
++			(unsigned)vgl_mem_get_free_space(VGL_MEM_VRAM),
++			(unsigned)vgl_mem_get_free_space(VGL_MEM_RAM),
++			(unsigned)vgl_mem_get_free_space(VGL_MEM_PHYCONT),
++			(unsigned)vgl_mem_get_free_space(VGL_MEM_BUDGET));
++}
++
+ int unsafe_allocator_counter = 0;
+ void *gpu_alloc_mapped_aligned_unsafe_for_cpu(size_t alignment, size_t size) {
+ 	// Performing a garbage collection cycle prior to attempting to allocate the memory again
+ 	unsafe_allocator_counter++;
++	pcsx_trace_allocator("gc-retry", "cpu:ram,phycont,budget,vram,external", alignment, size, unsafe_allocator_counter);
+ 	if (unsafe_allocator_counter == 1) {
+ 		glFinish();
+ 	}
+@@ -181,6 +198,7 @@
+ void *gpu_alloc_mapped_aligned_unsafe_for_gpu(size_t alignment, size_t size) {
+ 	// Performing a garbage collection cycle prior to attempting to allocate the memory again
+ 	unsafe_allocator_counter++;
++	pcsx_trace_allocator("gc-retry", "gpu:vram,ram,phycont,budget,external", alignment, size, unsafe_allocator_counter);
+ 	if (unsafe_allocator_counter == 1) {
+ 		// Ideally we'd want glFinish here, but this would cause a circular dependency if the allocation failing is related to a depthstencil surface allocation
+ 		sceGxmFinish(gxm_context);
+@@ -220,7 +238,9 @@
+ 	vgl_log("%s:%d gpu_alloc_mapped_aligned_for_cpu failed with a requested size of %u bytes, attempting to forcefully free required memory.\n", __FILE__, __LINE__, size);
+ #endif
+ 	unsafe_allocator_counter = 0;
++	pcsx_trace_allocator("initial-failure", "cpu:ram,phycont,budget,vram,external", alignment, size, unsafe_allocator_counter);
+ 	res = gpu_alloc_mapped_aligned_unsafe_for_cpu(alignment, size);
++	pcsx_trace_allocator(res ? "retry-success" : "retry-failed", "cpu:ram,phycont,budget,vram,external", alignment, size, unsafe_allocator_counter);
+ 
+ #ifdef LOG_ERRORS
+ 	if (!res) {
+@@ -249,7 +269,9 @@
+ 	vgl_log("%s:%d gpu_alloc_mapped_aligned_for_gpu failed with a requested size of %u bytes, attempting to forcefully free required memory.\n", __FILE__, __LINE__, size);
+ #endif
+ 	unsafe_allocator_counter = 0;
++	pcsx_trace_allocator("initial-failure", "gpu:vram,ram,phycont,budget,external", alignment, size, unsafe_allocator_counter);
+ 	res = gpu_alloc_mapped_aligned_unsafe_for_gpu(alignment, size);
++	pcsx_trace_allocator(res ? "retry-success" : "retry-failed", "gpu:vram,ram,phycont,budget,external", alignment, size, unsafe_allocator_counter);
+ 
+ #ifdef LOG_ERRORS
+ 	if (!res) {
