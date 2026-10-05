@@ -57,3 +57,12 @@ Run the isolated checks with:
 make -f tests/Makefile.gnet-pccard test
 make -f tests/Makefile.gnet-pccard sanitize
 ```
+
+The Mac harness and optional `ARCADE_SYSTEM_GNET=1` libretro build also compile
+the card component. The Mac DRC G-Net regression passes the synthetic MIPS,
+81-frame PCM, bank and upper-VRAM checks after this build integration
+(`/tmp/pcsx-gnet-pccard-metadata-drc-20261005.log`). A VitaSDK cross-compile
+of the card translation unit passes with the platform's Cortex-A9/NEON flags;
+command and object/source hashes are recorded in
+`/tmp/pcsx-gnet-pccard-vita-object-20261005/evidence.json`. These checks do not
+attach a card to the native loader or validate a G-Net game on Vita.
