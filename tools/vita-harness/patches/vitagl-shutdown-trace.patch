@@ -1,0 +1,242 @@
+diff --git a/source/gxm.c b/source/gxm.c
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -418,21 +418,26 @@
+ 
+ static int stop_garbage_collector(void) {
+ 	int result = 0;
++	sceClibPrintf("vitaGL-shutdown stage=stop-gc.begin started=%d\n", gc_started);
+ #ifndef HAVE_SINGLE_THREADED_GC
+ 	if (gc_started) {
+ 		gc_shutdown_requested = GL_TRUE;
+ 		int rc = sceKernelSignalSema(gc_mutex[0], 1);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.signal rc=%d\n", rc);
+ 		if (rc < 0)
+ 			return rc;
+ #ifdef HAVE_PTHREAD
+ 		rc = pthread_join(gc_thread, NULL);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.join rc=%d\n", rc);
+ 		if (rc != 0)
+ 			return -rc;
+ #else
+ 		rc = sceKernelWaitThreadEnd(gc_thread, NULL, NULL);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.join rc=%d\n", rc);
+ 		if (rc < 0)
+ 			return rc;
+ 		rc = sceKernelDeleteThread(gc_thread);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.delete-thread rc=%d\n", rc);
+ 		if (rc < 0)
+ 			return rc;
+ #endif
+@@ -440,27 +445,38 @@
+ 	}
+ 	if (gc_mutex[0] > 0) {
+ 		int rc = sceKernelDeleteSema(gc_mutex[0]);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.delete-sema0 rc=%d\n", rc);
+ 		if (rc < 0)
+ 			return rc;
+ 		gc_mutex[0] = -1;
+ 	}
+ 	if (gc_mutex[1] > 0) {
+ 		int rc = sceKernelDeleteSema(gc_mutex[1]);
++		sceClibPrintf("vitaGL-shutdown stage=stop-gc.delete-sema1 rc=%d\n", rc);
+ 		if (rc < 0)
+ 			return rc;
+ 		gc_mutex[1] = -1;
+ 	}
+ #endif
++	sceClibPrintf("vitaGL-shutdown stage=stop-gc.purge.begin\n");
++	int traced_elements = 0;
++	int traced_targets = 0;
+ 	for (int i = 0; i < FRAME_PURGE_FREQ; i++) {
+ 		for (int j = 0; j < FRAME_PURGE_LIST_SIZE; j++) {
+ 			if (!frame_purge_list[i][j])
+ 				break;
++			if (traced_elements < 8)
++				sceClibPrintf("vitaGL-shutdown stage=stop-gc.free slot=%d item=%d ptr=%p\n", i, j, frame_purge_list[i][j]);
++			traced_elements++;
+ 			vgl_free(frame_purge_list[i][j]);
+ 			frame_purge_list[i][j] = NULL;
+ 		}
+ 		for (int j = 0; j < FRAME_PURGE_RENDERTARGETS_LIST_SIZE; j++) {
+ 			if (!frame_rt_purge_list[i][j])
+ 				break;
++			if (traced_targets < 8)
++				sceClibPrintf("vitaGL-shutdown stage=stop-gc.destroy-rt slot=%d item=%d ptr=%p\n", i, j, frame_rt_purge_list[i][j]);
++			traced_targets++;
+ 			int rc = sceGxmDestroyRenderTarget(frame_rt_purge_list[i][j]);
+ 			if (rc < 0) {
+ 				if (!result) result = rc;
+@@ -468,118 +484,158 @@
+ 				frame_rt_purge_list[i][j] = NULL;
+ 		}
+ 	}
++	sceClibPrintf("vitaGL-shutdown stage=stop-gc.purge.end items=%d targets=%d rc=%d\n", traced_elements, traced_targets, result);
+ 	return result;
+ }
+ 
+ int vglShutdown(void) {
++	sceClibPrintf("vitaGL-shutdown stage=begin initialized=%d\n", gxm_initialized);
+ 	if (!gxm_initialized)
+ 		return 0;
+ 	int result = 0;
+ 
+ #ifndef SKIP_SPLASHSCREEN
++	sceClibPrintf("vitaGL-shutdown stage=splash.begin active=%d\n", is_splashscreen_active);
+ 	int splash_result = shutdown_splashscreen();
++	sceClibPrintf("vitaGL-shutdown stage=splash.end rc=%d\n", splash_result);
+ 	if (splash_result < 0) return splash_result;
+ #endif
+ 
+ 	if (needs_end_scene && gxm_context) {
++		sceClibPrintf("vitaGL-shutdown stage=scene-end.begin\n");
+ 		scene_end();
+ 		needs_end_scene = GL_FALSE;
++		sceClibPrintf("vitaGL-shutdown stage=scene-end.end\n");
+ 	}
+-	if (gxm_context)
++	if (gxm_context) {
++		sceClibPrintf("vitaGL-shutdown stage=gxm-finish.begin context=%p\n", gxm_context);
+ 		sceGxmFinish(gxm_context);
++		sceClibPrintf("vitaGL-shutdown stage=gxm-finish.end\n");
++	}
++	sceClibPrintf("vitaGL-shutdown stage=display-queue-finish.begin\n");
+ 	int rc = sceGxmDisplayQueueFinish();
++	sceClibPrintf("vitaGL-shutdown stage=display-queue-finish.end rc=%d\n", rc);
+ 	if (rc < 0) return rc;
+ 
+ 	// The display queue has no more callbacks that can publish a framebuffer.
++	sceClibPrintf("vitaGL-shutdown stage=display-unbind.begin\n");
+ 	rc = sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_NEXTFRAME);
++	sceClibPrintf("vitaGL-shutdown stage=display-set-framebuf rc=%d\n", rc);
+ 	if (rc < 0) return rc;
+ 	rc = sceDisplayWaitSetFrameBuf();
++	sceClibPrintf("vitaGL-shutdown stage=display-unbind.end rc=%d\n", rc);
+ 	if (rc < 0) return rc;
+ 
+ 	rc = stop_garbage_collector();
++	sceClibPrintf("vitaGL-shutdown stage=stop-gc.end rc=%d\n", rc);
+ 	if (rc < 0) return rc;
++	sceClibPrintf("vitaGL-shutdown stage=shader-compiler-stop.begin online=%d\n", is_shark_online);
+ 	glReleaseShaderCompiler();
++	sceClibPrintf("vitaGL-shutdown stage=shader-compiler-stop.end online=%d\n", is_shark_online);
+ 
+ 	if (gxm_shader_patcher) {
++		sceClibPrintf("vitaGL-shutdown stage=shader-patcher-destroy.begin ptr=%p\n", gxm_shader_patcher);
+ 		rc = sceGxmShaderPatcherDestroy(gxm_shader_patcher);
++		sceClibPrintf("vitaGL-shutdown stage=shader-patcher-destroy.end rc=%d\n", rc);
+ 		if (rc < 0) return rc;
+ 		gxm_shader_patcher = NULL;
+ 	}
+ 
++	sceClibPrintf("vitaGL-shutdown stage=sync-objects-destroy.begin\n");
+ 	for (int i = 0; i < DISPLAY_MAX_BUFFER_COUNT; i++) {
+ 		if (gxm_sync_objects[i]) {
++			sceClibPrintf("vitaGL-shutdown stage=sync-object index=%d ptr=%p\n", i, gxm_sync_objects[i]);
+ 			rc = sceGxmSyncObjectDestroy(gxm_sync_objects[i]);
+ 			if (rc < 0) return rc;
+ 			gxm_sync_objects[i] = NULL;
+ 		}
+ 	}
++	sceClibPrintf("vitaGL-shutdown stage=sync-objects-destroy.end\n");
+ 
+ 	if (gxm_render_target) {
++		sceClibPrintf("vitaGL-shutdown stage=render-target-destroy.begin ptr=%p\n", gxm_render_target);
+ 		rc = sceGxmDestroyRenderTarget(gxm_render_target);
++		sceClibPrintf("vitaGL-shutdown stage=render-target-destroy.end rc=%d\n", rc);
+ 		if (rc < 0) return rc;
+ 		gxm_render_target = NULL;
+ 	}
+ #ifdef HAVE_SHARED_RENDERTARGETS
++	sceClibPrintf("vitaGL-shutdown stage=shared-render-targets-destroy.begin\n");
+ 	for (int i = 0; i < MAX_RENDER_TARGETS_NUM; i++) {
+ 		if (rt_list[i].rt) {
++			sceClibPrintf("vitaGL-shutdown stage=shared-render-target index=%d ptr=%p\n", i, rt_list[i].rt);
+ 			rc = sceGxmDestroyRenderTarget(rt_list[i].rt);
+ 			if (rc < 0) return rc;
+ 			vgl_memset(&rt_list[i], 0, sizeof(rt_list[i]));
+ 		}
+ 	}
++	sceClibPrintf("vitaGL-shutdown stage=shared-render-targets-destroy.end\n");
+ #endif
+ 
+ 	if (gxm_context) {
++		sceClibPrintf("vitaGL-shutdown stage=context-destroy.begin ptr=%p\n", gxm_context);
+ 		rc = sceGxmDestroyContext(gxm_context);
++		sceClibPrintf("vitaGL-shutdown stage=context-destroy.end rc=%d\n", rc);
+ 		if (rc < 0) return rc;
+ 		gxm_context = NULL;
+ 	}
+ 
++	sceClibPrintf("vitaGL-shutdown stage=ringbuffers-free.begin\n");
+ 	for (int i = 0; i < GXM_CONTEXTS_NUM; i++) {
+-		if (vdm_ring_buffer_addr[i]) vgl_free(vdm_ring_buffer_addr[i]);
+-		if (vertex_ring_buffer_addr[i]) vgl_free(vertex_ring_buffer_addr[i]);
+-		if (fragment_ring_buffer_addr[i]) vgl_free(fragment_ring_buffer_addr[i]);
+-		if (context_host_mem[i]) vgl_free(context_host_mem[i]);
+-		if (fragment_usse_ring_buffer_addr[i]) gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[i]);
++		if (vdm_ring_buffer_addr[i]) { sceClibPrintf("vitaGL-shutdown stage=ringbuffer vdm index=%d ptr=%p\n", i, vdm_ring_buffer_addr[i]); vgl_free(vdm_ring_buffer_addr[i]); }
++		if (vertex_ring_buffer_addr[i]) { sceClibPrintf("vitaGL-shutdown stage=ringbuffer vertex index=%d ptr=%p\n", i, vertex_ring_buffer_addr[i]); vgl_free(vertex_ring_buffer_addr[i]); }
++		if (fragment_ring_buffer_addr[i]) { sceClibPrintf("vitaGL-shutdown stage=ringbuffer fragment index=%d ptr=%p\n", i, fragment_ring_buffer_addr[i]); vgl_free(fragment_ring_buffer_addr[i]); }
++		if (context_host_mem[i]) { sceClibPrintf("vitaGL-shutdown stage=ringbuffer host index=%d ptr=%p\n", i, context_host_mem[i]); vgl_free(context_host_mem[i]); }
++		if (fragment_usse_ring_buffer_addr[i]) { sceClibPrintf("vitaGL-shutdown stage=ringbuffer usse index=%d ptr=%p\n", i, fragment_usse_ring_buffer_addr[i]); gpu_fragment_usse_free_mapped(fragment_usse_ring_buffer_addr[i]); }
+ 		vdm_ring_buffer_addr[i] = NULL;
+ 		vertex_ring_buffer_addr[i] = NULL;
+ 		fragment_ring_buffer_addr[i] = NULL;
+ 		context_host_mem[i] = NULL;
+ 		fragment_usse_ring_buffer_addr[i] = NULL;
+ 	}
++	sceClibPrintf("vitaGL-shutdown stage=ringbuffers-free.end\n");
+ 
+-	if (gxm_shader_patcher_buffer_addr) vgl_free(gxm_shader_patcher_buffer_addr);
+-	if (gxm_shader_patcher_vertex_usse_addr) gpu_vertex_usse_free_mapped(gxm_shader_patcher_vertex_usse_addr);
+-	if (gxm_shader_patcher_fragment_usse_addr) gpu_fragment_usse_free_mapped(gxm_shader_patcher_fragment_usse_addr);
++	sceClibPrintf("vitaGL-shutdown stage=shader-patcher-pools-free.begin\n");
++	if (gxm_shader_patcher_buffer_addr) { sceClibPrintf("vitaGL-shutdown stage=shader-patcher-pool host ptr=%p\n", gxm_shader_patcher_buffer_addr); vgl_free(gxm_shader_patcher_buffer_addr); }
++	if (gxm_shader_patcher_vertex_usse_addr) { sceClibPrintf("vitaGL-shutdown stage=shader-patcher-pool vertex ptr=%p\n", gxm_shader_patcher_vertex_usse_addr); gpu_vertex_usse_free_mapped(gxm_shader_patcher_vertex_usse_addr); }
++	if (gxm_shader_patcher_fragment_usse_addr) { sceClibPrintf("vitaGL-shutdown stage=shader-patcher-pool fragment ptr=%p\n", gxm_shader_patcher_fragment_usse_addr); gpu_fragment_usse_free_mapped(gxm_shader_patcher_fragment_usse_addr); }
+ 	gxm_shader_patcher_buffer_addr = NULL;
+ 	gxm_shader_patcher_vertex_usse_addr = NULL;
+ 	gxm_shader_patcher_fragment_usse_addr = NULL;
++	sceClibPrintf("vitaGL-shutdown stage=shader-patcher-pools-free.end\n");
+ 
++	sceClibPrintf("vitaGL-shutdown stage=display-depth-pools-free.begin\n");
+ 	for (int i = 0; i < DISPLAY_MAX_BUFFER_COUNT; i++) {
+-		if (!system_app_mode && gxm_color_surfaces_addr[i])
++		if (!system_app_mode && gxm_color_surfaces_addr[i]) {
++			sceClibPrintf("vitaGL-shutdown stage=display-pool index=%d ptr=%p\n", i, gxm_color_surfaces_addr[i]);
+ 			vgl_free(gxm_color_surfaces_addr[i]);
++		}
+ 		gxm_color_surfaces_addr[i] = NULL;
+ 	}
+ 	if (system_app_mode && shared_fb_info.fb_base)
+ 		sceGxmUnmapMemory(shared_fb_info.fb_base);
+-	if (gxm_depth_stencil_surface.depthData)
+-		vgl_free(gxm_depth_stencil_surface.depthData);
+-	if (gxm_depth_stencil_surface.stencilData)
+-		vgl_free(gxm_depth_stencil_surface.stencilData);
++	if (gxm_depth_stencil_surface.depthData) { sceClibPrintf("vitaGL-shutdown stage=depth-pool ptr=%p\n", gxm_depth_stencil_surface.depthData); vgl_free(gxm_depth_stencil_surface.depthData); }
++	if (gxm_depth_stencil_surface.stencilData) { sceClibPrintf("vitaGL-shutdown stage=stencil-pool ptr=%p\n", gxm_depth_stencil_surface.stencilData); vgl_free(gxm_depth_stencil_surface.stencilData); }
+ 	vgl_memset(&gxm_depth_stencil_surface, 0, sizeof(gxm_depth_stencil_surface));
+ 
+ 	if (system_app_mode && shared_fb >= 0) {
+ 		sceSharedFbClose(shared_fb);
+ 		shared_fb = -1;
+ 	}
++	sceClibPrintf("vitaGL-shutdown stage=display-depth-pools-free.end\n");
++	sceClibPrintf("vitaGL-shutdown stage=vgl-mem-term.begin\n");
+ 	rc = vgl_mem_term();
++	sceClibPrintf("vitaGL-shutdown stage=vgl-mem-term.end rc=%d\n", rc);
+ 	if (rc < 0) return rc;
++	sceClibPrintf("vitaGL-shutdown stage=gxm-terminate.begin\n");
+ 	rc = sceGxmTerminate();
++	sceClibPrintf("vitaGL-shutdown stage=gxm-terminate.end rc=%d\n", rc);
+ 	if (rc < 0 && !result) result = rc;
+ 	if (rc >= 0)
+ 		gxm_initialized = GL_FALSE;
+ 	needs_scene_reset = GL_TRUE;
+ 	scene_not_flushed = GL_FALSE;
++	sceClibPrintf("vitaGL-shutdown stage=end rc=%d\n", result);
+ 	return result;
+ }
+ 

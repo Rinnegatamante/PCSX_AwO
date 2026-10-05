@@ -72,6 +72,8 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "build/vita-deps/vitaGL")
     parser.add_argument("--trace-sampler-bindings", action="store_true",
                         help="Build bounded diagnostic logs for fragment sampler selection")
+    parser.add_argument("--trace-shutdown", action="store_true",
+                        help="Build bounded diagnostic logs for vitaGL shutdown phases")
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()
     if source == output or source in output.parents or output in source.parents:
@@ -80,8 +82,12 @@ def main():
         parser.error("local VitaGL source has tracked changes; commit them before cloning")
     commit = git(source, "rev-parse", "HEAD")
     patch_series = []
-    patches = PATCHES + ((ROOT / "tools/vita-harness/patches/vitagl-sampler-trace.patch",)
-                         if args.trace_sampler_bindings else ())
+    optional_patches = ()
+    if args.trace_sampler_bindings:
+        optional_patches += (ROOT / "tools/vita-harness/patches/vitagl-sampler-trace.patch",)
+    if args.trace_shutdown:
+        optional_patches += (ROOT / "tools/vita-harness/patches/vitagl-shutdown-trace.patch",)
+    patches = PATCHES + optional_patches
     for patch in patches:
         if not patch.is_file():
             parser.error("tracked VitaGL patch is missing: " + str(patch))
