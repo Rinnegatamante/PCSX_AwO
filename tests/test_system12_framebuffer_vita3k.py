@@ -62,6 +62,8 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                             h * 4 >= FIXTURE.DISPLAY_H * 3 for w, h in clips))
         self.assertIn(0xe5000000 | (240 << 11), commands)
         self.assertEqual(commands.count(0xc0000000), 18)
+        self.assertNotIn(0xe2000401, commands)
+        self.assertNotIn(0xe2000000, commands)
         self.assertIn(0xa0000000, commands)
         self.assertIn(0x80000000, commands)
         polygons = []
@@ -134,6 +136,51 @@ class System12FramebufferFixtureTests(unittest.TestCase):
             board = (region / "board.cfg").read_text(encoding="ascii")
             self.assertIn("ram_size=4194304", board)
             self.assertIn("machine=coh700", board)
+
+    def test_optional_texture_window_probe_sets_and_resets_e2(self):
+        _code, commands = FIXTURE.make_guest_code(texture_window=True)
+        self.assertEqual(commands.count(0xc0000000), 24)
+        self.assertEqual([word for word in commands if word >> 24 == 0xe2],
+                         [0xe2000401, 0xe2000000])
+
+        polygons = []
+        read_points = []
+        cursor = 0
+        while cursor < len(commands):
+            opcode = commands[cursor] >> 24
+            if opcode == 0xa0:
+                pixel_count = ((commands[cursor + 2] & 0xffff) *
+                               (commands[cursor + 2] >> 16))
+                cursor += 3 + (pixel_count + 1) // 2
+            elif opcode == 0x24:
+                polygons.append((cursor, tuple(commands[cursor + i] & 0xffff
+                                               for i in (2, 4, 6))))
+                cursor += 7
+            elif opcode == 0x2c:
+                cursor += 9
+            elif opcode == 0xc0:
+                xy = commands[cursor + 1]
+                read_points.append((xy & 0xffff, xy >> 16))
+                cursor += 3
+            elif opcode == 0x80:
+                cursor += 4
+            elif opcode == 0x70:
+                cursor += 2
+            else:
+                cursor += 1
+
+        self.assertEqual([uv for _, uv in polygons[-2:]],
+                         [(0, 15, 15 << 8), (0, 15, 15 << 8)])
+        first_window_polygon = next(pos for pos, _ in polygons if pos >
+                                    commands.index(0xe2000401))
+        reset_position = commands.index(0xe2000000)
+        second_window_polygon = next(pos for pos, _ in polygons if pos > reset_position)
+        self.assertLess(commands.index(0xe2000401), first_window_polygon)
+        self.assertLess(reset_position, second_window_polygon)
+        self.assertEqual(read_points[-6:], [(36, 88), (68, 88), (28, 120),
+                                           (36, 168), (68, 168), (28, 200)])
+        self.assertEqual(FIXTURE.EXPECTED_TEXTURE_WINDOW_PIXELS,
+                         (0x7c1f, 0x7c1f, 0x4210, 0x7fe0, 0x7c1f, 0x7fff))
 
 
 if __name__ == "__main__":

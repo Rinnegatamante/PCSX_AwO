@@ -18,12 +18,21 @@ EXPECTED = re.compile(
     r"ft3a_tl=001f ft3a_tr=03e0 ft3a_bl=7c00 "
     r"ft3b_tl=7fe0 ft3b_tr=7c1f ft3b_bl=7fff "
     r"ft4_tl=7fe0 ft4_tr=7c1f ft4_bl=7fff ft4_br=4210 runs=1\b")
+EXPECTED_TEXTURE_WINDOW = re.compile(
+    r"pcsx-vita: system12-texture-window PASS cpu=ari64 magic=53314642 "
+    r"ft3a_tl=001f ft3a_tr=03e0 ft3a_bl=7c00 "
+    r"ft3b_tl=7fe0 ft3b_tr=7c1f ft3b_bl=7fff "
+    r"ft4_tl=7fe0 ft4_tr=7c1f ft4_bl=7fff ft4_br=4210 "
+    r"tw_tl=7c1f tw_tr=7c1f tw_br=4210 "
+    r"reset_tl=7fe0 reset_tr=7c1f reset_bl=7fff runs=1\b")
 RESULT_MAGIC = 0x53314642  # S1FB
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
                    0x7fff, 0x03e0, 0x7c1f, 0x7c1f)
 EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
                            0x7fe0, 0x7c1f, 0x7fff,
                            0x7fe0, 0x7c1f, 0x7fff, 0x4210)
+EXPECTED_TEXTURE_WINDOW_PIXELS = (0x7c1f, 0x7c1f, 0x4210,
+                                  0x7fe0, 0x7c1f, 0x7fff)
 DISPLAY_W, DISPLAY_H = 320, 240
 
 
@@ -36,7 +45,7 @@ def module(name, path):
     return result
 
 
-def make_guest_code():
+def make_guest_code(texture_window=False):
     """Generate an ari64 MIPS guest that exercises main-target/VRAM ordering."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     code = []
@@ -99,22 +108,22 @@ def make_guest_code():
         for i in range(0, len(pixels), 2):
             gp0(pixels[i] | (pixels[i + 1] << 16))
 
-    def upload_p4_test_page(word_x):
+    def upload_p4_test_page(word_x, height=8):
         # Four broad index regions make interpolated UV samples unambiguous,
         # with enough margin that edge fill and subpixel rules do not matter.
         texels = []
-        for y in range(8):
+        for y in range(height):
             for word_x_inner in range(4):
                 indices = []
                 for lane in range(4):
                     x = word_x_inner * 4 + lane
-                    if y < 4:
+                    if y < 8:
                         indices.append(1 if x < 8 else 2)
                     else:
                         indices.append(3 if x < 8 else 4)
                 texels.append(indices[0] | (indices[1] << 4) |
                               (indices[2] << 8) | (indices[3] << 12))
-        upload_rect(word_x, 512, 4, 8, texels)
+        upload_rect(word_x, 512, 4, height, texels)
 
     def upload_palette(x, y, entries):
         assert len(entries) == 16
@@ -193,8 +202,8 @@ def make_guest_code():
     # onscreen clip while changing CLUT and then TPAGE. Constant-index texture
     # quadrants let interior C0 reads act as a stable oracle without modeling
     # the rasterizer's exact edge and subpixel rules.
-    upload_p4_test_page(0)
-    upload_p4_test_page(64)
+    upload_p4_test_page(0, 16 if texture_window else 8)
+    upload_p4_test_page(64, 16 if texture_window else 8)
     palette_a = [0, 0x001f, 0x03e0, 0x7c00, 0x03ff] + [0] * 11
     palette_b = [0, 0x7fe0, 0x7c1f, 0x7fff, 0x4210] + [0] * 11
     upload_palette(32, 800, palette_a)
@@ -212,6 +221,20 @@ def make_guest_code():
                         (248, 216, 17), (296, 216, 18)):
         c0_pixel(x, y, index)
 
+    if texture_window:
+        # E2 mask+offset moves the masked U bit to one, selecting the right
+        # half of the 16x16 four-quadrant indexed texture. The lower sample
+        # also checks the bottom-right quadrant. Reset E2 and repeat a fresh
+        # polygon to prove subsequent packets use the unwindowed UVs.
+        gp0(0xe2000000 | 1 | (1 << 10))
+        ft3(20, 80, ((0, 0), (15, 0), (0, 15)), 0x0800, clut_b)
+        for x, y, index in ((36, 88, 19), (68, 88, 20), (28, 120, 21)):
+            c0_pixel(x, y, index)
+        gp0(0xe2000000)
+        ft3(20, 160, ((0, 0), (15, 0), (0, 15)), 0x0800, clut_b)
+        for x, y, index in ((36, 168, 22), (68, 168, 23), (28, 200, 24)):
+            c0_pixel(x, y, index)
+
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
     loop = 0xbfc01000 + len(code) * 4
@@ -219,11 +242,11 @@ def make_guest_code():
     return code, commands
 
 
-def make_regions(path):
+def make_regions(path, texture_window=False):
     """Reuse the DRC's local System12 board/media regions; replace guest ROM."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     drc.make_regions(path, 4, vita_signature=True)
-    code, _ = make_guest_code()
+    code, _ = make_guest_code(texture_window=texture_window)
     if len(code) > (0x400000 - 0x1000) // 4:
         raise RuntimeError("generated framebuffer guest exceeds the main ROM region")
     main = bytearray(0x400000)
@@ -243,6 +266,8 @@ def main():
                         help="existing local libshacccg.suprx")
     parser.add_argument("--timeout", type=float, default=90)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--texture-window", action="store_true",
+                        help="add the optional E2 mask/offset and reset probe")
     args = parser.parse_args()
     if (args.output_dir.exists() or not args.emulator.exists() or
             not args.vpk.is_file() or not args.firmware_fs.is_dir() or
@@ -271,7 +296,7 @@ def main():
         checker.install_local_shader_compiler(emulator, args.shader_compiler)
         region = temp / "framebuffer"
         region.mkdir()
-        make_regions(region)
+        make_regions(region, texture_window=args.texture_window)
         (args.output_dir / "board.cfg").write_bytes((region / "board.cfg").read_bytes())
         packer = Path(shutil.which("vita-pack-vpk")) if shutil.which("vita-pack-vpk") else None
         mksfoex = Path(shutil.which("vita-mksfoex")) if shutil.which("vita-mksfoex") else None
@@ -284,13 +309,19 @@ def main():
         base = [str(emulator), "--keep-config", "--log-level", "1"]
         installed = checker.run_owned(base + ["--", str(vpk)], log, args.timeout,
             "framebuffer fixture install", f"[{TITLE_ID}] installed successfully!", installation=True)
+        verify_arg = ("--verify-system12-texture-window" if args.texture_window
+                      else "--verify-system12-framebuffer")
+        expected = EXPECTED_TEXTURE_WINDOW if args.texture_window else EXPECTED
         passed = installed and checker.run_owned(base + ["--installed-path", TITLE_ID,
             "--app-args", f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/framebuffer, "
-            "--verify-system12-framebuffer, --frames, 1"], log, args.timeout,
-            "System12 framebuffer coherence", EXPECTED, require_ari64=True)
-        evidence = dict(passed=passed, expected=EXPECTED.pattern,
+            f"{verify_arg}, --frames, 1"], log, args.timeout,
+            "System12 texture-window probe" if args.texture_window else
+            "System12 framebuffer coherence", expected, require_ari64=True)
+        evidence = dict(passed=passed, expected=expected.pattern,
             colors_rgb555=list(EXPECTED_PIXELS),
             polygon_colors_rgb555=list(EXPECTED_POLYGON_PIXELS),
+            texture_window_colors_rgb555=(list(EXPECTED_TEXTURE_WINDOW_PIXELS)
+                                          if args.texture_window else None),
             main_sha256=gameplay.sha256_file(region / "main.bin"),
             host_sha256=gameplay.sha256_file(emulator),
             vpk_sha256=gameplay.sha256_file(args.vpk),
