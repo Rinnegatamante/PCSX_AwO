@@ -1,8 +1,10 @@
 #include "gnet_zoom.h"
 #include "nor_flash.h"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -12,6 +14,13 @@ void emit(std::vector<uint8_t> &rom, size_t &p,
           std::initializer_list<uint8_t> bytes)
 {
     for (uint8_t b : bytes) rom[p++] = b;
+}
+
+void emit_store8(std::vector<uint8_t> &rom, size_t &p,
+                 uint8_t value, uint32_t address)
+{
+    emit(rom, p, {0xf8, value, 0x00, 0xf4, 0x44,
+                  uint8_t(address), uint8_t(address >> 8), uint8_t(address >> 16)});
 }
 
 struct Media {
@@ -107,6 +116,94 @@ void probe_flash_ready_from_audio(void *opaque, float, float, uint64_t cycle)
     if (!probe->ready_seen && gnet_zoom_flash_ready(probe->board, 0)) {
         probe->ready_seen = true;
         probe->first_ready_zsg_cycle = cycle;
+    }
+}
+
+struct AudioSample {
+    float left;
+    float right;
+    uint64_t cycle;
+};
+
+struct AudioCapture {
+    std::vector<AudioSample> samples;
+    bool finite = true;
+    bool monotonic = true;
+    bool nonzero = false;
+};
+
+void capture_audio(void *opaque, float left, float right, uint64_t cycle)
+{
+    auto *capture = static_cast<AudioCapture *>(opaque);
+    if (!std::isfinite(left) || !std::isfinite(right)) capture->finite = false;
+    if (!capture->samples.empty() && cycle <= capture->samples.back().cycle)
+        capture->monotonic = false;
+    if (std::abs(left) > 0.00001f || std::abs(right) > 0.00001f)
+        capture->nonzero = true;
+    capture->samples.push_back({left, right, cycle});
+}
+
+void install_tms_tone_program(Media &media)
+{
+    size_t p = 0;
+    /* MN10200 uploads a short TMS57002 tone program over Port 1 and writes
+     * its coefficient RAM through the same pin protocol used by the board. */
+    emit_store8(media.program, p, 0xff, 0xffe1); // P1 direction = output
+    emit_store8(media.program, p, 3, 0xfe64);    // deassert both load pins
+    emit_store8(media.program, p, 2, 0xfe64);    // assert PLOAD
+    const uint8_t program_bytes[] = {
+        0,0,0, 0,0,0, 0xcc,0x05,0x10, 0x01,0x10,0x00, 0xfc,0x40,0x00
+    };
+    for (uint8_t byte : program_bytes) emit_store8(media.program, p, byte, 0xc00000);
+    emit_store8(media.program, p, 3, 0xfe64); // release PLOAD
+    emit_store8(media.program, p, 1, 0xfe64); // assert CLOAD
+    const uint8_t cload_bytes[] = {0x10,0x12,0x34,0x56,0x78};
+    for (uint8_t byte : cload_bytes) emit_store8(media.program, p, byte, 0xc00000);
+    emit_store8(media.program, p, 3, 0xfe64); // complete CLOAD
+    emit(media.program, p, {0xea, 0xfe}); // BRA -2 after setup
+    for (auto &sample : media.samples) std::fill(sample.begin(), sample.end(), 0);
+}
+
+std::vector<AudioSample> run_tms_tone(bool split_sync, AudioCapture &capture)
+{
+    Media media;
+    install_tms_tone_program(media);
+    auto config = media.config();
+    config.audio_opaque = &capture;
+    config.audio_frame = capture_audio;
+    gnet_zoom_board *board = nullptr;
+    assert(gnet_zoom_create(&config, &board) == GNET_ZOOM_OK && board);
+    assert(gnet_zoom_control_write(board, 0) == GNET_ZOOM_OK);
+    if (split_sync) {
+        for (uint64_t cycle = 250; cycle < 5000; cycle += 250)
+            assert(gnet_zoom_sync_to_cycle(board, cycle) == GNET_ZOOM_OK);
+        assert(gnet_zoom_sync_to_cycle(board, 5000) == GNET_ZOOM_OK);
+    } else {
+        assert(gnet_zoom_sync_to_cycle(board, 5000) == GNET_ZOOM_OK);
+    }
+    assert(gnet_zoom_fault(board) == 0);
+    assert(gnet_zoom_try_destroy(board) == GNET_ZOOM_OK);
+    return capture.samples;
+}
+
+void test_mn_tms_program_reaches_real_zoom_audio_callback()
+{
+    AudioCapture one_shot;
+    const std::vector<AudioSample> one_shot_samples = run_tms_tone(false, one_shot);
+    AudioCapture split;
+    const std::vector<AudioSample> split_samples = run_tms_tone(true, split);
+
+    for (const AudioCapture *capture : {&one_shot, &split}) {
+        assert(capture->samples.size() > 4);
+        assert(capture->finite);
+        assert(capture->monotonic);
+        assert(capture->nonzero);
+    }
+    assert(one_shot_samples.size() == split_samples.size());
+    for (size_t i = 0; i < one_shot_samples.size(); ++i) {
+        assert(one_shot_samples[i].cycle == split_samples[i].cycle);
+        assert(one_shot_samples[i].left == split_samples[i].left);
+        assert(one_shot_samples[i].right == split_samples[i].right);
     }
 }
 
@@ -371,6 +468,7 @@ int main()
     test_bank_control_mapping_eprom_alias_and_wave_flash();
     test_source_maincpu_map_routes_registers_and_shared_ram_lanes();
     test_nor_busy_time_and_bad_config();
+    test_mn_tms_program_reaches_real_zoom_audio_callback();
     test_cpu_fetch_advances_nor_at_bus_cycle_independent_of_quantum();
     test_busy_destroy_refusal_and_time_error_propagation();
     test_mame_mb3773_control_bit_and_five_second_timer();

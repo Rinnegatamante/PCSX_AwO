@@ -65,6 +65,13 @@ EEPROM API is not connected to frontend save storage. G-Net card/PCMCIA media,
 game-specific input variations, and other game-specific device extensions
 remain unsupported.
 
+The standalone Zoom regression also loads a synthetic MN10200 program that
+uploads a small TMS57002 tone routine through the board pins and captures the
+real `gnet_zoom` audio callback. It checks finite nonzero PCM, increasing ZSG
+timestamps, and identical output for one-shot versus split cycle synchronization.
+This validates the emulator's PCM path with test data; it does not supply the
+missing authenticated game sound program or sample media.
+
 The general PSX core still advances in its existing PSX cycle domain; this
 adapter does not yet reproduce the source 67.7376/100 MHz main-CPU execution
 rate or source vblank timing. The source clocks recorded in `board.ini` are
