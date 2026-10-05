@@ -17,6 +17,7 @@ import sys
 import time
 mode = Path(sys.argv[0]).name
 print(f"owned host pid={os.getpid()}", flush=True)
+print("vitaGL-shutdown stage=stop-gc.purge.begin", flush=True)
 if "--" in sys.argv:
     print("[install_archive_content]: test [PCSXN0012] installed successfully!", flush=True)
     # Deliberately include an old PASS: it must not validate the next launch.
@@ -90,6 +91,14 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="pcsx-vita3k-runner-") as tmp:
         root = Path(tmp)
+        trace_host = root / "lifecycle-trace"
+        trace_host.write_text(FAKE_HOST)
+        trace_host.chmod(0o700)
+        trace_log = root / "shutdown-trace.log"
+        passed, issues = gameplay.run_guest(trace_host, "test", trace_log, 2,
+                                            ("pcsx-vita: vitaGL shutdown PASS (0)",))
+        assert passed and not issues
+        assert "vitaGL-shutdown stage=stop-gc.purge.begin" in trace_log.read_text()
         result_path = root / "results.json"
         gameplay.write_results(result_path, {"renderer": "vitagl"}, [
             {"frames": 400, "status": "completed", "runtime_issues": {}},

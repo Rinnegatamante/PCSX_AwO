@@ -117,7 +117,7 @@ class CapturedGuest:
                  b"Unhandled EXC_", b"|C|", b"Successfully saved screenshot",
                  b"Failed to save screenshot", b"Failed to take screenshot",
                  b"Game started", b"Dynarmic forwarding EXC_BAD_ACCESS",
-                 b"Vita3K recovered protected access")
+                 b"Vita3K recovered protected access", b"vitaGL-shutdown stage=")
     FORWARDED = re.compile(rb"Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=(0x[0-9a-fA-F]+)\s*$")
     RECOVERED = re.compile(rb"Vita3K recovered protected access pc=(0x[0-9a-fA-F]+) addr=0x[0-9a-fA-F]+ write=[01]\s*$")
 
