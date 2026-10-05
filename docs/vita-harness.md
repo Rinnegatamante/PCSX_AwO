@@ -463,8 +463,29 @@ and capture 13 has horizontal bands below Stage 1 combat. The separate
 
 The Mac GL 3,600-frame capture shows a clean combat scene, but that run uses
 console timing and reaches a different scene from the native Vita replay's
-source timing experiment. It cannot yet assign these remaining artifacts to
-VitaGL or Vita3K. The Mac shim also does not exercise VitaGL's GXM runtime,
-shader compiler, scratch pool or Vita worker scheduling. NEON's matching
-pixel probes and reviewed Vita3K scenes establish the tested emulator path;
-physical Vita graphics and performance remain untested.
+source timing experiment. A follow-up comparison uses the same 3,600-frame
+input file (SHA256 `e21a0dde899979d4b3da7ba9687647d0bedd4c5d31a71f4cbbf509054ef03351`)
+and the 50 MHz / multiplier-200 source timing experiment:
+
+| Mac renderer / CPU | Capture review | Evidence directory under `/tmp` |
+| --- | --- | --- |
+| Vita-path GL / ARM64 DRC | Vertical stretched background bands | `pcsx-mac-vitagl-like-source-timing-soul-3600-20261005` |
+| Vita-path GL / interpreter | Vertical stretched background bands | `pcsx-mac-vitagl-like-source-timing-int-soul-3600-20261005` |
+| NEON / ARM64 DRC | Clean Ivy-versus-Kilik scene | `pcsx-mac-neon-source-timing-drc-soul-3600-20261005` |
+
+All three executions complete without timeout or unmapped board accesses.
+The two GL images are actual OpenGL back-buffer captures; the NEON log
+confirms a last-rendered-flip capture with 2,895 flips. This reproduces the
+tested banding in the Vita-path GPU implementation without VitaGL or Vita3K,
+and without requiring DRC. It does not assign every native Vita artifact to
+the same cause or establish an identical complete command stream.
+
+The Mac shim does not exercise VitaGL's GXM runtime, shader compiler,
+scratch pool or Vita worker scheduling. The native backend explicitly
+requests `vglUseLowPrecision(GL_TRUE)` and fast precision. In the pinned
+VitaGL source, low-precision GLSL translation replaces float types with Cg
+half types after stripping GLSL precision declarations. This is a confirmed
+runtime configuration difference from Mac; its contribution to native
+artifacts remains untested. NEON's matching pixel probes and reviewed
+Vita3K scenes establish the tested emulator path; physical Vita graphics
+and performance remain untested.
