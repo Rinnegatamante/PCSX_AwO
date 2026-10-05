@@ -251,3 +251,13 @@ the E2 mask and offset to indexed and direct-color PSX textures; Vita hardware
 validation is still pending. This proves the native backend had omitted
 texture-window sampling in the tested render path, but does not establish that
 Soul Calibur's remaining artifacts use E2.
+
+`--vram-x-wrap` separately checks the texture-page X seam and P8 CLUT carry.
+A palette at (1008,400) with index 20 selects (4,401), since palette entries
+are consecutive VRAM words. The original native shader wrapped X to the same
+row and failed the two index-20 samples, while NEON passed. The shared native
+shader now carries the overflow into Y; all nine samples pass in
+`/tmp/pcsx-mac-palette-carry-seam-fixed-20261005`. The 24-read E2 control and
+15-read sprite UV-wrap control also pass with that binary. These are Mac GPU
+readback results; native Vita shader compilation and execution still require
+separate validation.

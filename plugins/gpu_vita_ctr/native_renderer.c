@@ -1229,7 +1229,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"\t\tfloat packedByte = floor(mix(packedRg.x, packedRg.y, highByte) * 255.0 + 0.5);\n"                 \
 	"\t\tfloat highNibble = floor(packedByte * (1.0 / 16.0));\n"                                     \
 	"\t\tfloat paletteIndex = mix(packedByte - highNibble * 16.0, highNibble, highNibbleSel);\n"       \
-	"\t\treturn VRAM((v_page_clut.zw + vec2(paletteIndex + 0.5, 0.5)) * c_VRAMTexel);\n"              \
+	"\t\treturn samplePSXPalette(paletteIndex);\n"                                                        \
 	"\t}\n"
 #else
 #define GPU_SAMPLE_TEXTURE_4BIT_FUNC                                                              \
@@ -1255,7 +1255,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"\t\tfloat highByte = step(0.5, fract(floor(tc.x) * 0.5 + 0.25));\n"                                      \
 	"\t\tvec2 packedRg = VRAM((v_page_clut.xy + vec2(floor(tc.x) * 0.5 + 0.25, floor(tc.y) + 0.5)) * c_VRAMTexel);\n" \
 	"\t\tfloat paletteIndex = floor(mix(packedRg.x, packedRg.y, highByte) * 255.0 + 0.5);\n"              \
-	"\t\treturn VRAM((v_page_clut.zw + vec2(paletteIndex + 0.5, 0.5)) * c_VRAMTexel);\n"              \
+	"\t\treturn samplePSXPalette(paletteIndex);\n"                                                        \
 	"\t}\n"
 #else
 #define GPU_SAMPLE_TEXTURE_8BIT_FUNC                                                              \
@@ -1285,10 +1285,24 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"	}\n"
 #endif
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* CLUT entries are consecutive VRAM words: crossing X=1023 carries into
+ * the following row. Texture-page X wrapping alone must not lose that carry. */
+#define GPU_PALETTE_SAMPLE_FUNC                                                                  \
+	"\tvec2 samplePSXPalette(float paletteIndex) {\n"                                            \
+	"\t\tfloat paletteX = v_page_clut.z + paletteIndex;\n"                                   \
+	"\t\tvec2 pixel = vec2(mod(paletteX, 1024.0), v_page_clut.w + floor(paletteX / 1024.0));\n" \
+	"\t\treturn VRAM((pixel + vec2(0.5)) * c_VRAMTexel);\n"                                  \
+	"\t}\n"
+#else
+#define GPU_PALETTE_SAMPLE_FUNC ""
+#endif
+
 #define GPU_FETCH_VRAM_FUNC                                        \
 	"	const vec2 c_VRAMTexel = vec2(1.0 / 1024.0, 1.0 / VRAM_HEIGHT);\n" \
 	"	uniform sampler2D s_texture;\n"                              \
-	"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n"
+	"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n" \
+	GPU_PALETTE_SAMPLE_FUNC
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_TEXTURE_WINDOW_FUNC                                                                    \
