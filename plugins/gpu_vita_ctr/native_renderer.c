@@ -346,6 +346,7 @@ extern int gNativeDitheringEnabled;
 global_variable int s_presentAspectW = 4;
 global_variable int s_presentAspectH = 3;
 global_variable SDL_Rect s_presentViewport = {0, 0, 0, 0};
+global_variable int s_presentAspectMode = 0;
 
 int g_dbg_wireframeMode = 0;
 int g_dbg_texturelessMode = 0;
@@ -382,6 +383,7 @@ internal void NativeRenderer_EnableDepth(int enable);
 internal void NativeRenderer_SetViewPort(int x, int y, int width, int height);
 internal void NativeRenderer_SetPresentationAspect(int width, int height);
 internal void NativeRenderer_UpdatePresentationViewport(void);
+internal SDL_Rect NativeRenderer_GetFourThreeViewport(void);
 internal void NativeRenderer_ClearPresentationBars(void);
 internal void NativeRenderer_SetWireframe(int enable);
 internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target);
@@ -719,6 +721,25 @@ internal void NativeRenderer_UpdatePresentationViewport(void)
 	s_presentViewport.h = viewportH;
 	s_presentViewport.x = (g_windowWidth - viewportW) / 2;
 	s_presentViewport.y = (g_windowHeight - viewportH) / 2;
+}
+
+internal SDL_Rect NativeRenderer_GetFourThreeViewport(void)
+{
+	SDL_Rect viewport = {0, 0, g_windowWidth, g_windowHeight};
+	int viewportW = g_windowWidth;
+	int viewportH = (viewportW * 3) / 4;
+
+	if (viewportH > g_windowHeight)
+	{
+		viewportH = g_windowHeight;
+		viewportW = (viewportH * 4) / 3;
+	}
+
+	viewport.w = viewportW > 0 ? viewportW : 1;
+	viewport.h = viewportH > 0 ? viewportH : 1;
+	viewport.x = (g_windowWidth - viewport.w) / 2;
+	viewport.y = (g_windowHeight - viewport.h) / 2;
+	return viewport;
 }
 
 internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target)
@@ -3676,10 +3697,22 @@ void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, in
 	}
 
 	NativeRenderer_UpdateVRAM();
-
-	NativeRenderer_SetViewPort(s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h);
+	const SDL_Rect viewport = s_presentAspectMode == 2 ? NativeRenderer_GetFourThreeViewport() : s_presentViewport;
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	NativeRenderer_ClearPresentationBars();
+	if (s_presentAspectMode == 2)
+	{
+		const GLboolean previousScissor = glIsEnabled(GL_SCISSOR_TEST);
+		glDisable(GL_SCISSOR_TEST);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		if (previousScissor)
+			glEnable(GL_SCISSOR_TEST);
+	}
+	else
+	{
+		NativeRenderer_ClearPresentationBars();
+	}
+	NativeRenderer_SetViewPort(viewport.x, viewport.y, viewport.w, viewport.h);
 
 	NativeRenderer_SetScissorState(0);
 	NativeRenderer_SetBlendMode(BM_NONE);
@@ -4080,9 +4113,10 @@ void NativeRenderer_PresentStreamingTexture(TextureID texture, int contentHeight
 
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
-	const int viewportH = (s_presentViewport.h * contentHeight + displayHeight / 2) / displayHeight;
-	const int viewportY = s_presentViewport.y + (s_presentViewport.h - viewportH) / 2;
-	NativeRenderer_SetViewPort(s_presentViewport.x, viewportY, s_presentViewport.w, viewportH);
+	const SDL_Rect baseViewport = s_presentAspectMode == 2 ? NativeRenderer_GetFourThreeViewport() : s_presentViewport;
+	const int viewportH = (baseViewport.h * contentHeight + displayHeight / 2) / displayHeight;
+	const int viewportY = baseViewport.y + (baseViewport.h - viewportH) / 2;
+	NativeRenderer_SetViewPort(baseViewport.x, viewportY, baseViewport.w, viewportH);
 
 	glUseProgram(s_presentRgbaShader);
 	glUniform1f(s_presentRgbaFlipYLoc, 1.0f);
@@ -4158,11 +4192,12 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 	const int sourceY = (sourceByteOffset >> 11) & 511;
 	if (width <= 0 || height <= 0 || displayWidth <= 0 || displayHeight <= 0)
 		return;
-	const int viewportX = s_presentViewport.x + (s_presentViewport.w * contentX + displayWidth / 2) / displayWidth;
-	const int scaledTop = (s_presentViewport.h * contentY + displayHeight / 2) / displayHeight;
-	const int viewportH = (s_presentViewport.h * height + displayHeight / 2) / displayHeight;
-	const int viewportY = s_presentViewport.y + s_presentViewport.h - scaledTop - viewportH;
-	const int viewportW = (s_presentViewport.w * width + displayWidth / 2) / displayWidth;
+	const SDL_Rect baseViewport = s_presentAspectMode == 2 ? NativeRenderer_GetFourThreeViewport() : s_presentViewport;
+	const int viewportX = baseViewport.x + (baseViewport.w * contentX + displayWidth / 2) / displayWidth;
+	const int scaledTop = (baseViewport.h * contentY + displayHeight / 2) / displayHeight;
+	const int viewportH = (baseViewport.h * height + displayHeight / 2) / displayHeight;
+	const int viewportY = baseViewport.y + baseViewport.h - scaledTop - viewportH;
+	const int viewportW = (baseViewport.w * width + displayWidth / 2) / displayWidth;
 	if (s_presentRgb24Shader == 0)
 	{
 		NativeRenderer_PresentRGB24CpuFallback(display);
@@ -4210,6 +4245,11 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 	glDisable(GL_SCISSOR_TEST);
 	s_previousScissorState = 0;
 	NativeRenderer_InvalidateScissorRectCache();
+	if (s_presentAspectMode == 2)
+	{
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+	}
 	glUseProgram(s_presentRgb24CompositeShader);
 	glUniform4f(s_presentRgb24CompositeRectLoc,
 	            (float)viewportX / (float)g_windowWidth,
@@ -4496,6 +4536,19 @@ void VitaCtrNativeRenderer_SetPresentationAspect(int width, int height)
 {
     NativeRenderer_SetPresentationAspect(width, height);
     NativeRenderer_UpdatePresentationViewport();
+}
+
+void VitaCtrNativeRenderer_SetAspectMode(int mode)
+{
+	if (mode < 0 || mode > 2)
+		mode = 0;
+
+	s_presentAspectMode = mode;
+	if (mode == 0)
+		NativeRenderer_SetPresentationAspect(4, 3);
+	else
+		NativeRenderer_SetPresentationAspect(16, 9);
+	NativeRenderer_UpdatePresentationViewport();
 }
 
 void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, int h)

@@ -50,6 +50,8 @@ void Platform_Log(const char *fmt, ...);
 extern int ParseTaglessPrimitive(u32 *command);
 extern void VitaCtrNativeGpu_SetDisplayEnv(int x, int y, int w, int h, int screen_x, int screen_y, int screen_w, int screen_h, int depth24, int rgb24_source_byte_offset);
 extern void VitaCtrNativeRenderer_SetPresentationAspect(int width, int height);
+extern void VitaCtrNativeRenderer_SetAspectMode(int mode);
+extern const char *VitaSettings_GetOption(const char *key);
 extern void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, int h);
 extern void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h);
 extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
@@ -310,7 +312,13 @@ static void backend_renderer_init(void *arg)
     if (!NativeRenderer_InitialisePSX())
         return;
 
-    VitaCtrNativeRenderer_SetPresentationAspect(4, 3);
+    const char *aspect = VitaSettings_GetOption("vita_aspect_ratio");
+    int aspect_mode = 0;
+    if (aspect && strcmp(aspect, "16:9_stretched") == 0)
+        aspect_mode = 1;
+    else if (aspect && strcmp(aspect, "16:9_unstretched") == 0)
+        aspect_mode = 2;
+    VitaCtrNativeRenderer_SetAspectMode(aspect_mode);
     VitaCtrNativeRenderer_CopyGuestVRAM(s_guest_vram, 0, 0, 1024, 512);
     NativeRenderer_UpdateVRAM();
     task->result = 1;

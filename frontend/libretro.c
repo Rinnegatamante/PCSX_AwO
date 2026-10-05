@@ -36,6 +36,7 @@
 #include "../libpcsxcore/cdriso.h"
 #include "../libpcsxcore/cheat.h"
 #include "../libpcsxcore/r3000a.h"
+#include "../libpcsxcore/gte.h"
 #include "../libpcsxcore/gpu.h"
 #include "../libpcsxcore/sio.h"
 #include "../libpcsxcore/database.h"
@@ -2320,6 +2321,9 @@ static float GunconAdjustRatioY = 1;
 static void update_variables(bool in_flight)
 {
    struct retro_variable var;
+#ifdef VITA
+   int old_widescreen_hack = gte_widescreen_hack;
+#endif
 #ifdef GPU_PEOPS
    // Always enable GPU_PEOPS_OLD_FRAME_SKIP flag
    // (this is set in standalone, with no option
@@ -2796,6 +2800,18 @@ static void update_variables(bool in_flight)
       else // auto
          Config.AlternativeFlip = -1;
    }
+
+#ifdef VITA
+   var.value = NULL;
+   var.key = "vita_aspect_ratio";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      gteSetWidescreenHack(strcmp(var.value, "16:9_unstretched") == 0);
+   else
+      gteSetWidescreenHack(0);
+
+   if (in_flight && old_widescreen_hack != gte_widescreen_hack && psxCpu != &psxInt)
+      ndrc_clear_full();
+#endif
 
    var.value = NULL;
    var.key = "pcsx_rearmed_screen_centering";

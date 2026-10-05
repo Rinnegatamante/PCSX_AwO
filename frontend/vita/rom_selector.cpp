@@ -37,6 +37,7 @@
 extern "C" int NativeGpu_InitBackend(int width, int height);
 extern "C" void NativeGpu_RunBackendTaskSync(void (*task)(void *), void *arg);
 extern "C" void VitaCtrNativeRenderer_PresentCurrentFrame(void);
+extern "C" void VitaCtrNativeRenderer_SetAspectMode(int mode);
 extern "C" void NativeRenderer_SwapWindow(void);
 
 struct RomEntry {
@@ -145,11 +146,18 @@ static const OptionChoice k_interp_choices[] = {
     { "off", "Off" }, { "simple", "Simple" },
     { "gaussian", "Gaussian" }, { "cubic", "Cubic" }
 };
+static const OptionChoice k_aspect_choices[] = {
+    { "4:3", "4:3" },
+    { "16:9_stretched", "16:9 Stretched" },
+    { "16:9_unstretched", "16:9 Unstretched" }
+};
+
 static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
     { "SYSTEM", "BIOS", "Choose automatic BIOS selection or the built-in HLE BIOS. Auto uses a real BIOS when available. Takes effect on the next game start/restart.", "pcsx_rearmed_bios", k_bios_choices, 2, false },
     { "SYSTEM", "BIOS Boot Logo", "Controls whether the PlayStation BIOS boot animation is shown. Takes effect on the next game start/restart.", "pcsx_rearmed_show_bios_bootlogo", k_bios_logo_choices, 3, false },
     { "SYSTEM", "PSX CPU Clock", "Changes the emulated PlayStation CPU clock. Leave on Auto unless a game needs different CPU timing.", "pcsx_rearmed_psxclock", NULL, 0, true },
+    { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched uses an experimental widescreen projection that preserves geometry proportions and can reveal extra horizontal content, but some games may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },
@@ -1522,6 +1530,17 @@ static std::string selector_option_value(const SelectorOption &option)
     return current;
 }
 
+static void apply_aspect_setting(void)
+{
+    const char *value = VitaSettings_GetOption("vita_aspect_ratio");
+    int mode = 0;
+    if (value && strcmp(value, "16:9_stretched") == 0)
+        mode = 1;
+    else if (value && strcmp(value, "16:9_unstretched") == 0)
+        mode = 2;
+    VitaCtrNativeRenderer_SetAspectMode(mode);
+}
+
 static void adjust_selector_option(int option_index, int direction)
 {
     if (option_index < 0 || option_index >= (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0])))
@@ -1562,8 +1581,11 @@ static void adjust_selector_option(int option_index, int direction)
     if (current_index >= option.choice_count)
         current_index = 0;
 
-    if (VitaSettings_SetOption(option.key, option.choices[current_index].value))
+    if (VitaSettings_SetOption(option.key, option.choices[current_index].value)) {
         VitaSettings_Save();
+        if (strcmp(option.key, "vita_aspect_ratio") == 0)
+            apply_aspect_setting();
+    }
 }
 
 static void draw_selector_options(int selected)
@@ -1583,7 +1605,7 @@ static void draw_selector_options(int selected)
 
     const float content_x = 120.0f;
     const float content_w = (float)MENU_W - content_x * 2.0f;
-    const float row_h = 29.0f;
+    const float row_h = 26.0f;
     float y = 72.0f;
     const char *last_category = NULL;
     ImDrawList *draw = ImGui::GetWindowDrawList();
@@ -1604,7 +1626,7 @@ static void draw_selector_options(int selected)
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.92f, 1.0f));
             ImGui::Text("%s", option.category);
             ImGui::PopStyleColor();
-            y += 22.0f;
+            y += 20.0f;
             last_category = option.category;
         }
 
@@ -1615,18 +1637,18 @@ static void draw_selector_options(int selected)
                 ImVec2(content_x + content_w, y + row_h), IM_COL32(0, 190, 220, 255));
         }
 
-        ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 7.0f));
+        ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 5.0f));
         ImGui::Text("%s", option.label);
 
         const std::string value = selector_option_value(option);
         const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
-        ImGui::SetCursorPos(ImVec2(content_x + content_w - value_size.x - 18.0f, y + 7.0f));
+        ImGui::SetCursorPos(ImVec2(content_x + content_w - value_size.x - 18.0f, y + 5.0f));
         ImGui::Text("%s", value.c_str());
         y += row_h;
     }
 
     if (selected >= 0 && selected < (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]))) {
-        const float description_y = 466.0f;
+        const float description_y = 454.0f;
         draw->AddLine(ImVec2(content_x, description_y - 8.0f),
             ImVec2((float)MENU_W - content_x, description_y - 8.0f),
             IM_COL32(180, 180, 180, 110), 1.0f);
