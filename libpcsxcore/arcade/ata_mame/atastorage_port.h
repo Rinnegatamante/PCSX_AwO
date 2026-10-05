@@ -90,9 +90,29 @@ private:
 	attotime          m_dma_transfer_time;
 };
 
+// ======================> ide_hdd_device_base
+
+class ide_hdd_device_base : public ata_mass_storage_device_base
+{
+protected:
+	// construction/destruction
+	ide_hdd_device_base();
+
+	// device_t implementation
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+	virtual uint8_t calculate_status() override;
+
+
+private:
+	emu_timer *m_last_status_timer;
+};
+
+
 // ======================> cf_device_base
 
-class cf_device_base : public ata_mass_storage_device_base
+class cf_device_base : public ide_hdd_device_base
 {
 protected:
 	// construction/destruction

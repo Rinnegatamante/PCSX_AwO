@@ -59,11 +59,13 @@ def import_header(source: str, filename: str) -> str:
     source = replace_once(source,
         "class ide_hdd_device_base : public ata_mass_storage_device_base",
         "class ide_hdd_device_base : public ata_mass_storage_device_base", "IDE HDD wrapper")
-    start = source.index("// ======================> ide_hdd_device_base")
-    end = source.index("// ======================> cf_device_base", start)
-    source = source[:start] + source[end:]
-    source = source.replace("class cf_device_base : public ide_hdd_device_base",
-                            "class cf_device_base : public ata_mass_storage_device_base")
+    source = replace_once(source,
+        "ide_hdd_device_base(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);",
+        "ide_hdd_device_base();", "IDE HDD constructor")
+    source = source.replace("\tvirtual void device_add_mconfig(machine_config &config) override ATTR_COLD;\n", "")
+    source = source.replace("\tvirtual int read_sector(uint32_t lba, void *buffer) override { return !m_image->exists() ? 0 : m_image->read(lba, buffer); }\n", "")
+    source = source.replace("\tvirtual int write_sector(uint32_t lba, const void *buffer) override { return !m_image->exists() ? 0 : m_image->write(lba, buffer); }\n", "")
+    source = replace_once(source, "\trequired_device<harddisk_image_device> m_image;\n", "", "IDE HDD image member")
     source = replace_once(source,
         "cf_device_base(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);",
         "cf_device_base();", "CompactFlash constructor")
@@ -131,13 +133,40 @@ def import_cpp(source: str, filename: str) -> str:
 
 """
     source = source[:start] + ctor + source[end:]
-    # The hard disk image adapter is deliberately replaced by callback-backed CF.
-    start = source.index("//**************************************************************************\n//  IDE HARD DISK DEVICE")
-    end = source.index("//**************************************************************************\n//  ATA COMPACTFLASH CARD DEVICE", start)
-    source = source[:start] + source[end:]
+    # Keep the source IDE-HDD class boundary and status algorithm, replacing
+    # only image-backed constructor/reset/configuration with callback plumbing.
+    old_ctor = """ide_hdd_device_base::ide_hdd_device_base(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
+\tata_mass_storage_device_base(mconfig, type, tag, owner, clock),
+\tm_image(*this, \"image\")
+{
+}
+"""
+    new_ctor = """ide_hdd_device_base::ide_hdd_device_base() :
+\tata_mass_storage_device_base(),
+\tm_last_status_timer(nullptr)
+{
+}
+"""
+    source = replace_once(source, old_ctor, new_ctor, "IDE HDD constructor body")
+    source = replace_once(source,
+        "m_last_status_timer = machine().scheduler().timer_alloc(timer_expired_delegate());",
+        "m_last_status_timer = timer_alloc(timer_expired_delegate());",
+        "IDE HDD status timer allocation")
+    reset_start = source.index("void ide_hdd_device_base::device_reset()")
+    reset_end = source.index("uint8_t ide_hdd_device_base::calculate_status()", reset_start)
+    reset = """void ide_hdd_device_base::device_reset()
+{
+\tata_mass_storage_device_base::device_reset();
+}
+
+"""
+    source = source[:reset_start] + reset + source[reset_end:]
+    config_start = source.index("void ide_hdd_device_base::device_add_mconfig(")
+    config_end = source.index("//**************************************************************************\n//  ATA COMPACTFLASH CARD DEVICE", config_start)
+    source = source[:config_start] + source[config_end:]
     source = replace_once(source,
         "cf_device_base::cf_device_base(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :\n\tide_hdd_device_base(mconfig, type, tag, owner, clock)",
-        "cf_device_base::cf_device_base() :\n\tata_mass_storage_device_base()", "CompactFlash constructor")
+        "cf_device_base::cf_device_base() :\n\tide_hdd_device_base()", "CompactFlash constructor")
     start = source.index("//-------------------------------------------------\n//  device_add_mconfig", source.index("cf_device_base::cf_device_base"))
     end = source.index("//-------------------------------------------------\n//  ide_build_identify_device", start)
     source = source[:start] + source[end:]

@@ -55,11 +55,16 @@ at the original `process_command`, `process_buffer`, and `is_ready` boundaries;
 its taskfile snapshot carries the expanded sector count (`0` from the ATA
 register is represented internally as `256`).
 
-The generic `ide_hdd_device_base` CHD/image adapter is intentionally replaced
-by the sector callback interface. MAME save-state registration is not modeled
-in this standalone port. DMA timing is supplied by `dma_transfer_time_ns`,
-while CF seek timing and the source's write/sector delays remain in the copied
-command bodies.
+The source `ide_hdd_device_base` class boundary, status timer, and
+`calculate_status()` body are retained. Its image-backed geometry, reset
+metadata, and sector access are replaced by the callback-backed adapter.
+That HDD class reports rotational IDX after the source's 90 Hz rotation
+interval when status is read. The pinned CompactFlash class explicitly
+overrides `calculate_status()` to call the ATA base implementation, so CF
+continues to suppress IDX; the separate HDD and CF tests preserve both source
+behaviors. MAME save-state registration is not modeled in this standalone
+port. DMA timing is supplied by `dma_transfer_time_ns`, while CF seek timing
+and the source's write/sector delays remain in the copied command bodies.
 
 The isolated suite covers power-on and software reset timing, pending IRQ
 gating, raw IDENTIFY and 8-bit transfer mode, PIO and DMA multi-sector reads

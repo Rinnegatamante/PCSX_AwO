@@ -871,6 +871,54 @@ void ata_mass_storage_device_base::process_command()
 }
 
 //**************************************************************************
+//  IDE HARD DISK DEVICE
+//**************************************************************************
+
+//-------------------------------------------------
+//  ide_hdd_device_base - constructor
+//-------------------------------------------------
+
+ide_hdd_device_base::ide_hdd_device_base() :
+	ata_mass_storage_device_base(),
+	m_last_status_timer(nullptr)
+{
+}
+
+void ide_hdd_device_base::device_start()
+{
+	ata_mass_storage_device_base::device_start();
+
+	/* create a timer for timing status */
+	m_last_status_timer = timer_alloc(timer_expired_delegate());
+}
+
+//-------------------------------------------------
+//  device_reset - device-specific reset
+//-------------------------------------------------
+
+void ide_hdd_device_base::device_reset()
+{
+	ata_mass_storage_device_base::device_reset();
+}
+
+uint8_t ide_hdd_device_base::calculate_status()
+{
+	uint8_t result = ata_hle_device_base::calculate_status();
+
+	if (m_last_status_timer->elapsed() > TIME_PER_ROTATION)
+	{
+		result |= IDE_STATUS_IDX;
+		m_last_status_timer->adjust(attotime::never);
+	}
+
+	return result;
+}
+
+//-------------------------------------------------
+//  device_add_mconfig - add device configuration
+//-------------------------------------------------
+
+//**************************************************************************
 //  ATA COMPACTFLASH CARD DEVICE
 //**************************************************************************
 
@@ -879,7 +927,7 @@ void ata_mass_storage_device_base::process_command()
 //-------------------------------------------------
 
 cf_device_base::cf_device_base() :
-	ata_mass_storage_device_base()
+	ide_hdd_device_base()
 {
 }
 

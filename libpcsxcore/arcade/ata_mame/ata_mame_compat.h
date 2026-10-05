@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -38,6 +39,9 @@ public:
   friend attotime operator/(attotime time, int64_t divisor) {
     return attotime(divisor ? time.ns / divisor : 0);
   }
+  friend bool operator>(attotime left, attotime right) {
+    return left.ns > right.ns;
+  }
   int64_t as_nanoseconds() const { return ns; }
 
 private:
@@ -48,6 +52,7 @@ inline const attotime attotime::zero{0};
 inline const attotime attotime::never{std::numeric_limits<int64_t>::max()};
 
 class device_t;
+using timer_expired_delegate = std::function<void(int32_t)>;
 class machine_stub {
 public:
   bool side_effects_disabled() const { return false; }
@@ -60,12 +65,14 @@ public:
   void adjust(attotime duration, int32_t param = 0);
   void enable(bool enabled);
   int32_t param() const { return callback_param; }
+  attotime elapsed() const;
 
 private:
   friend class device_t;
   device_t *owner;
   std::function<void(int32_t)> invoke;
   int64_t due_ns = std::numeric_limits<int64_t>::max();
+  int64_t started_ns = 0;
   int32_t callback_param = 0;
   bool active = false;
 };
@@ -80,10 +87,13 @@ public:
 
   template <typename Owner>
   emu_timer *timer_alloc(void (Owner::*callback)(int32_t), Owner *owner) {
-    auto timer = std::make_unique<emu_timer>(this, [owner, callback](int32_t p) {
-      (owner->*callback)(p);
-    });
+    return timer_alloc([owner, callback](int32_t p) { (owner->*callback)(p); });
+  }
+
+  emu_timer *timer_alloc(timer_expired_delegate callback = {}) {
+    auto timer = std::make_unique<emu_timer>(this, std::move(callback));
     emu_timer *result = timer.get();
+    result->started_ns = now_ns;
     timers.push_back(std::move(timer));
     return result;
   }
@@ -102,7 +112,8 @@ public:
         break;
       now_ns = next->due_ns;
       next->active = false;
-      next->invoke(next->callback_param);
+      if (next->invoke)
+        next->invoke(next->callback_param);
     }
     now_ns = int64_t(monotonic_ns);
     return true;
@@ -118,6 +129,7 @@ private:
 
 inline void emu_timer::adjust(attotime duration, int32_t param) {
   callback_param = param;
+  started_ns = owner->now_ns;
   const int64_t delay = duration.as_nanoseconds();
   if (delay == std::numeric_limits<int64_t>::max()) {
     active = false;
@@ -130,6 +142,9 @@ inline void emu_timer::adjust(attotime duration, int32_t param) {
   }
 }
 inline void emu_timer::enable(bool enabled) { active = enabled; }
+inline attotime emu_timer::elapsed() const {
+  return attotime(owner->now_ns - started_ns);
+}
 
 #define ATTR_COLD
 #define TIMER_CALLBACK_MEMBER(name) void name([[maybe_unused]] int32_t param)

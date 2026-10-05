@@ -1,4 +1,5 @@
 #include "ata_storage.h"
+#include "ata_mame/atastorage_port.h"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,31 @@ constexpr uint8_t kBsy = 0x80;
 constexpr uint8_t kDrq = 0x08;
 constexpr uint8_t kDrdy = 0x40;
 constexpr uint8_t kErr = 0x01;
+void finish_power_on_reset(ata_storage_t *ata, bool expect_ready);
+
+class HddStatusProbe final : public ide_hdd_device_base {
+public:
+  HddStatusProbe() {
+    m_can_identify_device = 1;
+    m_num_cylinders = 1;
+    m_num_heads = 1;
+    m_num_sectors = 16;
+    device_start();
+    device_reset();
+  }
+  uint8_t taskfile_status() { return static_cast<uint8_t>(command_r(7)); }
+  uint8_t alternate_status() { return static_cast<uint8_t>(control_r(6)); }
+  void reset() { device_reset(); }
+  void run_until(uint64_t ns) { assert(device_t::run_until(ns)); }
+
+protected:
+  int read_sector(uint32_t, void *) override { return 1; }
+  int write_sector(uint32_t, const void *) override { return 1; }
+  void set_irq_out(int) override {}
+  void set_dmarq_out(int) override {}
+  void set_dasp_out(int) override {}
+  void set_pdiag_out(int) override {}
+};
 
 struct Disk {
   std::vector<uint8_t> bytes = std::vector<uint8_t>(16 * 512);
@@ -121,6 +147,42 @@ void test_geometry_signed_capacity_limit() {
   assert(words[58] == (capacity >> 16));
   assert(words[60] == (capacity & 0xffff));
   assert(words[61] == (capacity >> 16));
+  ata_storage_destroy(ata);
+}
+
+void test_hdd_rotational_index_status() {
+  constexpr uint64_t rotation_ns = 1'000'000'000 / 90;
+  HddStatusProbe hdd;
+  assert((hdd.alternate_status() & 0x02) == 0);
+  hdd.run_until(rotation_ns);
+  assert((hdd.taskfile_status() & 0x02) == 0); // Source uses strict >.
+  hdd.run_until(rotation_ns + 1);
+  assert((hdd.alternate_status() & 0x02) != 0);
+
+  // Resetting the ATA device does not restart the HDD status timer. The next
+  // status read still reports IDX after another full elapsed rotation.
+  hdd.run_until(2 * rotation_ns + 2);
+  hdd.reset();
+  assert((hdd.taskfile_status() & 0x02) != 0);
+  assert((hdd.alternate_status() & 0x02) == 0);
+  hdd.run_until(3 * rotation_ns + 3);
+  assert((hdd.alternate_status() & 0x02) != 0);
+}
+
+void test_cf_keeps_source_status_override() {
+  Disk disk;
+  Lines lines;
+  ata_storage_t *ata = make_ata(disk, lines);
+  finish_power_on_reset(ata, true);
+  constexpr uint64_t rotation_ns = 1'000'000'000 / 90;
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + rotation_ns + 1) ==
+         ATA_STORAGE_OK);
+  assert((ata_storage_control_r(ata, 6, 0xffff) & 0x02) == 0);
+  assert((ata_storage_command_r(ata, 7, 0xffff, 0) & 0x02) == 0);
+  ata_storage_reset(ata);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + rotation_ns + 1) ==
+         ATA_STORAGE_OK);
+  assert((ata_storage_control_r(ata, 6, 0xffff) & 0x02) == 0);
   ata_storage_destroy(ata);
 }
 
@@ -437,6 +499,8 @@ void test_taito_type2_unlock_through_real_engine() {
 
 int main() {
   test_geometry_signed_capacity_limit();
+  test_hdd_rotational_index_status();
+  test_cf_keeps_source_status_override();
   test_pio_read_write_and_multiple();
   test_identify_error_feature_and_reset();
   test_dma_read_write_and_dma_mode_selection();
