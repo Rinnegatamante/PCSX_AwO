@@ -16,6 +16,9 @@ typedef void (*system12_bus_trace_cb)(void *opaque, u32 address, unsigned width,
 int system12_load(const char *directory);
 void system12_unload(void);
 int system12_active(void);
+#ifdef PCSX_SYSTEM12_PROFILE
+void system12_profile_counters(uint64_t *cycles, uint64_t *samples);
+#endif
 void system12_mem_reset(void);
 void system12_reset(void);
 void system12_sync(u32 psx_cycle);

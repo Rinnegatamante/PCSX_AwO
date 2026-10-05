@@ -36,6 +36,7 @@
 #include "../libpcsxcore/cdriso.h"
 #include "../libpcsxcore/cheat.h"
 #include "../libpcsxcore/r3000a.h"
+#include "../libpcsxcore/system12_profile.h"
 #include "../libpcsxcore/gpu.h"
 #ifdef ARCADE_SYSTEM12
 #include "../libpcsxcore/psxmem.h"
@@ -3986,7 +3987,16 @@ void retro_run(void)
       update_variables(true);
 
    psxRegs.stop = 0;
+#ifdef PCSX_SYSTEM12_PROFILE
+   uint64_t h8_cycles_before = 0, pcm_samples_before = 0;
+   if (system12_active()) {
+      system12_profile_counters(&h8_cycles_before, &pcm_samples_before);
+      pcsx_profile_frame_begin(psxRegs.cycle, h8_cycles_before, pcm_samples_before);
+   }
+#endif
+   uint64_t cpu_started = pcsx_profile_begin(PCSX_PROF_CPU, 1);
    psxCpu->Execute(&psxRegs);
+   pcsx_profile_end(PCSX_PROF_CPU, cpu_started);
 #ifdef PCSX_SYSTEM_GNET
    if (systemgnet_active() && systemgnet_sync(psxRegs.cycle) < 0)
       LogErr("G-Net device clock reported a board fault\n");
@@ -4004,9 +4014,18 @@ void retro_run(void)
       pl_rearmed_cbs.fskip_dirty = 0;
    }
 
+   uint64_t video_started = pcsx_profile_begin(PCSX_PROF_VIDEO, 1);
    video_cb((vout_fb_dirty || !vout_can_dupe) ? vout_buf_ptr : NULL,
        vout_width, vout_height, vout_pitch_b);
+   pcsx_profile_end(PCSX_PROF_VIDEO, video_started);
    vout_fb_dirty = 0;
+#ifdef PCSX_SYSTEM12_PROFILE
+   if (system12_active()) {
+      system12_profile_counters(&h8_cycles_before, &pcm_samples_before);
+      pcsx_profile_frame_end(psxRegs.cycle, h8_cycles_before, pcm_samples_before,
+                            PSXCLK, SWAP32(HW_GPU_STATUS));
+   }
+#endif
 
 #ifdef HAVE_CDROM
    int inserted;

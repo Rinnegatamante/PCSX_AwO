@@ -157,11 +157,20 @@ class CapturedGuest:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
         encoded = raw_line
         self.lines_seen += 1
+        if (b"pcsx-vita: PERF frames=" in encoded or
+                b"pcsx-vita: cpu_driver=" in encoded or
+                b"pcsx-vita: inputs replay PASS " in encoded):
+            # Independent host clock: calibrate guest elapsed time between milestones.
+            stamp = {"host_monotonic_ns": time.monotonic_ns(),
+                     "label": self.label, "line": line[:4096]}
+            with self.log.with_suffix(".perf.jsonl").open("a", encoding="utf-8") as out:
+                out.write(json.dumps(stamp) + "\n")
         if b"pcsx-vita: system12-progress " in encoded:
             # Keep bounded frame milestones visible while the guarded guest runs.
             print(line[:1024], flush=True)
         if (encoded.startswith(self.LIVE_DIAGNOSTIC_PREFIXES) or
-                b"pcsx-vita: VGL_ALLOC " in encoded):
+                b"pcsx-vita: VGL_ALLOC " in encoded or
+                b"pcsx-vita: PERF " in encoded):
             # Private host and guest probes already bound their output. Bound it here too,
             # and expose snapshots before a stalled guest's watchdog expires.
             if self.live_diagnostic_lines < self.LIVE_DIAGNOSTIC_LIMIT:

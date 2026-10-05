@@ -20,6 +20,7 @@
 #include <SDL3/SDL.h>
 #include <libretro.h>
 #include "validation.h"
+#include "../../libpcsxcore/system12_profile.h"
 #include "input_csv_reader.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
@@ -224,6 +225,7 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     if (!data || width == 0 || height == 0)
         return;
 
+    uint64_t copy_started = pcsx_profile_begin(PCSX_PROF_PRESENT_COPY, 1);
     if (g_capture_path[0] && width <= 1024 && height <= 512 && height != 0 &&
         pitch >= (size_t)width * sizeof(uint16_t) &&
         (size_t)width <= SIZE_MAX / height / sizeof(uint16_t) &&
@@ -260,6 +262,7 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
             out[x] = rgb565_to_abgr8888(src[g_xmap[x]]);
     }
 
+    pcsx_profile_end(PCSX_PROF_PRESENT_COPY, copy_started);
     frame.size = sizeof(frame);
     frame.base = dst;
     frame.pitch = DISPLAY_PITCH;
@@ -267,7 +270,9 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     frame.width = DISPLAY_W;
     frame.height = DISPLAY_H;
     sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
+    uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_PRESENT_WAIT, 1);
     sceDisplayWaitVblankStart();
+    pcsx_profile_end(PCSX_PROF_PRESENT_WAIT, wait_started);
     g_front = back;
 }
 
@@ -318,9 +323,11 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
         return frames;
     }
 
+    uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_AUDIO_WAIT, 1);
     while (!g_exit_requested &&
            SDL_GetAudioStreamQueued(g_audio_stream) > (int)AUDIO_QUEUE_TARGET_BYTES)
         sceKernelDelayThread(1000);
+    pcsx_profile_end(PCSX_PROF_AUDIO_WAIT, wait_started);
 
     return frames;
 }

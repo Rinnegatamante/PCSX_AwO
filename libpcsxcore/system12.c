@@ -8,6 +8,7 @@
  * shared RAM exchanges are produced by the actual H8 ROM in the interpreter.
  */
 #include "system12.h"
+#include "system12_profile.h"
 #include "system10.h"
 #include "system11.h"
 #include "systemtaito.h"
@@ -389,7 +390,9 @@ void system12_sync(u32 psx_cycle)
         board.rtc_fraction %= PSXCLK;
     }
     board.h8_fraction += (u64)elapsed * 16934400;
+    uint64_t h8_started = pcsx_profile_begin(PCSX_PROF_H8, 1);
     h8_run_cycles(board.h8, board.h8_fraction / PSXCLK);
+    pcsx_profile_end(PCSX_PROF_H8, h8_started);
     board.h8_fraction %= PSXCLK;
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
     while (board.pcm_fraction >= PSXCLK) {
@@ -397,13 +400,17 @@ void system12_sync(u32 psx_cycle)
         int16_t stereo[256 * 2];
         unsigned frames = board.pcm_fraction / PSXCLK, i;
         if (frames > 256) frames = 256;
+        uint64_t pcm_started = pcsx_profile_begin(PCSX_PROF_PCM, 1);
         c352_generate(board.pcm, samples, frames);
+        pcsx_profile_end(PCSX_PROF_PCM, pcm_started);
         for (i = 0; i < frames; i++) {
             stereo[i * 2] = samples[i * 4];
             stereo[i * 2 + 1] = samples[i * 4 + 1];
         }
+        uint64_t audio_started = pcsx_profile_begin(PCSX_PROF_BOARD_AUDIO, 1);
         if (board.audio_cb)
             board.audio_cb(board.audio_opaque, stereo, frames);
+        pcsx_profile_end(PCSX_PROF_BOARD_AUDIO, audio_started);
         for (i = 0; i < frames * 4; i++) {
             unsigned amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
             if (amplitude > board.pcm_peak) board.pcm_peak = amplitude;
@@ -414,6 +421,16 @@ void system12_sync(u32 psx_cycle)
         board.pcm_fraction -= (u64)frames * PSXCLK;
     }
 }
+
+#ifdef PCSX_SYSTEM12_PROFILE
+void system12_profile_counters(uint64_t *cycles, uint64_t *samples)
+{
+    H8Status state;
+    h8_get_status(board.h8, &state);
+    *cycles = state.cycles;
+    *samples = board.pcm_frames;
+}
+#endif
 
 void system12_vblank(int level)
 {
@@ -639,6 +656,7 @@ void system12_mem_reset(void)
 
 void system12_reset(void)
 {
+    pcsx_profile_reset();
     board.dma_offset = board.alt_bank_offset = board.tektagt_dma_offset = 0;
     board.has_tektagt_dma = 0;
     board.last_cycle = psxRegs.cycle;

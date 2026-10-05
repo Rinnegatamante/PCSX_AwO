@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include "../../libpcsxcore/system12_profile.h"
 #include "../../include/compiler_features.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -39,6 +40,7 @@ int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
  int *cycles_sum, int *cycles_last, int *last_cmd)
 {
   int ret;
+  uint64_t started = pcsx_profile_begin(PCSX_PROF_GPU_LIST, 31);
 
   if (gpu.state.enhancement_active)
     ret = gpu_parse_enhanced(&egpu, list, count * 4, ex_regs,
@@ -54,6 +56,7 @@ int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
   ex_regs[1] &= ~0x1ff;
   ex_regs[1] |= egpu.texture_settings & 0x1ff;
 #endif
+  pcsx_profile_end(PCSX_PROF_GPU_LIST, started);
   return ret;
 }
 
@@ -175,7 +178,9 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
 
 void renderer_flush_queues(void)
 {
+  uint64_t started = pcsx_profile_begin(PCSX_PROF_GPU_FLUSH, 1);
   flush_render_block_buffer(&egpu);
+  pcsx_profile_end(PCSX_PROF_GPU_FLUSH, started);
 }
 
 void renderer_set_interlace(int enable, int is_odd)
