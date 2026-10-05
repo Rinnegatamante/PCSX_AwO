@@ -1,5 +1,7 @@
 #include "ata_storage.h"
 #include "ata_mame/atastorage_port.h"
+#include "gnet_pccard.h"
+#include "rf5c296.h"
 
 #include <algorithm>
 #include <array>
@@ -571,6 +573,40 @@ void test_taito_type2_unlock_through_real_engine() {
   assert(gnet_pccard_try_destroy(card) == GNET_PCCARD_OK);
   ata_storage_destroy(ata);
 }
+
+void test_get_card_ops_pointer_adjustment_through_rf() {
+  for (int kind : {ATA_STORAGE_DEVICE_COMPACTFLASH,
+                   ATA_STORAGE_DEVICE_IDE_HDD}) {
+    Disk disk;
+    Lines lines;
+    ata_storage_t *ata = make_ata(disk, lines, nullptr, 0, kind);
+    gnet_pccard_config_t card_config{};
+    card_config.variant = GNET_PCCARD_ATA_FLASH;
+    card_config.ata = ata_storage_gnet_pccard_ops(ata);
+    gnet_pccard_t *card = nullptr;
+    assert(gnet_pccard_create(&card_config, &card) == GNET_PCCARD_OK);
+    assert(ata_storage_set_pccard(ata, card) == ATA_STORAGE_OK);
+    rf5c296_device_t *rf = rf5c296_create(gnet_pccard_card_ops(card));
+    assert(rf);
+    finish_power_on_reset(ata);
+
+    const uint16_t command_mask = 0xff00;
+    rf5c296_io_write(rf, 3, uint16_t(0xec) << 8, command_mask);
+    assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+           ATA_STORAGE_OK);
+    assert(ata_storage_status(ata) & kDrq);
+    /* Pull data through the PC Card memory callbacks all the way to the ATA
+     * C ABI bridge; both derived device bases exercise its adjusted pointer. */
+    for (unsigned word = 0; word < 256; ++word)
+      (void)rf5c296_io_read(rf, 0, 0xffff);
+    assert(!(ata_storage_status(ata) & kDrq));
+
+    rf5c296_destroy(rf);
+    assert(ata_storage_set_pccard(ata, nullptr) == ATA_STORAGE_OK);
+    assert(gnet_pccard_try_destroy(card) == GNET_PCCARD_OK);
+    assert(ata_storage_try_destroy(ata) == ATA_STORAGE_OK);
+  }
+}
 } // namespace
 
 int main() {
@@ -584,6 +620,7 @@ int main() {
   test_dma_read_write_and_dma_mode_selection();
   test_security_password_unlock();
   test_taito_type2_unlock_through_real_engine();
+  test_get_card_ops_pointer_adjustment_through_rf();
   std::puts("ATA storage source-port tests passed");
   return 0;
 }

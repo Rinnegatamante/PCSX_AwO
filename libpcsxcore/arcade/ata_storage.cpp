@@ -216,7 +216,8 @@ public:
     DeviceBase::device_reset();
   }
   const gnet_pccard_ata_ops_t *get_card_ops() override {
-    card_ops = {this, bridge_reset, bridge_command_r, bridge_command_w,
+    card_ops = {static_cast<ata_storage *>(this), bridge_reset,
+                bridge_command_r, bridge_command_w,
                 bridge_control_r, bridge_control_w};
     return &card_ops;
   }
