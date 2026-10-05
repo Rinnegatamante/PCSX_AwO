@@ -5,7 +5,7 @@
 from pathlib import Path
 import io
 import re
-from h8_mame_make import OpcodeList
+from h8_mame_make import OpcodeList, save_full_one, save_partial_one
 root = Path(__file__).resolve().parent
 ops = OpcodeList(str(root / 'h8_mame.lst'), 1)
 ops.states_info = [s for s in ops.states_info if s.enabled and s.name in ('reset', 'irq')]
@@ -16,25 +16,33 @@ names = []
 for op in ops.opcode_info:
     if not op.enabled:
         continue
-    name = op.function_name() + '_full'
-    names.append(name)
-    f.write('void H8CPU::' + name + '()\n{\n')
+    name = op.function_name()
+    names.append(name + '_full')
+    names.append(name + '_partial')
+    body = op.source
     if op.name == 'sleep':
-        f.write('\tm_NPC = m_PC & 0xffffff;\n\tm_PIR = read16i(m_PC);\n\tm_PC += 2;\n\tm_sleeping = true;\n\tprefetch_done();\n')
-    else:
-        f.write('\n'.join(op.source) + '\n')
-    f.write('}\n\n')
+        body = ['\tm_NPC = m_PC & 0xffffff;', '\tm_PIR = read16i(m_PC);',
+                '\tm_PC += 2;', '\tm_sleeping = true;', '\tprefetch_done();']
+    save_full_one(f, 'H8CPU', name, body)
+    save_partial_one(f, 'H8CPU', name, body)
 for s in ops.states_info:
-    name = 'state_' + s.name + '_full'
-    names.append(name)
-    f.write('void H8CPU::' + name + '()\n{\n' + '\n'.join(s.source) + '\n}\n\n')
+    name = 'state_' + s.name
+    names.extend((name + '_full', name + '_partial'))
+    save_full_one(f, 'H8CPU', name, s.source)
+    save_partial_one(f, 'H8CPU', name, s.source)
 for dsp in ops.dispatch_info:
     if dsp.enabled:
-        name = 'dispatch_' + dsp.name + '_full'
-        names.append(name)
-        f.write('void H8CPU::' + name + '()\n{\n' + '\n'.join(dsp.source()) + '\n}\n\n')
+        name = 'dispatch_' + dsp.name
+        names.extend((name + '_full', name + '_partial'))
+        save_full_one(f, 'H8CPU', name, dsp.source())
+        save_partial_one(f, 'H8CPU', name, dsp.source())
 ops.save_exec(f, 'H8CPU', 1, 'full')
+ops.save_exec(f, 'H8CPU', 1, 'partial')
 source=f.getvalue()
+# Keep the historical complete-state scheduler behavior while enabling the
+# generated MAME deadline checkpoints only in h8_run_until().
+source=source.replace('if(m_icount <= m_bcount) {',
+                      'if(deadline_run && m_icount <= m_bcount) {')
 # Promote before shifting a 16-bit word; C++ integral promotion is signed int.
 source=re.sub(r'(m_IR\[\d+\]) << 16',r'u32(\1) << 16',source)
 source=re.sub(r'(read16i?\([^()\n]*\)) << 16',r'u32(\1) << 16',source)

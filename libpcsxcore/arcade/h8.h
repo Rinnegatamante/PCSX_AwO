@@ -44,8 +44,14 @@ void h8_reset(H8CPU *cpu);
  * cycles until run_cycles. Returns 0, -1 for NULL, -2 during run_cycles.
  * h8_reset remains the original cold reset with clock zero and cleared storage. */
 int h8_soft_reset(H8CPU *cpu, uint64_t absolute_cycle);
-/* Executes whole instructions, carries cycle overshoot into the next call. */
+/* Executes whole instruction states, carries cycle overshoot into the next call. */
 void h8_run_cycles(H8CPU *cpu, unsigned cycles);
+/* Advances the H8 clock to an absolute cycle deadline. MAME-generated partial
+ * states stop after the bus operation that reaches/crosses the deadline; its
+ * one-bus-operation overshoot is carried forward and charged after the caller
+ * delivers external events at the requested deadline. Returns -1 for NULL or
+ * a deadline earlier than the committed clock, -2 if re-entered from a callback. */
+int h8_run_until(H8CPU *cpu, uint64_t absolute_cycle);
 /* Current emulated H8 cycle, including access/internal costs already charged in
  * the executing state. Callbacks may query this without changing CPU state.
  * Outside state execution (including SCI/ADC tick callbacks and debug accesses)

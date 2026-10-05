@@ -17,11 +17,11 @@ struct H8CPU {
     u16 m_PIR=0,m_IR[5]={},m_R[16]={};
     u8 m_CCR=0,m_EXR=0;
     bool m_has_hc=true,m_has_mac=false,m_mode_advanced=true;
-    int m_inst_state=STATE_RESET,m_icount=0,m_irq_vector=0,m_taken_irq_vector=0;
+    int m_inst_state=STATE_RESET,m_inst_substate=0,m_icount=0,m_bcount=0,m_irq_vector=0,m_taken_irq_vector=0;
     int64_t budget=0;
-    bool executing_state=false,in_run=false;
+    bool executing_state=false,in_run=false,deadline_run=false;
     bool m_sleeping=false,halted=false,nmi_level=false,adc_level=true;
-    u64 cycles=0,cycle_epoch=0,instructions=0,pending=0;
+    u64 cycles=0,cycle_epoch=0,instructions=0,pending=0,cycle_ahead=0;
     u32 illegal_pc=0,unsupported=0;
     u16 illegal_opcode=0;
     u8 ram[0x200]={},io[0x100]={},irq_lines=0,ssr_read[2]={};
@@ -77,6 +77,8 @@ struct H8CPU {
     void r32_w(int r,u32 v) {m_R[r&7]=v;m_R[(r&7)|8]=v>>16;}
     u32 r32_r(int r) const {return m_R[r&7]|(u32(m_R[(r&7)|8])<<16);}
     void do_exec_full();
+    void do_exec_partial();
+    bool access_to_be_redone() const { return false; }
 #include "h8_declarations.inc"
 #include "h8_arithmetic_declarations.inc"
 };
@@ -294,6 +296,10 @@ void h8_run_cycles(H8CPU *c,unsigned requested) {
     if(!c)return;
     c->in_run=true;
     c->budget+=requested;
+    if(c->cycle_ahead&&c->budget>0) {
+        u64 n=std::min<u64>(c->cycle_ahead,u64(c->budget));
+        c->tick(unsigned(n));c->cycle_ahead-=n;c->budget-=int64_t(n);
+    }
     while(c->budget>0&&!c->halted) {
         c->update_irq_filter();
         if(c->m_sleeping) {
@@ -305,16 +311,66 @@ void h8_run_cycles(H8CPU *c,unsigned requested) {
             }
         }
         c->m_icount=0;
-        if(c->m_inst_state<0x10000){c->m_PPC=c->m_NPC;c->instructions++;}
+        if(!c->m_inst_substate&&c->m_inst_state<0x10000){c->m_PPC=c->m_NPC;c->instructions++;}
         c->executing_state=true;
-        c->do_exec_full();
+        if(c->m_inst_substate)c->do_exec_partial();
+        else c->do_exec_full();
         c->executing_state=false;
         unsigned n=unsigned(-c->m_icount);
-        if(!n) {c->illegal();break;}
+        if(!n) {if(c->halted)break;continue;}
         c->tick(n);c->budget-=n;
     }
     if(c->halted)c->budget=0;
     c->in_run=false;
+}
+int h8_run_until(H8CPU *c,uint64_t target) {
+    if(!c)return -1;
+    if(c->in_run)return -2;
+    if(target<c->cycles)return -1;
+    c->in_run=true;c->deadline_run=true;
+    while(c->cycles<target&&!c->halted) {
+        // An access can consume one bus operation past the requested deadline.
+        // Commit that source-generated debt only as host time advances beyond it.
+        if(c->cycle_ahead) {
+            u64 n=std::min<u64>(c->cycle_ahead,target-c->cycles);
+            c->tick(unsigned(n));c->cycle_ahead-=n;
+            if(c->cycles==target)break;
+        }
+        u64 span=std::min<u64>(target-c->cycles,0x7fffffff);
+        c->m_icount=0;c->m_bcount=-int(span);
+        c->update_irq_filter();
+        if(c->m_sleeping) {
+            if(c->m_irq_vector) {
+                c->m_sleeping=false;c->m_inst_state=H8CPU::STATE_IRQ;
+                c->m_taken_irq_vector=c->m_irq_vector;
+            } else {
+                unsigned n=unsigned(std::min<u64>(span,64));
+                c->tick(n);continue;
+            }
+        }
+        if(c->m_inst_substate==0&&c->m_inst_state<0x10000) {
+            c->m_PPC=c->m_NPC;c->instructions++;
+        }
+        c->executing_state=true;
+        if(c->m_inst_substate)c->do_exec_partial();
+        else c->do_exec_full();
+        c->executing_state=false;
+        u64 used=c->m_icount<0?u64(-int64_t(c->m_icount)):0;
+        if(!used) {
+            if(c->halted)break;
+            // A partial state may resume immediately after its last timed bus
+            // operation and only finish register/prefetch bookkeeping here.
+            continue;
+        }
+        u64 committed=std::min<u64>(used,span);
+        c->tick(unsigned(committed));
+        if(used>committed) {
+            c->cycle_ahead+=used-committed;
+            break;
+        }
+    }
+    c->deadline_run=false;c->in_run=false;
+    return 0;
 }
 void h8_set_irq(H8CPU *c,int line,int level) {
     if(!c)return;
