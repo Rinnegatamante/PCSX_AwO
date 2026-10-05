@@ -57,17 +57,22 @@ offset (and increments it for the high byte) before calling `read_memory` or
 to `read_reg` or `write_reg`. Callbacks run synchronously and must not reenter,
 synchronize, or destroy the G-Net board; an attempted destroy during a callback
 returns `GNET_ZOOM_BUSY` and can be retried after the callback returns.
+The card attribute aperture accepts byte and aligned word/dword accesses.
+Bytes preserve the low/high lane mask; dwords delegate two little-endian x16
+transactions. Flash/EPROM widths and no-card behavior remain unchanged.
 The synthetic fixture verifies both PSX windows, byte-lane forwarding, selected
 register behavior, reset, and destroy/retry behavior from read and reset
 callbacks. No ATA task-file engine, CIS/card implementation,
 Taito unlock/security, mounted media, or real game boot is included; the native
 G-Net adapter still supplies no card callbacks.
 
-This is a reusable G-Net sub-board and common-map component, not yet a PSX
-system adapter. The Sony ZN base board, CAT702 keys, per-game/profile loader,
-inputs, executable bank mapping, and core dispatch are still required before
-any game can be launched. The standalone tests cover synthetic register,
-flash, and callback-backed PC Card transactions only.
+This reusable sub-board is now composed with the native Sony ZN G-Net adapter
+described in `gnet-native.md`. That adapter loads the two BIOS-root profiles,
+routes executable MIPS accesses, and exposes Zoom PCM, but still supplies no
+game card. Per-game media and security, source main-CPU timing and frontend
+Zoom audio integration remain required for real game support. The standalone
+tests cover synthetic register, flash, and callback-backed PC Card transactions
+only.
 
 The sound CPU continues to see the Zoom program flash as read-only:
 `taito_zm.cpp` maps `0x080000–0x0fffff` through the flash device's read handler

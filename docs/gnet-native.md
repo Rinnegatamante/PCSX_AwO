@@ -41,8 +41,11 @@ game_execution_verified=false
 The adapter configures the source 4 MiB PSX RAM and 2 MiB VRAM, Sony ZN CAT702,
 EEPROM and SIO devices, then routes CPU accesses through `gnet_zoom_bus_*` and
 the shared ZN map. PSX cycles advance the 6.25 MHz MN10200 sound board on a
-fractional, monotonic clock. `1fb00000–1fb0ffff` remains an explicit
-unsupported RF5C296/PCMCIA range; game cards, per-game input variations, and
+fractional, monotonic clock. The composed board now supports optional
+RF5C296 callbacks at `1fb00000–1fb0ffff` and the bank-0 card attribute window,
+including byte, word and dword transactions. The strict native loader still
+supplies no card callbacks, so these ranges remain unsupported when loading
+the two BIOS-root profiles. Game cards, per-game input variations, and
 game-specific extensions are not claimed as implemented.
 
 The 6.25 MHz adapter clock is the MN10200's effective execution-cycle rate:
@@ -96,3 +99,10 @@ passes with both the interpreter and ARM64 DRC, including the PCM assertions
 and sink-disable check. This checks the board map bridge, audio callback
 lifecycle, and 4 MiB RAM path, not MAME assets, startup firmware, game boot, or
 real-board compatibility.
+
+After the RF5C296 and byte/dword card-window changes (`7bbdde2b`, `0423695f`,
+`62bb5605`), the complete Mac NEON harness regression still passes with both
+CPU backends. Evidence, build flags and source/binary hashes are retained in
+`/tmp/gnet-rf5c296-widths-20261005T100220Z`. The standalone card callback
+transactions pass normal and ASan/UBSan checks; the executed MIPS/PCM fixture
+continues to use no card and does not demonstrate an authenticated game boot.
