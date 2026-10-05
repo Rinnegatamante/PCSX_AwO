@@ -5,6 +5,38 @@ experiments recorded in [system12-performance.md](system12-performance.md).
 This is an architecture proposal; no workers, affinity changes, scheduler
 refactor or additional board ports are implemented by this document.
 
+## Mac fidelity before optimization
+
+The development priority is a Mac reference faithful to MAME, designed so that
+measured optimizations can later be checked against it. System12 is the first
+vertical target. The other families retain their individual source contracts
+and validation backlog; progress in System12 does not validate them.
+
+The current Mac reference is partial: C352 register/sample boundaries and
+soft-reset retention/phase have independent MAME captures, while Soul Calibur
+replays provide native regression evidence. Full gameplay-state, scheduler and
+pixel equivalence to MAME remain open. The captured executable identifies itself
+as MAME 0.287 with an unknown build commit; source comparisons use the pinned
+commit below. An exact pinned-executable comparison remains a separate gate.
+
+The next System12 gate is a timed trace of MIPS/H8 shared-memory exchanges and
+vblank-driven IRQ1/ADTRG/port-B transitions. It must establish MAME's actual CPU
+advance order and local event times before choosing a common frontend schedule.
+Record initial state, inputs, clocks, reset epoch and event timestamps so the
+same fixture can compare MAME, the native MIPS interpreter and ARI64. A final
+framebuffer hash or matching aggregate cycle totals cannot replace that trace.
+
+Keep the synchronous interpreter as a control. Each optimization must preserve
+the relevant ordered bus/state/IRQ/PCM observations and pass authentic-game
+regressions, then show a repeatable cost reduction with the same replay and
+build settings. Host throughput and emulated oscillator rates are independent:
+changing clocks or skipping emulated work is not an accepted speedup. H8 workers
+and an H8 DRC remain architecture proposals until these boundaries are tested.
+
+After the Mac gate, apply the same emulated-state checks to Vita NEON/DRC and
+the graphics checks to vitaGL. Native Mac graphics correctness alone cannot
+attribute a Vita3K graphics failure to either vitaGL or the emulator.
+
 ## Current execution path
 
 ```mermaid
