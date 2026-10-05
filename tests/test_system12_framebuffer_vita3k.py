@@ -157,6 +157,13 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                 (wrap_region / "main.bin").read_bytes()).hexdigest(),
                 FIXTURE.SPRITE_UV_WRAP_MAIN_SHA256)
 
+            vram_edge_region = region / "vram-x-wrap"
+            vram_edge_region.mkdir()
+            FIXTURE.make_regions(vram_edge_region, vram_x_wrap=True)
+            self.assertEqual(hashlib.sha256(
+                (vram_edge_region / "main.bin").read_bytes()).hexdigest(),
+                FIXTURE.VRAM_X_WRAP_MAIN_SHA256)
+
     def test_optional_texture_window_probe_sets_and_resets_e2(self):
         _code, commands = FIXTURE.make_guest_code(texture_window=True)
         self.assertEqual(commands.count(0xc0000000), 24)
@@ -258,6 +265,74 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                           0x03ff, 0x7c00, 0x03e0, 0x001f, 0x7c00))
         with self.assertRaises(ValueError):
             FIXTURE.make_guest_code(texture_window=True, sprite_uv_wrap=True)
+
+    def test_optional_vram_x_wrap_crosses_texture_and_clut_edges(self):
+        _code, commands = FIXTURE.make_guest_code(vram_x_wrap=True)
+        self.assertEqual(commands.count(0xc0000000), 27)
+        self.assertEqual([word for word in commands if word >> 24 == 0xe1],
+                         [0xe100008f, 0xe1000080, 0xe100010f])
+        gp0_sha256 = hashlib.sha256(b"".join(word.to_bytes(4, "little")
+                                               for word in commands)).hexdigest()
+        self.assertEqual(gp0_sha256, FIXTURE.VRAM_X_WRAP_GP0_SHA256)
+
+        uploads = []
+        sprites = []
+        polygon_tpages = []
+        reads = []
+        tpage = None
+        cursor = 0
+        while cursor < len(commands):
+            word = commands[cursor]
+            opcode = word >> 24
+            if opcode == 0xa0:
+                xy, size = commands[cursor + 1], commands[cursor + 2]
+                width, height = size & 0xffff, size >> 16
+                uploads.append((xy & 0xffff, xy >> 16, width, height))
+                cursor += 3 + (width * height + 1) // 2
+            elif opcode == 0xe1:
+                tpage = word & 0x1ff
+                cursor += 1
+            elif opcode == 0x64:
+                xy = commands[cursor + 1]
+                sprites.append((tpage, xy & 0xffff, xy >> 16,
+                                commands[cursor + 2] & 0xffff,
+                                commands[cursor + 3]))
+                cursor += 4
+            elif opcode == 0xc0:
+                xy = commands[cursor + 1]
+                reads.append((xy & 0xffff, xy >> 16))
+                cursor += 3
+            elif opcode == 0x2c:
+                polygon_tpages.append(commands[cursor + 4] >> 16)
+                cursor += 9
+            elif opcode == 0x80:
+                cursor += 4
+            elif opcode == 0x70:
+                cursor += 2
+            else:
+                cursor += 1
+
+        self.assertEqual(sprites, [
+            (0x008f, 32, 120, 120 | (40 << 8), 64 | (16 << 16)),
+            (0x0080, 32, 152, 16 | (40 << 8), 16 | (16 << 16)),
+            (0x010f, 128, 120, 56 | (40 << 8), 16 | (16 << 16)),
+        ])
+        self.assertEqual(polygon_tpages[-2:], [0x008f, 0x010f])
+        self.assertIn((1008, 400, 16, 1), uploads)
+        self.assertIn((0, 401, 16, 1), uploads)
+        self.assertIn((1020, 32, 4, 32), uploads)
+        self.assertIn((0, 32, 4, 32), uploads)
+        self.assertIn((8, 32, 4, 32), uploads)
+        self.assertIn((1016, 32, 8, 32), uploads)
+        self.assertIn((0, 32, 8, 32), uploads)
+        self.assertEqual(reads[-9:], [(56, 72), (72, 72), (38, 128), (42, 128),
+                                     (38, 160), (152, 72), (168, 72),
+                                     (134, 128), (138, 128)])
+        self.assertEqual(FIXTURE.EXPECTED_VRAM_X_WRAP_PIXELS,
+                         (0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
+                          0x001f, 0x03e0, 0x001f, 0x03e0))
+        with self.assertRaises(ValueError):
+            FIXTURE.make_guest_code(sprite_uv_wrap=True, vram_x_wrap=True)
 
 
 if __name__ == "__main__":

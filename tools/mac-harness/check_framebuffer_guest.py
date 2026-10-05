@@ -23,16 +23,17 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def make_guest(directory, texture_window=False, sprite_uv_wrap=False):
+def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
     path = ROOT / "tools/vita-harness/check_system12_framebuffer_vita3k.py"
     spec = importlib.util.spec_from_file_location("native_framebuffer_guest", path)
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
     directory.mkdir()
     fixture.make_regions(directory, texture_window=texture_window,
-                         sprite_uv_wrap=sprite_uv_wrap)
+                         sprite_uv_wrap=sprite_uv_wrap, vram_x_wrap=vram_x_wrap)
     code, commands = fixture.make_guest_code(texture_window=texture_window,
-                                             sprite_uv_wrap=sprite_uv_wrap)
+                                             sprite_uv_wrap=sprite_uv_wrap,
+                                             vram_x_wrap=vram_x_wrap)
     drc = fixture.module("native_framebuffer_drc", ROOT / "tests/check_system12_drc.py")
     # Remove only the terminal infinite jump; GPU operations and RAM results
     # are identical to the native Vita probe.
@@ -41,6 +42,10 @@ def make_guest(directory, texture_window=False, sprite_uv_wrap=False):
         registers = tuple(range(1, 16))
         marker_register = None
         result_indices = tuple(range(19, 34))
+    elif vram_x_wrap:
+        registers = tuple(range(1, 10))
+        marker_register = None
+        result_indices = tuple(range(19, 28))
     else:
         registers = (tuple(range(1, 16)) + tuple(range(17, 26))
                      if texture_window else REGISTERS)
@@ -57,6 +62,7 @@ def make_guest(directory, texture_window=False, sprite_uv_wrap=False):
     (directory / "main.bin").write_bytes(main)
     return dict(registers=registers,
                 expected=(fixture.EXPECTED_SPRITE_UV_WRAP_PIXELS if sprite_uv_wrap else
+                          fixture.EXPECTED_VRAM_X_WRAP_PIXELS if vram_x_wrap else
                           fixture.EXPECTED_PIXELS + fixture.EXPECTED_POLYGON_PIXELS +
                           (fixture.EXPECTED_TEXTURE_WINDOW_PIXELS if texture_window else ())),
                 marker_register=marker_register, marker=fixture.RESULT_MAGIC,
@@ -74,6 +80,8 @@ def main():
                         help="also compare E2 mask/offset sampling and E2 reset")
     parser.add_argument("--sprite-uv-wrap", action="store_true",
                         help="also compare P4/P8/P16 sprite sampling across UV 255")
+    parser.add_argument("--vram-x-wrap", action="store_true",
+                        help="compare P8/P16 texture-page and P8 CLUT X wrap at VRAM edge")
     args = parser.parse_args()
     if not 0 < args.timeout <= 600:
         parser.error("timeout must be in (0, 600]")
@@ -82,10 +90,10 @@ def main():
     if output.exists() and any(output.iterdir()):
         parser.error("output directory must be empty; existing evidence is retained")
     output.mkdir(parents=True, exist_ok=True)
-    if args.texture_window and args.sprite_uv_wrap:
-        parser.error("--texture-window and --sprite-uv-wrap are separate guest modes")
+    if sum((args.texture_window, args.sprite_uv_wrap, args.vram_x_wrap)) > 1:
+        parser.error("texture-window, sprite-uv-wrap, and vram-x-wrap are separate guest modes")
     oracle = make_guest(output / "regions", texture_window=args.texture_window,
-                        sprite_uv_wrap=args.sprite_uv_wrap)
+                        sprite_uv_wrap=args.sprite_uv_wrap, vram_x_wrap=args.vram_x_wrap)
     (output / "oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
     command = [str(harness), "--system12", str(output / "regions"), "--frames", "2",
                "--cycle-snapshots", str(output / "registers.csv"),
@@ -121,7 +129,7 @@ def main():
     except (RuntimeError, OSError, ValueError, KeyError) as error:
         evidence["error"] = str(error)
     (output / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    label = ("sprite UV wrap" if args.sprite_uv_wrap else
+    label = ("VRAM X wrap" if args.vram_x_wrap else "sprite UV wrap" if args.sprite_uv_wrap else
              "texture-window" if args.texture_window else "framebuffer/polygon")
     print(f"Mac {label} guest: {'PASS' if evidence['passed'] else 'FAIL'}; {output}")
     return 0 if evidence["passed"] else 1

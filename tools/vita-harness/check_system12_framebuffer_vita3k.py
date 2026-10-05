@@ -31,6 +31,10 @@ TEXTURE_WINDOW_MAIN_SHA256 = "8eb3780d65e540b668f82e52899c41721ef416201a9d0e0683
 DEFAULT_GP0_SHA256 = "66469427106cc45f1798a85949e63af3ad2f56f5e7856be251acfcd49abecf52"
 SPRITE_UV_WRAP_MAIN_SHA256 = "bfe0204a0b50d8c24b0f199476d8e9d0fa3c72e72b27f6811938ae224210a6d8"
 SPRITE_UV_WRAP_GP0_SHA256 = "b5604049f2cbca0498a9fc53923fa79eec342a530eb872bf2530f07a3bfa631e"
+VRAM_X_WRAP_MAIN_SHA256 = "2a1768d5f960371b5560dc6a54209a5e5b7b1e3b9c2d1d0cda306b7d4131bea6"
+VRAM_X_WRAP_GP0_SHA256 = "d019567552e3affa46513cc566098454f1cb9b9f21d372707684e2ddfbca2946"
+EXPECTED_VRAM_X_WRAP_PIXELS = (0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
+                               0x001f, 0x03e0, 0x001f, 0x03e0)
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
                    0x7fff, 0x03e0, 0x7c1f, 0x7c1f)
 EXPECTED_POLYGON_PIXELS = (0x001f, 0x03e0, 0x7c00,
@@ -53,10 +57,10 @@ def module(name, path):
     return result
 
 
-def make_guest_code(texture_window=False, sprite_uv_wrap=False):
+def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
     """Generate an ari64 MIPS guest that exercises main-target/VRAM ordering."""
-    if texture_window and sprite_uv_wrap:
-        raise ValueError("texture-window and sprite-UV-wrap probes are separate fixture modes")
+    if sum((texture_window, sprite_uv_wrap, vram_x_wrap)) > 1:
+        raise ValueError("texture-window, sprite-UV-wrap, and VRAM-X-wrap probes are separate modes")
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     code = []
     commands = []
@@ -183,6 +187,13 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False):
         # the initial seam and the next wrap after 256 more texels.
         gp0(272 | (16 << 16))
 
+    def emit_variable_sprite(x, y, u, v, width, height, tpage, clut):
+        gp0(0xe1000000 | tpage)
+        gp0(0x64000000 | 0x808080)
+        gp0(x | (y << 16))
+        gp0(u | (v << 8) | (clut << 16))
+        gp0(width | (height << 16))
+
     def upload_p4_wrap_quadrants():
         # Four broad 16x8 texel patches around both 8-bit coordinate seams.
         for x, y, index in ((0, 0, 1), (60, 0, 2),
@@ -303,6 +314,43 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False):
                             (26, 154, 31), (34, 154, 32), (284, 146, 33)):
             c0_pixel(x, y, index)
 
+    if vram_x_wrap:
+        # PSX VRAM addresses wrap at 1024 words. Page X=960 crosses that
+        # seam at U=128 in P8 and U=64 in P16. P8 CLUT X=1008 plus index 20
+        # advances into the next VRAM row at X=4.
+        palette16_a = [0] * 16
+        palette16_b = [0] * 16
+        palette16_a[1] = 0x7fe0
+        palette16_b[4] = 0x7c1f
+        upload_rect(1008, 400, 16, 1, palette16_a)
+        upload_rect(0, 401, 16, 1, palette16_b)
+
+        upload_constant_words(1020, 32, 4, 32, 0x0101)
+        upload_constant_words(0, 32, 4, 32, 0x0101)
+        ft4(32, 40, ((120, 40), (136, 40), (120, 40), (136, 40)),
+            0x008f, (400 << 6) | (1008 >> 4))
+        for x, index in ((56, 19), (72, 20)):
+            c0_pixel(x, 72, index)
+
+        upload_constant_words(0, 32, 4, 32, 0x1414)
+        emit_variable_sprite(32, 120, 120, 40, 64, 16,
+                             0x008f, (400 << 6) | (1008 >> 4))
+        for x, index in ((38, 21), (42, 22)):
+            c0_pixel(x, 128, index)
+        upload_constant_words(8, 32, 4, 32, 0x1414)
+        emit_variable_sprite(32, 152, 16, 40, 16, 16,
+                             0x0080, (400 << 6) | (1008 >> 4))
+        c0_pixel(38, 160, 23)
+
+        upload_constant_words(1016, 32, 8, 32, 0x001f)
+        upload_constant_words(0, 32, 8, 32, 0x03e0)
+        ft4(128, 40, ((56, 40), (72, 40), (56, 40), (72, 40)), 0x010f, 0)
+        for x, index in ((152, 24), (168, 25)):
+            c0_pixel(x, 72, index)
+        emit_variable_sprite(128, 120, 56, 40, 16, 16, 0x010f, 0)
+        for x, index in ((134, 26), (138, 27)):
+            c0_pixel(x, 128, index)
+
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
     loop = 0xbfc01000 + len(code) * 4
@@ -310,12 +358,13 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False):
     return code, commands
 
 
-def make_regions(path, texture_window=False, sprite_uv_wrap=False):
+def make_regions(path, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
     """Reuse the DRC's local System12 board/media regions; replace guest ROM."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     drc.make_regions(path, 4, vita_signature=True)
     code, _ = make_guest_code(texture_window=texture_window,
-                              sprite_uv_wrap=sprite_uv_wrap)
+                              sprite_uv_wrap=sprite_uv_wrap,
+                              vram_x_wrap=vram_x_wrap)
     if len(code) > (0x400000 - 0x1000) // 4:
         raise RuntimeError("generated framebuffer guest exceeds the main ROM region")
     main = bytearray(0x400000)
