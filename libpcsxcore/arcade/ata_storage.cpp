@@ -131,7 +131,10 @@ public:
     set_pdiag_in(state);
   }
   int advance(uint64_t ns) {
-    if (running_timers)
+    // Advancing from a callback or from another public API call would run
+    // timers halfway through the operation that caused that callback. The
+    // scheduler itself is the only operation allowed to enter run_until.
+    if (running_timers || operation_depth || callback_depth)
       return ATA_STORAGE_BUSY;
     OperationGuard guard(*this);
     running_timers = true;
@@ -305,6 +308,21 @@ extern "C" int ata_storage_create(const ata_storage_config_t *config,
       config->dma_transfer_time_ns >
           uint64_t(std::numeric_limits<int64_t>::max()))
     return ATA_STORAGE_ARGUMENT;
+
+  // The pinned MAME source computes total_sectors in signed int in both the
+  // CF IDENTIFY builder and finished_command(). Validate the exact geometry
+  // the constructor will install before invoking either source body.
+  const uint64_t sectors_per_cylinder =
+      uint64_t(config->heads) * config->sectors_per_track;
+  const uint64_t cylinders = config->cylinders
+                                 ? config->cylinders
+                                 : std::min<uint64_t>(
+                                       65535, config->sector_count /
+                                                  sectors_per_cylinder);
+  if (cylinders * sectors_per_cylinder >
+      uint64_t(std::numeric_limits<int>::max()))
+    return ATA_STORAGE_ARGUMENT;
+
   ata_storage *ata = nullptr;
   try {
     ata = new (std::nothrow) ata_storage(*config);

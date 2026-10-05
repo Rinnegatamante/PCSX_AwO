@@ -33,14 +33,14 @@ typedef struct ata_storage_config {
    * present it takes precedence over synthesized CompactFlash metadata. */
   const uint8_t *identify_data;
   size_t identify_size;
-    const uint8_t *user_password;   /* 34 bytes; borrowed for lifetime */
-    size_t user_password_size;
-    const uint8_t *master_password; /* 34 bytes; borrowed for lifetime */
-    size_t master_password_size;
-    /* Sector callbacks use MAME's convention: nonzero means success. Each
-     * callback receives/produces exactly 512 bytes. Media, line, and password
-     * pointers are borrowed for the ATA object's lifetime. Identify bytes and
-     * strings are copied/decoded during create. */
+  const uint8_t *user_password;   /* 34 bytes; borrowed for lifetime */
+  size_t user_password_size;
+  const uint8_t *master_password; /* 34 bytes; borrowed for lifetime */
+  size_t master_password_size;
+  /* Sector callbacks use MAME's convention: nonzero means success. Each
+   * callback receives/produces exactly 512 bytes. Media, line, and password
+   * pointers are borrowed for the ATA object's lifetime. Identify bytes and
+   * strings are copied/decoded during create. */
   void *media_opaque;
   ata_storage_read_sector_fn read_sector;
   ata_storage_write_sector_fn write_sector;

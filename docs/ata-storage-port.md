@@ -39,8 +39,18 @@ nested `run_until` is rejected with `BUSY`.
 ATA IDENTIFY input may be omitted to use MAME's CompactFlash identify builder,
 configured with the provided serial, firmware, and model strings, or supplied
 as the raw 512-byte `IDNT` metadata payload. Raw bytes are decoded as ATA
-little-endian words, matching MAME's image inquiry path. Geometry and capacity
-come from the caller's media metadata. The G-Net bridge invokes the card hooks
+little-endian words, matching MAME's image inquiry path. The CompactFlash
+IDENTIFY builder fills words 7-8, 57-58, and 60-61 from the source's
+`cylinders * heads * sectors_per_track` calculation, and READ NATIVE MAX uses
+the same geometry product; a supplied raw `IDNT` payload is preserved as-is.
+Explicit CHD geometry is therefore not
+silently replaced by the medium's sector count. When cylinders are omitted,
+the adapter infers them from sector count and the configured heads/sectors,
+capped at 65535 as in the wrapper's geometry representation. Since the pinned
+source calculates total sectors in signed `int`, the effective geometry product
+must be at most `INT_MAX` (2,147,483,647 sectors); larger configurations are
+rejected before entering the source IDENTIFY or command bodies. The G-Net
+bridge invokes the card hooks
 at the original `process_command`, `process_buffer`, and `is_ready` boundaries;
 its taskfile snapshot carries the expanded sector count (`0` from the ATA
 register is represented internally as `256`).

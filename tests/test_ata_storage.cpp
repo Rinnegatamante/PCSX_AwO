@@ -53,8 +53,19 @@ struct Lines {
   int irq = 0;
   int dmarq = 0;
   int dasp = 0;
+  ata_storage_t *ata = nullptr;
+  bool probe_run_until_on_irq = false;
+  int irq_reentry_result = 0;
 };
-void irq_line(void *opaque, int state) { static_cast<Lines *>(opaque)->irq = state; }
+void irq_line(void *opaque, int state) {
+  auto &lines = *static_cast<Lines *>(opaque);
+  lines.irq = state;
+  if (state && lines.probe_run_until_on_irq) {
+    lines.probe_run_until_on_irq = false;
+    lines.irq_reentry_result =
+        ata_storage_run_until(lines.ata, ata_storage_now(lines.ata));
+  }
+}
 void dmarq_line(void *opaque, int state) { static_cast<Lines *>(opaque)->dmarq = state; }
 void dasp_line(void *opaque, int state) { static_cast<Lines *>(opaque)->dasp = state; }
 
@@ -79,7 +90,38 @@ ata_storage_t *make_ata(Disk &disk, Lines &lines,
   ata_storage_t *ata = nullptr;
   assert(ata_storage_create(&config, &ata) == ATA_STORAGE_OK);
   disk.ata = ata;
+  lines.ata = ata;
   return ata;
+}
+
+void test_geometry_signed_capacity_limit() {
+  Disk disk;
+  ata_storage_config_t config{};
+  config.sector_count = 16;
+  config.cylinders = 65535;
+  config.heads = 255;
+  config.sectors_per_track = 255;
+  config.read_sector = read_sector;
+  config.write_sector = write_sector;
+  ata_storage_t *ata = nullptr;
+  assert(ata_storage_create(&config, &ata) == ATA_STORAGE_ARGUMENT);
+  assert(ata == nullptr);
+
+  // The largest signed-int-compatible CHS capacity is accepted, and its
+  // source-generated IDENTIFY words retain the geometry-derived capacity.
+  config.cylinders = 33025;
+  const uint64_t capacity =
+      uint64_t(config.cylinders) * config.heads * config.sectors_per_track;
+  assert(capacity <= uint64_t(INT32_MAX));
+  assert(ata_storage_create(&config, &ata) == ATA_STORAGE_OK);
+  const uint16_t *words = ata_storage_identify(ata);
+  assert(words[7] == (capacity >> 16));
+  assert(words[8] == (capacity & 0xffff));
+  assert(words[57] == (capacity & 0xffff));
+  assert(words[58] == (capacity >> 16));
+  assert(words[60] == (capacity & 0xffff));
+  assert(words[61] == (capacity >> 16));
+  ata_storage_destroy(ata);
 }
 
 void finish_power_on_reset(ata_storage_t *ata, bool expect_ready = true) {
@@ -203,6 +245,16 @@ void test_identify_error_feature_and_reset() {
   write_register(ata, 7, 0xc6);
   assert(lines.irq == 0);
   ata_storage_control_w(ata, 6, 0, 0xffff);
+  assert(lines.irq == 1);
+  (void)ata_storage_command_r(ata, 7, 0xffff, 0);
+  assert(lines.irq == 0);
+
+  // SET BLOCK COUNT asserts IRQ synchronously from command_w. A line callback
+  // must not advance either timer in the middle of this register operation.
+  lines.probe_run_until_on_irq = true;
+  write_register(ata, 2, 2);
+  write_register(ata, 7, 0xc6);
+  assert(lines.irq_reentry_result == ATA_STORAGE_BUSY);
   assert(lines.irq == 1);
   (void)ata_storage_command_r(ata, 7, 0xffff, 0);
   assert(lines.irq == 0);
@@ -384,6 +436,7 @@ void test_taito_type2_unlock_through_real_engine() {
 } // namespace
 
 int main() {
+  test_geometry_signed_capacity_limit();
   test_pio_read_write_and_multiple();
   test_identify_error_feature_and_reset();
   test_dma_read_write_and_dma_mode_selection();
