@@ -19,6 +19,7 @@ struct H8CPU {
     bool m_has_hc=true,m_has_mac=false,m_mode_advanced=true;
     int m_inst_state=STATE_RESET,m_icount=0,m_irq_vector=0,m_taken_irq_vector=0;
     int64_t budget=0;
+    bool executing_state=false;
     bool m_sleeping=false,halted=false,nmi_level=false,adc_level=true;
     u64 cycles=0,instructions=0,pending=0;
     u32 illegal_pc=0,unsupported=0;
@@ -284,7 +285,9 @@ void h8_run_cycles(H8CPU *c,unsigned requested) {
         }
         c->m_icount=0;
         if(c->m_inst_state<0x10000){c->m_PPC=c->m_NPC;c->instructions++;}
+        c->executing_state=true;
         c->do_exec_full();
+        c->executing_state=false;
         unsigned n=unsigned(-c->m_icount);
         if(!n) {c->illegal();break;}
         c->tick(n);c->budget-=n;
@@ -303,6 +306,12 @@ void h8_set_irq(H8CPU *c,int line,int level) {
         if(level&&(!(c->io[0xf4]&bit)||!old))c->io[0xf6]|=bit;
     }
     c->update_irq_filter();
+}
+uint64_t h8_current_cycle(const H8CPU *c) {
+    if(!c)return 0;
+    // Bus charges precede callbacks; tick already commits those charges before
+    // invoking SCI/ADC callbacks, so only add them during instruction execution.
+    return c->cycles+(c->executing_state?u64(-int64_t(c->m_icount)):0);
 }
 void h8_adc_trigger(H8CPU *c,int level) {
     if(!c)return;

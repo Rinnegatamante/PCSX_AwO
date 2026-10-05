@@ -37,6 +37,11 @@ void h8_destroy(H8CPU *cpu);
 void h8_reset(H8CPU *cpu);
 /* Executes whole instructions, carries cycle overshoot into the next call. */
 void h8_run_cycles(H8CPU *cpu, unsigned cycles);
+/* Current emulated H8 cycle, including access/internal costs already charged in
+ * the executing state. Callbacks may query this without changing CPU state.
+ * Outside state execution (including SCI/ADC tick callbacks and debug accesses)
+ * returns committed cycles; reset restarts at zero. NULL returns zero. */
+uint64_t h8_current_cycle(const H8CPU *cpu);
 /* IRQ0..IRQ5 are 0..5; NMI is -1. Level is 0/1 (asserted). */
 void h8_set_irq(H8CPU *cpu, int line, int level);
 void h8_serial_receive(H8CPU *cpu, unsigned channel, uint8_t value);
