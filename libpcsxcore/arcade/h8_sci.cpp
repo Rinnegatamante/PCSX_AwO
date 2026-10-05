@@ -7,7 +7,7 @@
 namespace arcade {
 
 H8Sci::H8Sci()
-    : m_opaque(0), m_now(0), m_tx_pin(0), m_clk_pin(0), m_irq(0),
+    : m_opaque(0), m_now(0), m_rx_now(0), m_tx_pin(0), m_clk_pin(0), m_irq(0),
       m_reschedule(0), m_frame_tx(0), m_vector_base(0), m_channel(0),
       m_external_to_internal_ratio(0.0), m_internal_to_external_ratio(0.0),
       m_external_period_as(0), m_cpu_hz(0), m_tx_state(ST_IDLE),
@@ -22,9 +22,10 @@ H8Sci::H8Sci()
 void H8Sci::setCallbacks(void *opaque, NowCb now, PinCb tx, PinCb clk,
                          IrqRequest irq, unsigned vector_base,
                          unsigned channel, FrameTx frame_tx,
-                         RescheduleCb reschedule_cb) {
+                         RescheduleCb reschedule_cb, NowCb rx_now) {
     m_opaque = opaque;
     m_now = now;
+    m_rx_now = rx_now;
     m_tx_pin = tx;
     m_clk_pin = clk;
     m_irq = irq;
@@ -299,14 +300,16 @@ void H8Sci::clock_start(int mode) {
     case INTERNAL_ASYNC_OUT:
     case INTERNAL_SYNC_OUT: {
         m_clock_step = m_divider;
-        const uint64_t now = m_now ? m_now(m_opaque) : 0;
+        const NowCb clock_now = mode == CLK_RX && m_rx_now ? m_rx_now : m_now;
+        const uint64_t now = clock_now ? clock_now(m_opaque) : 0;
         m_clock_event = (now / m_clock_step + 1) * m_clock_step;
         reschedule();
         break;
     }
     case EXTERNAL_RATE_ASYNC:
     case EXTERNAL_RATE_SYNC: {
-        const uint64_t now = m_now ? m_now(m_opaque) : 0;
+        const NowCb clock_now = mode == CLK_RX && m_rx_now ? m_rx_now : m_now;
+        const uint64_t now = clock_now ? clock_now(m_opaque) : 0;
         m_clock_event = static_cast<uint64_t>(
             static_cast<uint64_t>(now * m_internal_to_external_ratio + 1.0) *
                 m_external_to_internal_ratio + 1.0);

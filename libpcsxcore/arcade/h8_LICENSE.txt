@@ -2,6 +2,7 @@ MAME H8/300H instruction implementation, opcode generator and arithmetic helpers
 Upstream: src/devices/cpu/h8 in MAME.
 
 Copyright Olivier Galibert (upstream does not specify a year).
+H8 cycle clock also follows MAME attotime, Copyright Aaron Giles.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are

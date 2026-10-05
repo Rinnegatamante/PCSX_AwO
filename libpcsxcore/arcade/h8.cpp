@@ -3,6 +3,7 @@
 // Standalone H8/300H ISA adapter and H8/3002 internal peripheral implementation.
 #include "h8.h"
 #include "h8_adc.h"
+#include "h8_cycle_clock.h"
 #include "h8_sci.h"
 #include "h8_timer16.h"
 #include <algorithm>
@@ -32,6 +33,7 @@ struct H8CPU {
     arcade::H8Adc3337 adc;
     arcade::H8Sci sci[2];
     arcade::H8Timer16 timers;
+    arcade::H8CycleClock clock;
     void bind_peripherals();
     void refresh_bcount();
     void internal_update_at(u64 when);
@@ -108,6 +110,10 @@ static uint64_t peripheral_now(void *opaque) {
     H8CPU *c=static_cast<H8CPU*>(opaque);
     return h8_current_cycle(c)-c->cycle_epoch;
 }
+static uint64_t peripheral_rx_now(void *opaque) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    return c->clock.nowAsCycles(c->executing_state?u64(-int64_t(c->m_icount)):0);
+}
 template<unsigned Channel> static void serial_tx_pin(void *opaque,int level) {
     H8CPU *c=static_cast<H8CPU*>(opaque);
     c->config.serial_tx_pin(c->config.opaque,Channel,level);
@@ -126,11 +132,11 @@ void H8CPU::bind_peripherals() {
     sci[0].setCallbacks(this,peripheral_now,
         config.serial_tx_pin?serial_tx_pin<0>:nullptr,
         config.serial_clk_pin?serial_clk_pin<0>:nullptr,
-        peripheral_irq,52,0,serial_frame,peripheral_reschedule);
+        peripheral_irq,52,0,serial_frame,peripheral_reschedule,peripheral_rx_now);
     sci[1].setCallbacks(this,peripheral_now,
         config.serial_tx_pin?serial_tx_pin<1>:nullptr,
         config.serial_clk_pin?serial_clk_pin<1>:nullptr,
-        peripheral_irq,56,1,serial_frame,peripheral_reschedule);
+        peripheral_irq,56,1,serial_frame,peripheral_reschedule,peripheral_rx_now);
     for(unsigned ch=0;ch<2;ch++)
         sci[ch].setExternalClockPeriodAS(config.serial_external_period_as[ch],16934400);
 }
@@ -259,6 +265,7 @@ void H8CPU::bus_write(u32 a,u8 v) {
 
 void H8CPU::tick(unsigned elapsed) {
     cycles+=elapsed;
+    clock.advance(elapsed);
     while(next_internal_event()<=cycles)
         internal_update_at(next_internal_event());
     update_irq_filter();
@@ -298,6 +305,8 @@ int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     for(unsigned i=0;i<13;i++)gpio[i]=c->io[gpio_regs[i]];
     // Device reset retains SCI's status-read latch and physical RX level.
     arcade::H8Sci serial[2]={c->sci[0],c->sci[1]};
+    arcade::H8CycleClock clock=c->clock;
+    clock.resetAtCycle(c->cycles,absolute_cycle);
     for(unsigned ch=0;ch<2;ch++) {
         serial[ch].setCallbacks(nullptr,nullptr,nullptr,nullptr,nullptr,0);
         serial[ch].reset();
@@ -312,6 +321,7 @@ int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     for(unsigned i=0;i<13;i++)c->io[gpio_regs[i]]=gpio[i];
     c->m_CCR=ccr;
     c->cycles=c->cycle_epoch=absolute_cycle;
+    c->clock=clock;
     c->timers.reset();
     for(unsigned ch=0;ch<2;ch++)c->sci[ch].reset();
     return 0;

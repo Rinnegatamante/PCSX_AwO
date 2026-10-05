@@ -1,12 +1,12 @@
 CXX ?= clang++
 CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
 BUILD ?= build/h8-tests
-PERIPHERALS := libpcsxcore/arcade/h8_adc.cpp libpcsxcore/arcade/h8_sci.cpp libpcsxcore/arcade/h8_timer16.cpp
+PERIPHERALS := libpcsxcore/arcade/h8_cycle_clock.cpp libpcsxcore/arcade/h8_adc.cpp libpcsxcore/arcade/h8_sci.cpp libpcsxcore/arcade/h8_timer16.cpp
 PERIPHERAL_HEADERS := $(PERIPHERALS:.cpp=.h)
 TARGET := $(BUILD)/h8-standalone
 TIMESTAMP_TARGET := $(BUILD)/h8-timestamp
 SOFT_RESET_TARGET := $(BUILD)/h8-soft-reset
-.PHONY: all test irq-test rom-test deadline-test deadline-ubsan-test clean
+.PHONY: all test irq-test rom-test deadline-test deadline-ubsan-test cycle-clock-test cycle-clock-ubsan-test clean
 all: $(TARGET)
 $(TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_HEADERS) libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_standalone.cpp
 	@mkdir -p $(BUILD)
@@ -21,11 +21,18 @@ DEADLINE_TARGET := $(BUILD)/h8-deadline
 $(DEADLINE_TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_HEADERS) libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_deadline.cpp
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8.cpp $(PERIPHERALS) tests/h8_deadline.cpp -o $@
-test: $(TARGET) $(TIMESTAMP_TARGET) $(SOFT_RESET_TARGET) $(DEADLINE_TARGET)
+CYCLE_CLOCK_TARGET := $(BUILD)/h8-cycle-clock
+$(CYCLE_CLOCK_TARGET): libpcsxcore/arcade/h8_cycle_clock.cpp libpcsxcore/arcade/h8_cycle_clock.h tests/h8_cycle_clock.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8_cycle_clock.cpp tests/h8_cycle_clock.cpp -o $@
+cycle-clock-test: $(CYCLE_CLOCK_TARGET)
+	$(CYCLE_CLOCK_TARGET)
+test: $(TARGET) $(TIMESTAMP_TARGET) $(SOFT_RESET_TARGET) $(DEADLINE_TARGET) $(CYCLE_CLOCK_TARGET)
 	$(TARGET)
 	$(TIMESTAMP_TARGET)
 	$(SOFT_RESET_TARGET)
 	$(DEADLINE_TARGET)
+	$(CYCLE_CLOCK_TARGET)
 IRQ_TARGET := $(BUILD)/h8-irq-filter
 $(IRQ_TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_HEADERS) libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_irq_filter.cpp
 	@mkdir -p $(BUILD)
@@ -46,6 +53,10 @@ deadline-ubsan-test:
 	$(SAN_DIR)/h8-soft-reset
 	$(SAN_DIR)/h8-irq-filter
 	$(SAN_DIR)/h8-deadline
+cycle-clock-ubsan-test:
+	@mkdir -p $(SAN_DIR)
+	$(CXX) $(SAN_FLAGS) libpcsxcore/arcade/h8_cycle_clock.cpp tests/h8_cycle_clock.cpp -o $(SAN_DIR)/h8-cycle-clock
+	$(SAN_DIR)/h8-cycle-clock
 rom-test: $(TARGET)
 	$(TARGET) artifacts/system12/sub.bin 120
 clean:

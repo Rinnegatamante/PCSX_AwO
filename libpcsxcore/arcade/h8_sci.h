@@ -24,7 +24,7 @@ public:
     void setCallbacks(void *opaque, NowCb now, PinCb tx, PinCb clk,
                       IrqRequest irq, unsigned vector_base,
                       unsigned channel = 0, FrameTx frame_tx = 0,
-                      RescheduleCb reschedule = 0);
+                      RescheduleCb reschedule = 0, NowCb rx_now = 0);
     void setExternalClockPeriodAS(uint64_t period_as, uint64_t cpu_hz);
     void reset();
 
@@ -85,6 +85,7 @@ private:
 
     void *m_opaque;
     NowCb m_now;
+    NowCb m_rx_now;
     PinCb m_tx_pin;
     PinCb m_clk_pin;
     IrqRequest m_irq;
