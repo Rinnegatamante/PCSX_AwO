@@ -23,6 +23,8 @@ struct gnet_zoom_board {
     uint64_t watchdog_time_us = 0;
     unsigned bank = 0;
     uint8_t control = 0x10;
+    uint8_t control3 = 0;
+    uint16_t control2 = 0;
     uint32_t fault = 0;
     bool reset_callback_active = false;
 };
@@ -411,6 +413,122 @@ extern "C" int gnet_zoom_main_write16(gnet_zoom_board *b, uint32_t address,
     if (decoded != GNET_ZOOM_OK) return decoded;
     if (mem_mask != 0xffff) return GNET_ZOOM_UNSUPPORTED;
     return flash_write(b, map.chip, map.word, data);
+}
+
+extern "C" int gnet_zoom_bus_read(gnet_zoom_board *b, uint32_t address,
+                                    unsigned width, uint32_t *value)
+{
+    if (!b || !value || (width != 1 && width != 2 && width != 4) ||
+        (address & (width - 1))) return GNET_ZOOM_ARGUMENT;
+    *value = UINT32_MAX;
+
+    if (address >= MAIN_BASE && address < MAIN_END) {
+        if (width != 2) return GNET_ZOOM_UNSUPPORTED;
+        uint16_t word = 0xffff;
+        const int r = gnet_zoom_main_read16(b, address, &word);
+        *value = word;
+        return r;
+    }
+
+    if (address == 0x1fa30000u) {
+        if (width != 1) return GNET_ZOOM_UNSUPPORTED;
+        *value = b->control3;
+        return GNET_ZOOM_OK;
+    }
+    if (address == 0x1fb40000u) {
+        if (width != 1) return GNET_ZOOM_UNSUPPORTED;
+        *value = gnet_zoom_control_read(b);
+        return GNET_ZOOM_OK;
+    }
+    if (address == 0x1fb70000u && width == 2) {
+        *value = 2; // taitogn_state::gn_1fb70000_r returns 2 unconditionally
+        return GNET_ZOOM_OK;
+    }
+    if (address == 0x1fbc0000u && width == 2) {
+        *value = zoom_board_main_read16(b->zoom, address, 0xffff);
+        return GNET_ZOOM_OK;
+    }
+    if (address >= 0x1fbe0000u && address < 0x1fbe0200u) {
+        if (width == 4) {
+            *value = zoom_board_main_read32(b->zoom, address, 0xffffffffu);
+            return GNET_ZOOM_OK;
+        }
+        if (width == 2) {
+            *value = zoom_board_main_read16(b->zoom, address, 0xffff);
+            return GNET_ZOOM_OK;
+        }
+        const uint32_t aligned = address & ~1u;
+        const uint16_t word = zoom_board_main_read16(b->zoom, aligned, 0xffff);
+        *value = (word >> ((address & 1u) * 8)) & 0xffu;
+        return GNET_ZOOM_OK;
+    }
+    if ((address >= 0x1fb80000u && address <= 0x1fb80003u) ||
+        (address >= 0x1fba0000u && address <= 0x1fba0001u))
+        return GNET_ZOOM_UNMAPPED; // source map has no read handler here
+    if (address >= 0x1fb00000u && address <= 0x1fb0ffffu)
+        return GNET_ZOOM_UNSUPPORTED; // RF5C296 / PCMCIA is not ported
+    return GNET_ZOOM_UNMAPPED;
+}
+
+extern "C" int gnet_zoom_bus_write(gnet_zoom_board *b, uint32_t address,
+                                     unsigned width, uint32_t value)
+{
+    if (!b || (width != 1 && width != 2 && width != 4) ||
+        (address & (width - 1))) return GNET_ZOOM_ARGUMENT;
+
+    if (address >= MAIN_BASE && address < MAIN_END) {
+        if (width != 2) return GNET_ZOOM_UNSUPPORTED;
+        return gnet_zoom_main_write16(b, address, uint16_t(value), 0xffff);
+    }
+    if (address == 0x1fa30000u) {
+        if (width != 1) return GNET_ZOOM_UNSUPPORTED;
+        b->control3 = uint8_t(value);
+        return GNET_ZOOM_OK;
+    }
+    if (address == 0x1fb40000u) {
+        if (width != 1) return GNET_ZOOM_UNSUPPORTED;
+        return gnet_zoom_control_write(b, uint8_t(value));
+    }
+    if (address == 0x1fb60000u && width == 2) {
+        b->control2 = uint16_t(value);
+        return GNET_ZOOM_OK;
+    }
+    if (address == 0x1fb60000u ||
+        (address == 0x1fb70000u && width != 2))
+        return GNET_ZOOM_UNSUPPORTED;
+    if (address == 0x1fb70000u && width == 2)
+        return GNET_ZOOM_OK; // handler is explicitly a no-op in MAME
+    if ((address == 0x1fb80000u || address == 0x1fb80002u ||
+         address == 0x1fba0000u) && width == 2) {
+        const int r = zoom_board_main_write16(b->zoom, address,
+                                               uint16_t(value), 0xffff);
+        if (r == ZOOM_BOARD_OK) return GNET_ZOOM_OK;
+        return r == ZOOM_BOARD_UNSUPPORTED ? GNET_ZOOM_UNMAPPED
+                                           : GNET_ZOOM_DEVICE;
+    }
+    if (address >= 0x1fbe0000u && address < 0x1fbe0200u) {
+        int r;
+        if (width == 4)
+            r = zoom_board_main_write32(b->zoom, address, value, 0x00ff00ffu);
+        else if (width == 2)
+            r = zoom_board_main_write16(b->zoom, address, uint16_t(value), 0x00ff);
+        else {
+            const unsigned lane = address & 3u;
+            if (lane == 1 || lane == 3) return GNET_ZOOM_OK; // source umask32
+            const uint32_t dword = address & ~3u;
+            const unsigned shift = lane * 8;
+            r = zoom_board_main_write32(b->zoom, dword,
+                                       (value & 0xffu) << shift,
+                                       0xffu << shift);
+        }
+        return r == ZOOM_BOARD_OK ? GNET_ZOOM_OK : GNET_ZOOM_DEVICE;
+    }
+    if ((address >= 0x1fb80000u && address <= 0x1fb80003u) ||
+        (address >= 0x1fba0000u && address <= 0x1fba0001u))
+        return GNET_ZOOM_UNSUPPORTED;
+    if (address >= 0x1fb00000u && address <= 0x1fb0ffffu)
+        return GNET_ZOOM_UNSUPPORTED; // RF5C296 / PCMCIA is not ported
+    return GNET_ZOOM_UNMAPPED;
 }
 
 extern "C" int gnet_zoom_sync_to_cycle(gnet_zoom_board *b,

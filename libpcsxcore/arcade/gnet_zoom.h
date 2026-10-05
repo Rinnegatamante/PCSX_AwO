@@ -66,6 +66,16 @@ int gnet_zoom_main_read16(gnet_zoom_board *board, uint32_t address,
 int gnet_zoom_main_write16(gnet_zoom_board *board, uint32_t address,
                            uint16_t data, uint16_t mem_mask);
 
+/* Source taitogn_state::maincpu_program_map G-Net register routing. Addresses
+ * must be physical PSX addresses; accesses are naturally aligned and width is
+ * 1, 2, or 4. Flash-window accesses remain 16-bit x16 operations. Call
+ * gnet_zoom_sync_to_cycle before accesses when the host is running the board.
+ * A mapped register used at an unsupported width returns UNSUPPORTED. */
+int gnet_zoom_bus_read(gnet_zoom_board *board, uint32_t address,
+                       unsigned width, uint32_t *value);
+int gnet_zoom_bus_write(gnet_zoom_board *board, uint32_t address,
+                        unsigned width, uint32_t value);
+
 /* Advances Zoom and NOR devices in the MN10200 internal-cycle domain
  * (6.25 MHz). The main-bus caller must synchronize before flash accesses. */
 int gnet_zoom_sync_to_cycle(gnet_zoom_board *board, uint64_t internal_cycle);

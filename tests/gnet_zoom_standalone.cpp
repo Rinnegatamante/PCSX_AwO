@@ -197,6 +197,55 @@ void test_bank_control_mapping_eprom_alias_and_wave_flash()
     gnet_zoom_destroy(board);
 }
 
+void test_source_maincpu_map_routes_registers_and_shared_ram_lanes()
+{
+    Media media;
+    media.firm[0] = 0x12;
+    media.firm[1] = 0x34;
+    auto config = media.config();
+    gnet_zoom_board *board = nullptr;
+    assert(gnet_zoom_create(&config, &board) == GNET_ZOOM_OK);
+
+    uint32_t value = 0;
+    assert(gnet_zoom_bus_read(board, 0x1fa30000, 1, &value) == GNET_ZOOM_OK && value == 0);
+    assert(gnet_zoom_bus_write(board, 0x1fa30000, 1, 0xa5) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_read(board, 0x1fa30000, 1, &value) == GNET_ZOOM_OK && value == 0xa5);
+    assert(gnet_zoom_bus_read(board, 0x1f000000, 2, &value) == GNET_ZOOM_OK && value == 0x3412);
+
+    /* Reset starts asserted with bank 0. The control register is byte-wide;
+     * bit 2 selects bank 1 and bit 4 releases/reset-pulses the Zoom side. */
+    assert(gnet_zoom_bus_read(board, 0x1fb40000, 1, &value) == GNET_ZOOM_OK && value == 0x10);
+    assert(gnet_zoom_bus_write(board, 0x1fb40000, 1, 0x04) == GNET_ZOOM_OK);
+    assert(gnet_zoom_selected_bank(board) == 1);
+    assert(gnet_zoom_bus_read(board, 0x1fb70000, 2, &value) == GNET_ZOOM_OK && value == 2);
+    assert(gnet_zoom_bus_write(board, 0x1fb70000, 2, 0xbeef) == GNET_ZOOM_OK);
+
+    /* The 16-bit Zoom data/address latches and sound IRQ strobe are the exact
+     * mapped devices used by taitogn_state::maincpu_program_map. */
+    assert(gnet_zoom_bus_write(board, 0x1fb80002, 2, 4) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_write(board, 0x1fb80000, 2, 0x0020) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_write(board, 0x1fba0000, 2, 0) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_read(board, 0x1fbc0000, 2, &value) == GNET_ZOOM_OK && value == 0);
+
+    /* MAME's .umask32(0x00ff00ff) exposes bytes at lanes 0 and 2 only.
+     * Byte/halfword/word accesses preserve the two open-bus lanes. */
+    assert(gnet_zoom_bus_write(board, 0x1fbe0000, 4, 0x00340012) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_read(board, 0x1fbe0000, 4, &value) == GNET_ZOOM_OK &&
+           value == 0xff34ff12);
+    assert(gnet_zoom_bus_read(board, 0x1fbe0001, 1, &value) == GNET_ZOOM_OK && value == 0xff);
+    assert(gnet_zoom_bus_read(board, 0x1fbe0002, 1, &value) == GNET_ZOOM_OK && value == 0x34);
+    assert(gnet_zoom_bus_write(board, 0x1fbe0004, 1, 0x56) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_read(board, 0x1fbe0004, 4, &value) == GNET_ZOOM_OK &&
+           value == 0xff00ff56);
+
+    assert(gnet_zoom_bus_read(board, 0x1fb80000, 2, &value) == GNET_ZOOM_UNMAPPED);
+    assert(gnet_zoom_bus_read(board, 0x1fb00000, 1, &value) == GNET_ZOOM_UNSUPPORTED);
+    assert(gnet_zoom_bus_write(board, 0x1fbe0000, 3, 0) == GNET_ZOOM_ARGUMENT);
+    assert(gnet_zoom_bus_read(board, 0x1fa30000, 2, &value) == GNET_ZOOM_UNSUPPORTED);
+    assert(gnet_zoom_bus_read(board, 0x1fb90000, 1, &value) == GNET_ZOOM_UNMAPPED);
+    gnet_zoom_destroy(board);
+}
+
 void test_nor_busy_time_and_bad_config()
 {
     Media media;
@@ -320,6 +369,7 @@ int main()
 {
     test_mn_executes_real_zoom_flash_and_bus_is_little_endian();
     test_bank_control_mapping_eprom_alias_and_wave_flash();
+    test_source_maincpu_map_routes_registers_and_shared_ram_lanes();
     test_nor_busy_time_and_bad_config();
     test_cpu_fetch_advances_nor_at_bus_cycle_independent_of_quantum();
     test_busy_destroy_refusal_and_time_error_propagation();

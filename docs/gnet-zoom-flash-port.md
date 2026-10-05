@@ -34,6 +34,22 @@ Zoom program flash, and firmware. The PCMCIA window is explicitly unsupported
 because its RF5C296/card implementation is outside this adapter. Unmapped and
 unaligned accesses return explicit result codes.
 
+`gnet_zoom_bus_read/write` routes the rest of the common `taitogn_state` PSX
+map: byte controls at `1fa30000` and `1fb40000`, write-only control2 at
+`1fb60000`, the constant-2/no-op register at `1fb70000`, Zoom register/data and
+sound-IRQ ports at `1fb80000`–`1fbc0000`, and shared RAM at `1fbe0000`. Shared
+RAM honors MAME's `.umask32(0x00ff00ff)`, including open-bus bytes at lanes 1
+and 3. Flash accesses remain aligned 16-bit operations. The router takes
+physical addresses and does not advance time itself; the host synchronizes the
+common MN10200 cycle domain before each transaction. Unsupported register
+widths and the RF5C296 window fail explicitly.
+
+This is a reusable G-Net sub-board and common-map component, not yet a PSX
+system adapter. The Sony ZN base board, CAT702 keys, per-game/profile loader,
+inputs, executable bank mapping, and core dispatch are still required before
+any game can be launched. The standalone tests cover synthetic register and
+flash transactions only.
+
 The sound CPU continues to see the Zoom program flash as read-only:
 `taito_zm.cpp` maps `0x080000–0x0fffff` through the flash device's read handler
 and installs no write handler there. Writable flash programming is through the
