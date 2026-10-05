@@ -336,6 +336,23 @@ static int gp0_roi_trace_point_mask(int x0, int y0, int x1, int y1)
 	return mask;
 }
 
+static int gp0_roi_trace_wrapped_rect_point_mask(int x, int y, int w, int h)
+{
+	static const int points[5][2] = {
+		{ 64, 100 }, { 63, 100 }, { 65, 100 }, { 64, 99 }, { 64, 101 }
+	};
+	int mask = 0;
+	if (w <= 0 || h <= 0 || gpu_vram_height == 0)
+		return 0;
+	for (int i = 0; i < 5; i++) {
+		const int dx = (points[i][0] - x + 1024) & 0x3ff;
+		const int dy = (points[i][1] - y + (int)gpu_vram_height) % (int)gpu_vram_height;
+		if (dx < w && dy < h)
+			mask |= 1 << i;
+	}
+	return mask;
+}
+
 static int gp0_roi_signed11(uint32_t value)
 {
 	value &= 0x7ff;
@@ -351,10 +368,13 @@ static int gp0_roi_packet_bounds(const uint32_t *words, int count,
 	int have = 0;
 
 	if (command == 0x02 && count >= 3) {
-		const int x = (int16_t)(words[1] & 0xffff) + ox;
-		const int y = (int16_t)(words[1] >> 16) + oy;
+		/* GP0 fill is VRAM-relative: it ignores E5 and uses 10-bit VRAM
+		 * coordinates. X is aligned down to 16 pixels; Y wraps at the
+		 * active VRAM height (1024 rows for System 12). */
+		const int x = (words[1] & 0x3f0);
+		const int y = (words[1] >> 16) & GPU_VRAM_Y_MASK;
 		int w = (words[2] & 0x3ff) + 0xf;
-		int h = (words[2] >> 16) & 0x1ff;
+		int h = (words[2] >> 16) & GPU_VRAM_Y_MASK;
 		w &= ~0xf;
 		if (w <= 0 || h <= 0) return 0;
 		*x0 = x; *y0 = y; *x1 = x + w - 1; *y1 = y + h - 1;
@@ -425,7 +445,16 @@ static void gp0_roi_trace_record_packet(const uint32_t *raw,
 	if (!gp0_roi_trace_frame_enabled(frame) || count <= 0 ||
 	    !gp0_roi_packet_bounds(normalized, count, &x0, &y0, &x1, &y1))
 		return;
-	mask = gp0_roi_trace_point_mask(x0, y0, x1, y1);
+	command = normalized[0] >> 24;
+	if (command == 0x02 && count >= 3) {
+		const int x = normalized[1] & 0x3f0;
+		const int y = (normalized[1] >> 16) & GPU_VRAM_Y_MASK;
+		const int w = ((normalized[2] & 0x3ff) + 0xf) & ~0xf;
+		const int h = (normalized[2] >> 16) & GPU_VRAM_Y_MASK;
+		mask = gp0_roi_trace_wrapped_rect_point_mask(x, y, w, h);
+	} else {
+		mask = gp0_roi_trace_point_mask(x0, y0, x1, y1);
+	}
 	if (!mask) return;
 	record = &gp0_roi_trace_ring[gp0_roi_trace_sequence % GP0_ROI_TRACE_CAPACITY];
 	memset(record, 0, sizeof(*record));
@@ -444,7 +473,6 @@ static void gp0_roi_trace_record_packet(const uint32_t *raw,
 		record->raw[i] = raw[i];
 		record->normalized[i] = normalized[i];
 	}
-	command = normalized[0] >> 24;
 	record->color = normalized[0] & 0x00ffffffu;
 	if ((command & 0xe0) == 0x20) {
 		const int vertices = (command & 8) ? 4 : 3;
