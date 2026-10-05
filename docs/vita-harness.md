@@ -345,3 +345,28 @@ the VRAM row address. Preserving the main render target during GPU-pack state
 restoration also makes the triangle and background visible in native PNGs.
 See [VitaGL readback validation](vitagl-readback.md) for the evidence and the
 optional host synchronization correction.
+
+## Varied upper-bank texture probe
+
+`check_system12_vram_vita3k.py --texture-pattern` adds 48 GP0/C0 readbacks to
+its legacy checks: every P4 palette index and eight asymmetric P8 byte indices,
+spread over eight upper-bank texture rows with nonzero CLUT X on row 800.
+It then uploads changed texture and palette contents and repeats the samples.
+P4 and P8 upload words are packed at their actual nibble/byte widths; the marker
+`53315458` versions the appended RAM results. The standalone frontend requires
+FNV signature `fec74789`; the default mode retains its original ABI/output.
+This tests spatial data and cache refresh, not triangle interpolation or a
+complete game framebuffer.
+
+The native ARMv7/ari64 runs pass for both NEON and VitaGL in private host
+`f996dfab1d9d0712e2fe51fcf93602a477655bf70e7bd45ac021fc115b513855`, with the
+stale-fault patch. VitaGL VPK
+`2c4d1724b1ecadc7c190da5b385e5a9c5dde2359b32ce68ff0eda05320482115`
+passes all legacy checks and 48 samples, eight paired fault recoveries, shutdown
+PASS and Idle. Log: `/tmp/pcsx-vitagl-texture-pattern-20261005/vita3k.log`.
+The NEON VPK
+`ecea6ea3a9552bbdde3a118799a165c7b4de3f7f3b5eddb0f8f359faeadc9083`
+passes the same generated guest and reaches Idle; log:
+`/tmp/pcsx-neon-texture-pattern-20261005/vita3k.log`.
+Frozen packages and `texture-pattern-evidence.json` are retained under
+`build/vita-system12-vitagl-teardown` and `build/vita-system12`.

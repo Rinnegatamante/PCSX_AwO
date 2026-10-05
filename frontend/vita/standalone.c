@@ -784,6 +784,7 @@ int main(int argc, char **argv)
     unsigned validation_frames = 0;
     bool verify_smoke = false;
     bool verify_system12_vram = false;
+    bool verify_system12_vram_pattern = false;
     unsigned verify_system12_drc_ram_mb = 0;
     bool system12_profile = false;
     struct retro_system_av_info av;
@@ -791,6 +792,11 @@ int main(int argc, char **argv)
     game_path[0] = '\0';
     for (ret = 1; ret < argc; ret++) {
         if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
+        if (!strcmp(argv[ret], "--verify-system12-vram-pattern")) {
+            verify_system12_vram = true;
+            verify_system12_vram_pattern = true;
+            continue;
+        }
         if (!strcmp(argv[ret], "--verify-system12-vram")) { verify_system12_vram = true; continue; }
         if (!strcmp(argv[ret], "--verify-system12-drc")) {
             char *end;
@@ -958,18 +964,45 @@ int main(int argc, char **argv)
     }
     if (verify_system12_vram) {
         const uint8_t *ram = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
-        uint32_t result[12] = {0};
-        if (ram && retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM) >= 0x23f130)
-            memcpy(result, ram + 0x23f100, sizeof(result));
+        enum { VRAM_PATTERN_MAGIC = 0x53315458, VRAM_PATTERN_SAMPLES = 48,
+               VRAM_PATTERN_FIRST_SAMPLE = 13,
+               VRAM_PATTERN_WORDS = VRAM_PATTERN_FIRST_SAMPLE + VRAM_PATTERN_SAMPLES };
+        uint32_t result[VRAM_PATTERN_WORDS] = {0};
+        uint32_t texture_signature = 2166136261u;
+        bool have_texture_results = false;
+        bool texture_pass = false;
+        size_t result_bytes = verify_system12_vram_pattern ? sizeof(result) : 12 * sizeof(result[0]);
+        if (ram && retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM) >= 0x23f100 + result_bytes) {
+            memcpy(result, ram + 0x23f100, result_bytes);
+            have_texture_results = verify_system12_vram_pattern;
+        }
+        if (have_texture_results) {
+            texture_pass = result[12] == VRAM_PATTERN_MAGIC;
+            for (unsigned i = VRAM_PATTERN_FIRST_SAMPLE; i < VRAM_PATTERN_WORDS; i++) {
+                uint16_t pixel = (uint16_t)result[i];
+                texture_signature = (texture_signature ^ (pixel & 0xff)) * 16777619u;
+                texture_signature = (texture_signature ^ (pixel >> 8)) * 16777619u;
+            }
+            texture_pass = texture_pass && texture_signature == 0xfec74789u;
+        }
         validation_result = !pcsx_vita_uses_dynarec() || result[0] != 0x53313256 ||
             result[1] != 0x7c00 || result[2] != 0x7c00 || result[3] != 0x7c00 ||
             result[4] != 0x03e0 || result[5] != 2 || result[6] != 0x1234 ||
             result[7] != 0x5678 || result[8] != 0x001f || result[9] != 0x7c00 ||
             result[10] != 0x03e0 || result[11] != 0x03e0;
-        sceClibPrintf("pcsx-vita: system12-vram %s cpu=%s magic=%08x p4=%04x p8=%04x odd8=%04x p16=%04x lower=%04x last=%04x wrap=%04x lower4=%04x upper4=%04x filllast=%04x fillwrap=%04x runs=%u\n",
-            validation_result ? "FAIL" : "PASS",
-            pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
-            result[1], result[2], result[3], result[4], result[5], result[6], result[7], result[8], result[9], result[10], result[11], runs);
+        if (verify_system12_vram_pattern) {
+            validation_result = validation_result || !texture_pass;
+            sceClibPrintf("pcsx-vita: system12-vram %s cpu=%s magic=%08x p4=%04x p8=%04x odd8=%04x p16=%04x lower=%04x last=%04x wrap=%04x lower4=%04x upper4=%04x filllast=%04x fillwrap=%04x runs=%u texture=%s sig=%08x samples=%u\n",
+                validation_result ? "FAIL" : "PASS",
+                pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
+                result[1], result[2], result[3], result[4], result[5], result[6], result[7], result[8], result[9], result[10], result[11], runs,
+                texture_pass ? "PASS" : "FAIL", texture_signature, VRAM_PATTERN_SAMPLES);
+        } else {
+            sceClibPrintf("pcsx-vita: system12-vram %s cpu=%s magic=%08x p4=%04x p8=%04x odd8=%04x p16=%04x lower=%04x last=%04x wrap=%04x lower4=%04x upper4=%04x filllast=%04x fillwrap=%04x runs=%u\n",
+                validation_result ? "FAIL" : "PASS",
+                pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
+                result[1], result[2], result[3], result[4], result[5], result[6], result[7], result[8], result[9], result[10], result[11], runs);
+        }
     }
     if (verify_system12_drc_ram_mb) {
         pcsx_vita_system12_drc_result result;
