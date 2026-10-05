@@ -3,6 +3,7 @@
 import importlib.util
 import hashlib
 from pathlib import Path
+import struct
 import tempfile
 import unittest
 
@@ -41,9 +42,39 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         frontend = (ROOT / "frontend/vita/standalone.c").read_text(encoding="utf-8")
         self.assertIn('"--verify-system12-vram-x-wrap"', frontend)
         self.assertIn('"--verify-system12-coord-alias"', frontend)
-        self.assertIn("uint32_t result[28] = {0};", frontend)
+        self.assertIn("uint32_t result[33] = {0};", frontend)
         self.assertIn("samples = result + 19;", frontend)
-        self.assertIn("for (unsigned i = 0; i < 9; i++)", frontend)
+        self.assertIn("for (unsigned i = 0; i < sample_count; i++)", frontend)
+
+    def test_vita_runtime_mode_oracle_covers_fourteen_span_cull_samples(self):
+        mode_arg, oracle, _, colors = FIXTURE.probe_configuration(coord_span_cull=True)
+        self.assertEqual(mode_arg, "--verify-system12-coord-span-cull")
+        self.assertEqual(colors, FIXTURE.EXPECTED_COORD_SPAN_CULL_PIXELS)
+        self.assertEqual(len(colors), 14)
+        self.assertRegex(
+            "pcsx-vita: system12-coord-span-cull PASS cpu=ari64 magic=53314642 "
+            "ft3_1024_before=001f ft3_1024_after=001f "
+            "ft3_1023_before=001f ft3_1023_after=03e0 "
+            "f4_invalid_before=001f f4_valid_before=001f "
+            "f4_invalid_after=001f f4_valid_after=03e0 "
+            "ft4_invalid_before=001f ft4_valid_before=001f "
+            "ft4_invalid_after=001f ft4_valid_after=03e0 "
+            "culled_ft3_tpage=03e0 g4_valid_half=03e0 runs=1",
+            oracle)
+        code, commands = FIXTURE.make_guest_code(coord_span_cull=True)
+        self.assertEqual(hashlib.sha256(
+            struct.pack(f"<{len(commands)}I", *commands)).hexdigest(),
+            FIXTURE.COORD_SPAN_CULL_GP0_SHA256)
+        self.assertGreater(len(code), 0)
+        with self.assertRaises(ValueError):
+            FIXTURE.probe_configuration(coord_alias=True, coord_span_cull=True)
+
+        frontend = (ROOT / "frontend/vita/standalone.c").read_text(encoding="utf-8")
+        self.assertIn('"--verify-system12-coord-span-cull"', frontend)
+        self.assertIn("coord_span_cull_expected[14]", frontend)
+        self.assertIn("unsigned sample_count = coord_span_mode ? 14 : 9;", frontend)
+        self.assertIn("uint32_t result[33] = {0};", frontend)
+        self.assertIn("samples[13], runs);", frontend)
 
     def test_guest_covers_onscreen_pages_clip_transfer_and_move(self):
         code, commands = FIXTURE.make_guest_code()
@@ -201,6 +232,13 @@ class System12FramebufferFixtureTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(
                 (coord_alias_region / "main.bin").read_bytes()).hexdigest(),
                 FIXTURE.COORD_ALIAS_MAIN_SHA256)
+
+            coord_span_region = region / "coord-span-cull"
+            coord_span_region.mkdir()
+            FIXTURE.make_regions(coord_span_region, coord_span_cull=True)
+            self.assertEqual(hashlib.sha256(
+                (coord_span_region / "main.bin").read_bytes()).hexdigest(),
+                FIXTURE.COORD_SPAN_CULL_MAIN_SHA256)
 
     def test_optional_texture_window_probe_sets_and_resets_e2(self):
         _code, commands = FIXTURE.make_guest_code(texture_window=True)

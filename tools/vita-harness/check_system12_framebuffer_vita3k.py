@@ -36,6 +36,15 @@ EXPECTED_COORD_ALIAS = re.compile(
     r"ft3_control=001f ft3_upper=03e0 ft3_negative=03e0 "
     r"ft4_control=001f ft4_upper=03e0 ft4_negative=03e0 "
     r"sprite_control=001f sprite_upper=03e0 sprite_negative=03e0 runs=1\b")
+EXPECTED_COORD_SPAN_CULL = re.compile(
+    r"pcsx-vita: system12-coord-span-cull PASS cpu=ari64 magic=53314642 "
+    r"ft3_1024_before=001f ft3_1024_after=001f "
+    r"ft3_1023_before=001f ft3_1023_after=03e0 "
+    r"f4_invalid_before=001f f4_valid_before=001f "
+    r"f4_invalid_after=001f f4_valid_after=03e0 "
+    r"ft4_invalid_before=001f ft4_valid_before=001f "
+    r"ft4_invalid_after=001f ft4_valid_after=03e0 "
+    r"culled_ft3_tpage=03e0 g4_valid_half=03e0 runs=1\b")
 RESULT_MAGIC = 0x53314642  # S1FB
 DEFAULT_MAIN_SHA256 = "07cbcdecd6a8c4c6cb3b85b060dbd211e06e70f2fea5af62336099c458661bf6"
 TEXTURE_WINDOW_MAIN_SHA256 = "8eb3780d65e540b668f82e52899c41721ef416201a9d0e0683ff59b4a85a6562"
@@ -46,6 +55,8 @@ VRAM_X_WRAP_MAIN_SHA256 = "2a1768d5f960371b5560dc6a54209a5e5b7b1e3b9c2d1d0cda306
 VRAM_X_WRAP_GP0_SHA256 = "d019567552e3affa46513cc566098454f1cb9b9f21d372707684e2ddfbca2946"
 COORD_ALIAS_MAIN_SHA256 = "826e4e5de3ddddc135dc7ee2a4e1fd0d41bf44921b2f88c02c232df9071e6802"
 COORD_ALIAS_GP0_SHA256 = "185afe4f88d9594e7deafb7417d4cc2d4400b0b50894eff20a9b816c342f6306"
+COORD_SPAN_CULL_MAIN_SHA256 = "d8d133b295a302c5139273b8da75f30f1ed90f9462aee5ffbaa21864da834266"
+COORD_SPAN_CULL_GP0_SHA256 = "59c7ad50ba42d8870b044e9dd008da0d2e593b5481732f84c0376e081a608acb"
 EXPECTED_COORD_ALIAS_PIXELS = (0x001f, 0x03e0, 0x03e0,
                                0x001f, 0x03e0, 0x03e0,
                                0x001f, 0x03e0, 0x03e0)
@@ -80,10 +91,11 @@ def module(name, path):
     return result
 
 
-def probe_configuration(texture_window=False, vram_x_wrap=False, coord_alias=False):
+def probe_configuration(texture_window=False, vram_x_wrap=False, coord_alias=False,
+                        coord_span_cull=False):
     """Return the Vita verifier, log oracle, and colors for one fixture mode."""
-    if sum((texture_window, vram_x_wrap, coord_alias)) > 1:
-        raise ValueError("texture-window, VRAM-X-wrap, and coordinate-alias probes are separate modes")
+    if sum((texture_window, vram_x_wrap, coord_alias, coord_span_cull)) > 1:
+        raise ValueError("texture-window, VRAM-X-wrap, coordinate-alias, and coordinate-span probes are separate modes")
     if texture_window:
         return ("--verify-system12-texture-window", EXPECTED_TEXTURE_WINDOW,
                 "System12 texture-window probe", EXPECTED_TEXTURE_WINDOW_PIXELS)
@@ -93,6 +105,9 @@ def probe_configuration(texture_window=False, vram_x_wrap=False, coord_alias=Fal
     if coord_alias:
         return ("--verify-system12-coord-alias", EXPECTED_COORD_ALIAS,
                 "System12 coordinate-alias probe", EXPECTED_COORD_ALIAS_PIXELS)
+    if coord_span_cull:
+        return ("--verify-system12-coord-span-cull", EXPECTED_COORD_SPAN_CULL,
+                "System12 coordinate-span culling probe", EXPECTED_COORD_SPAN_CULL_PIXELS)
     return ("--verify-system12-framebuffer", EXPECTED,
             "System12 framebuffer coherence", EXPECTED_PIXELS)
 
@@ -611,6 +626,8 @@ def main():
                        help="probe P8 CLUT carry and P8/P16 texture-page X seams")
     modes.add_argument("--coord-alias", action="store_true",
                        help="probe FT3, FT4, and sprite 11-bit coordinate aliases")
+    modes.add_argument("--coord-span-cull", action="store_true",
+                       help="probe oversized FT3/F4/FT4/G4 X spans and adjacent valid cases")
     args = parser.parse_args()
     if (args.output_dir.exists() or not args.emulator.exists() or
             not args.vpk.is_file() or not args.firmware_fs.is_dir() or
@@ -624,7 +641,8 @@ def main():
     checker.CapturedSmoke.ISSUE_MARKERS += (
         b"pcsx-vita: system12-framebuffer FAIL",
         b"pcsx-vita: system12-vram-x-wrap FAIL",
-        b"pcsx-vita: system12-coord-alias FAIL")
+        b"pcsx-vita: system12-coord-alias FAIL",
+        b"pcsx-vita: system12-coord-span-cull FAIL")
     args.output_dir.mkdir(parents=True)
     log = args.output_dir / "vita3k.log"
     passed = False
@@ -644,7 +662,8 @@ def main():
         region.mkdir()
         make_regions(region, texture_window=args.texture_window,
                      vram_x_wrap=args.vram_x_wrap,
-                     coord_alias=args.coord_alias)
+                     coord_alias=args.coord_alias,
+                     coord_span_cull=args.coord_span_cull)
         (args.output_dir / "board.cfg").write_bytes((region / "board.cfg").read_bytes())
         packer = Path(shutil.which("vita-pack-vpk")) if shutil.which("vita-pack-vpk") else None
         mksfoex = Path(shutil.which("vita-mksfoex")) if shutil.which("vita-mksfoex") else None
@@ -660,7 +679,8 @@ def main():
         verify_arg, expected, run_name, expected_colors = probe_configuration(
             texture_window=args.texture_window,
             vram_x_wrap=args.vram_x_wrap,
-            coord_alias=args.coord_alias)
+            coord_alias=args.coord_alias,
+            coord_span_cull=args.coord_span_cull)
         passed = installed and checker.run_owned(base + ["--installed-path", TITLE_ID,
             "--app-args", f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/framebuffer, "
             f"{verify_arg}, --frames, 1"], log, args.timeout,
@@ -676,7 +696,9 @@ def main():
             shader_compiler_sha256=gameplay.sha256_file(args.shader_compiler),
             log=str(log.resolve()))
         (args.output_dir / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    print(f"Vita3K System12 framebuffer coherence: {'PASS' if passed else 'FAIL'}; log={log}")
+    run_label = ("System12 coordinate-span culling" if args.coord_span_cull else
+                 "System12 framebuffer coherence")
+    print(f"Vita3K {run_label}: {'PASS' if passed else 'FAIL'}; log={log}")
     return 0 if passed else 1
 
 
