@@ -542,7 +542,11 @@ int main(int argc, char **argv)
 #ifdef DRC_DISABLE
   if (use_drc) { fprintf(stderr, "Rebuild with DRC=1 for --drc.\n"); return 2; }
 #endif
-  if (use_drc && board && board_family != 12 && board_family != 102) {
+  if (use_drc && board && board_family != 12 && board_family != 102
+#ifdef PCSX_SYSTEM_GNET
+      && board_family != 103
+#endif
+      ) {
     fprintf(stderr, "Arcade DRC validation currently covers System 12 only.\n"); return 2;
   }
   Config.icache_emulation = icache;
@@ -657,16 +661,21 @@ int main(int argc, char **argv)
 #ifdef PCSX_SYSTEM_GNET
   if (gnet_fixture) {
     unsigned step;
-    for (step = 0; step < 600; step++) {
-      psxRegs.branchSeen = 0;
-      execI(&psxRegs);
+    for (step = 0; step < (use_drc ? 1024u : 600u); step++) {
+      if (use_drc)
+        psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
+      else {
+        psxRegs.branchSeen = 0;
+        execI(&psxRegs);
+      }
     }
     if (psxMemRead32(&psxRegs, 0x80000100) != 2 ||
         psxMemRead32(&psxRegs, 0x80000104) != 0x1234) {
       fprintf(stderr, "SystemGNet MIPS fixture: FAIL const=%08x bankflash=%08x\n",
         psxMemRead32(&psxRegs, 0x80000100), psxMemRead32(&psxRegs, 0x80000104));
       result = 1;
-    } else fprintf(stderr, "SystemGNet MIPS fixture: PASS cpu=interpreter const=2 bank1_flash=1234\n");
+    } else fprintf(stderr, "SystemGNet MIPS fixture: PASS cpu=%s const=2 bank1_flash=1234\n",
+        use_drc ? "drc" : "interpreter");
     systemgnet_report(stderr);
     GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
     systemgnet_unload();

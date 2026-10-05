@@ -52,5 +52,7 @@ profile checks, not a claim that those main-CPU timings are already applied.
 
 `--system-gnet-fixture` is test-only and uses generated in-memory data. Its
 executed MIPS program selects flash bank 1, reads the banked flash and constant
-ID register through `psxMemRead/Write`, and records both values in PSX RAM. It
-validates the CPU-to-core-map wiring, not MAME assets or a game boot.
+ID register through the PSX memory bus, and records both values in PSX RAM. It
+passes in both the interpreter and ARM64 DRC harness. This checks the board
+map bridge and 4 MiB RAM path, not MAME assets, startup firmware, game boot,
+or real-board compatibility.

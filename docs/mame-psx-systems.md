@@ -10,7 +10,7 @@ the installed listxml reports MAME 0.287.
 | --- | --- | ---: | --- | --- | --- |
 | `sony/psx.cpp` | Retail PlayStation | 4 | `psu`, `psj` | SCPH NTSC/PAL; controller and memory-card ports, parallel I/O, CD-ROM | Console core and native PS-X EXE smoke pass; full retail machine/BIOS/media validation remains pending |
 | `sony/zn.cpp` | Sony ZN-1/ZN-2; Capcom ZN; Tecmo TPS; Raizing ZN | 116 | `sfex`, `glpracr3`, `brvblade` | COH-1000/1001/1002 and COH-3002; variants include 1/2 MiB GPU memory, alternate sound CPUs, CAT702 security, and game I/O | Native synthetic Capcom COH1000C/1002C/3002C and Taito FX1S COH1000T MIPS/Z80, banks, SIO/MCU, EEPROM, inputs, GPU and sound pass; authentic games and other daughterboards remain unverified |
-| `sony/taitogn.cpp` | Taito G-Net (ZN-derived CPU/GPU) | 41 | `psyvaria`, `gdariusg`, `aerofgtsg` | COH-1002/3002 variants, Taito Zoom sound; CompactFlash and title-specific I/O on applicable sets | Standalone Zoom board and Intel flash-bank composition fixtures pass; native PSX, PCMCIA/CompactFlash and games remain pending |
+| `sony/taitogn.cpp` | Taito G-Net (ZN-derived CPU/GPU) | 41 | `psyvaria`, `gdariusg`, `aerofgtsg` | COH-1002/3002 variants, Taito Zoom sound; CompactFlash and title-specific I/O on applicable sets | Native synthetic PSX MIPS fixture passes through interpreter and ARM64 DRC for the 4 MiB map, banked Zoom flash and fixed ID register; real game boot, CPU/vblank timing, PCMCIA/CompactFlash and title-specific I/O remain pending |
 | `konami/konamigv.cpp` | Konami System GV (Baby Phoenix) | 15 | `tmosh`, `weddingr` | CXD8530-class CPU; CXD8514/CXD8561 GPU variants, CD-ROM and game I/O | All 15 media profiles audited; seven common-map profiles have native integration and generated MIPS interpreter/DRC fixtures; authentic games and special I/O remain unverified |
 | `konami/konamigq.cpp` | Konami System GQ | 1 | `cryptklr` | CXD8530BQ/CXD8538Q; MC68000 and TMS57002 sound system | Complete source profile and local ROM/HDD preparation tested; native board execution pending |
 | `konami/ksys573.cpp` | Konami System 573 | 156 | `ddr4m`, `drmn`, `sys573` | CD-ROM, cassette, PC-card, flash and game I/O configurations | No arcade board support |
@@ -41,7 +41,7 @@ family is considered finished.
 | --- | ---: | --- |
 | Retail PlayStation | 20–35% | Existing console core and native CPU/GPU smoke; native BIOS/disc, controller, sound and retail-game validation pending |
 | Sony ZN family (including Taito FX1) | 50–65% | Capcom and FX1S generated native guests pass; authentic games and Tecmo/Raizing/other daughterboards pending |
-| Taito G-Net | 85–95% | Standalone Zoom/Intel flash-bank composition tested; native PSX, PCMCIA/CompactFlash and game validation pending |
+| Taito G-Net | 80–90% | Native synthetic PSX interpreter/DRC bus fixture and standalone Zoom/Intel flash-bank composition pass; authentic game boot, source CPU/vblank timing, PCMCIA/CompactFlash and title-specific I/O remain pending |
 | Konami System GV | 45–60% | Common native board MIPS interpreter/DRC, DMA5, IRQ10 and CHD fixture tested; authentic BIOS/CD execution, sound and special I/O pending |
 | Konami System GQ | 50–65% | HDD preparation, real CHD read/write NCR fixture, MC68000, TMS57002 and K056800/K054539 tested; complete board/gun wiring and real-game validation pending |
 | Konami System 573 | 85–95% | Security cassette, flash and shared CD/SCSI foundations; board configurations, audio, I/O and game validation pending |

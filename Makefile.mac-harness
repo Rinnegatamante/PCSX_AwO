@@ -120,8 +120,14 @@ capcom-zn-test: $(TARGET)
 	python3 tests/check_capcom_zn_harness.py --harness $(TARGET)
 taito-fx1-test: $(TARGET)
 	python3 tests/check_taito_fx1_harness.py --harness $(TARGET)
+ifeq ($(DRC),1)
 systemgnet-test: $(TARGET)
 	python3 tests/check_systemgnet_harness.py --harness $(TARGET)
+	python3 tests/check_systemgnet_harness.py --harness $(TARGET) --drc
+else
+systemgnet-test: $(TARGET)
+	python3 tests/check_systemgnet_harness.py --harness $(TARGET)
+endif
 libpcsxcore/arcade/capcom_zn_profiles.inc: scripts/capcom_zn_boards.json scripts/generate_capcom_zn_profiles.py
 	python3 scripts/generate_capcom_zn_profiles.py
 libpcsxcore/arcade/taito_fx1_profiles.inc: scripts/taito_fx1_boards.json scripts/generate_taito_fx1_profiles.py

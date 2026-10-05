@@ -11,14 +11,20 @@ import tempfile
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--harness", required=True, type=pathlib.Path)
+    parser.add_argument("--drc", action="store_true",
+                        help="run the guest fixture through the ARM64 dynamic recompiler")
     args = parser.parse_args()
-    run = subprocess.run([str(args.harness), "--system-gnet-fixture", "--board-test"],
+    command = [str(args.harness), "--system-gnet-fixture", "--board-test"]
+    if args.drc:
+        command.append("--drc")
+    run = subprocess.run(command,
                          text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          timeout=30)
     if run.returncode:
         raise RuntimeError(f"G-Net MIPS bus fixture failed ({run.returncode}):\n{run.stdout}")
+    cpu = "drc" if args.drc else "interpreter"
     expected = (
-        "SystemGNet MIPS fixture: PASS cpu=interpreter const=2 bank1_flash=1234",
+        f"SystemGNet MIPS fixture: PASS cpu={cpu} const=2 bank1_flash=1234",
         "SystemGNet set=coh3002t model=ZN2 ram=4194304 vram=2097152 gpu=type2",
         "reads=2 writes=1 unsupported=0 bank=1 fault=0 execution_verified=false",
     )
