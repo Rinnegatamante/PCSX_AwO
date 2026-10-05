@@ -515,13 +515,14 @@ The same package also preserves all 24 baseline and texture-window reads in
 and Idle. The seven framebuffer-runner unit tests pass.
 
 A corrected Mac source-timing replay removes the vertical sky streaks but
-retains a plain blue region in the lake. The defect is also present in the
+retains a plain blue region in the lake. That color is also present in the
 exported PSX VRAM, before final display capture. Evidence is in
 `/tmp/pcsx-mac-vitagl-like-fixed-source-timing-vram-20261005`. Controlled
 replays disabling P4 caching, split reordering, or depth testing do not clear
-the tested residual defect. These observations narrow this replay's renderer
-failure; they do not establish complete native graphics validation or rule
-out separate Vita3K failures.
+the tested region. These observations alone do not establish a texture
+failure: the later GP0 trace below finds a matching fill command. They also
+do not establish complete native graphics validation or rule out separate
+Vita3K failures.
 
 The corrected native VPK also completes the guarded 3,600-frame/33-input
 replay in `/tmp/pcsx-vita-system12-vitagl-coords-clut-fixed-20261005`, with
@@ -532,7 +533,8 @@ capture 11 (The Edge of Chaos) and capture 12 (Stage 1 Voldo/Astaroth) finds
 the old vertical background streaks and broad bottom horizontal bands absent.
 The package is recorded as `PARTIAL_GRAPHICS_VALIDATION`, with review details
 in `graphics-review.json`: the screenshots are not frame-matched references,
-the Mac water defect remains open, and physical Vita is still untested.
+the Mac water region needs command-level comparison, and physical Vita is
+still untested.
 
 The Mac-only `--coord-span-cull` probe isolates the X extent limit: a span of
 1,024 pixels must be rejected while 1,023 remains valid. It also checks the
@@ -548,8 +550,19 @@ A subsequent 3,600-frame ARM64 DRC replay with corrected culling completes
 in 31.575 seconds and has byte-identical captured pixels and VRAM to the
 prior coordinate-corrected Mac replay. Evidence is retained in
 `/tmp/pcsx-mac-vitagl-like-cull-fixed-replay-20261005/evidence.json`, binding
-source commit `326f36ef`, binary, input file and output hashes. The known
-water region therefore remains unexplained by this culling correction.
+source commit `326f36ef`, binary, input file and output hashes. The water
+region is unchanged by this culling correction.
+
+A default-off GP0 ROI trace (`41e27deb`, full packets in `8e6a1b5b`) records
+fill command `02704808 00360000 00a60200` at frames 3,597 and 3,599. Its
+512-by-166 rectangle at `(0,54)` covers all five tested VRAM witnesses.
+RGB `(8,72,112)` quantizes to BGR555 `0x3921`, matching those pixels and the
+captured blue color. Frame and VRAM hashes remain byte-identical to the
+control replay. Evidence is retained in
+`/tmp/pcsx-gp0-roi-trace-replay-fullpack-20261005`. This identifies a matching
+game-issued fill candidate; it does not establish a complete GP0 replay,
+cover MoveImage source coordinates, or prove equivalence with NEON/MAME.
+Attributing that region to a remaining renderer defect is therefore unproven.
 
 The later private native VPK SHA256
 `e92b4c4e6f4b85c6ad5f4151c558f210424e5400bc750ae713632cb77686de11`
