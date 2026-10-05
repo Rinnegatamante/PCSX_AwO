@@ -1,9 +1,9 @@
 --- a/vita3k/modules/SceGxm/SceGxm.cpp
 +++ b/vita3k/modules/SceGxm/SceGxm.cpp
 @@ -19,6 +19,7 @@
- 
+
  #include <modules/module_parent.h>
- 
+
 +#include <atomic>
  #include <span>
  #include <stack>
@@ -11,7 +11,7 @@
 @@ -931,8 +932,19 @@
          emuenv.display.predicting = display_callback->frame_predicted;
          emuenv.display.current_sync_object = display_callback->new_sync.address();
- 
+
 -        // Now run callback
 -        display_thread->run_guest_function(callback_address, display_callback->data);
 +        // Bounded private-host diagnostics; callbackData is passed in r0.
@@ -27,18 +27,18 @@
 +        const auto callback_result = display_thread->run_guest_function(callback_address, display_callback->data);
 +        if (trace)
 +            LOG_INFO("PCSX display callback end n={} result={:08x}", trace_index, callback_result);
- 
+
          // Notifies the renderer of the completion of the callback for the display_entry.
          // The last_display of the entry, when pushed into the queue, is guaranteed to be timestamp_ahead + 1 at the time of the call.
 --- a/vita3k/modules/SceDisplay/SceDisplay.cpp
 +++ b/vita3k/modules/SceDisplay/SceDisplay.cpp
 @@ -16,6 +16,8 @@
  // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- 
+
  #include "SceDisplay.h"
 +
 +#include <atomic>
- 
+
  #include <display/functions.h>
  #include <display/state.h>
 @@ -154,6 +156,18 @@
@@ -57,7 +57,7 @@
 +            trace_index, info.base.address(), info.pitch, pFrameBuf->width, pFrameBuf->height,
 +            emuenv.display.predicting.load(), next_base);
 +    }
- 
+
      emuenv.display.last_setframe_vblank_count = emuenv.display.vblank_count.load();
      emuenv.frame_count++;
 --- a/vita3k/renderer/src/vulkan/renderer.cpp
@@ -65,7 +65,7 @@
 @@ -1160,6 +1160,12 @@
          vk::ImageView surface_handle = surface_cache.sourcing_color_surface_for_presentation(
              frame.base, frame.pitch, viewport);
- 
+
 +        static uint32_t trace_count = 0;
 +        const uint32_t trace_index = ++trace_count;
 +        if (trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0))
@@ -75,3 +75,112 @@
          if (!surface_handle) {
              vkutil::Image &vita_surface = screen_renderer.vita_surface[screen_renderer.swapchain_image_idx];
              if (frame.image_size.x != vita_surface.width || frame.image_size.y != vita_surface.height) {
+--- a/vita3k/renderer/src/vulkan/surface_cache.cpp
++++ b/vita3k/renderer/src/vulkan/surface_cache.cpp
+@@ -17,6 +17,9 @@
+
+ #include <renderer/vulkan/surface_cache.h>
+
++#include <atomic>
++#include <cstdint>
++
+ #include <gxm/functions.h>
+ #include <renderer/vulkan/gxm_to_vulkan.h>
+ #include <renderer/vulkan/state.h>
+@@ -386,6 +389,10 @@
+ }
+
+ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_texture(const SceGxmTexture &texture, const SceGxmColorBaseFormat base_format, TextureViewport *texture_viewport) {
++    static std::atomic<std::uint32_t> display_texture_trace_count{ 0 };
++    const std::uint32_t trace_index = display_texture_trace_count.fetch_add(1, std::memory_order_relaxed) + 1;
++    const bool trace = trace_index <= 64;
++
+     // Create the key to access the cache struct
+     const uint32_t address = (texture.data_addr << 2);
+
+@@ -407,12 +414,25 @@
+
+     overlap = (overlap && (ite->first + ite->second->total_bytes) > address);
+
+-    if (!overlap)
++    if (!overlap) {
++        if (trace)
++            LOG_INFO("PCSX display texture cache n={} addr={:08x} overlap=0 type={} size={}x{} stride_bytes={} base_format={}",
++                trace_index, address, static_cast<std::uint32_t>(texture.texture_type()), original_width, original_height,
++                gxm::get_stride_in_bytes(texture), static_cast<std::uint32_t>(base_format));
+         return std::nullopt;
+-
+-    if (*ite->second->dirty)
++    }
++
++    if (*ite->second->dirty) {
+         // Guest wrote to the surface backing memory since it was rendered, so GPU data is stale.
++        if (trace)
++            LOG_INFO("PCSX display texture cache n={} addr={:08x} overlap=1 dirty=1 base={:08x} extent={}x{} request_stride={} stored_stride={} stored_tiling={} stored_format={} current_view_match={}",
++                trace_index, address, ite->first, original_width, original_height, gxm::get_stride_in_bytes(texture),
++                ite->second->stride_bytes, static_cast<std::uint32_t>(ite->second->tiling),
++                static_cast<std::uint32_t>(ite->second->format),
++                reinterpret_cast<VKContext *>(state.context)->current_color_view == ite->second->texture.view ||
++                    reinterpret_cast<VKContext *>(state.context)->current_color_view == ite->second->alternate_view);
+         return std::nullopt;
++    }
+
+     const vk::ComponentMapping swizzle = texture::translate_swizzle(gxm::get_format(texture));
+     vk::Format vk_format = color::translate_format(base_format);
+@@ -494,6 +514,13 @@
+
+     const vk::ImageView color_handle_view = reinterpret_cast<VKContext *>(state.context)->current_color_view;
+     const bool is_same_image = (color_handle_view == info.texture.view) || (color_handle_view == info.alternate_view);
++
++    if (trace)
++        LOG_INFO("PCSX display texture cache n={} addr={:08x} overlap=1 dirty=0 base={:08x} extent={}x{} request_stride={} stored_stride={} request_tiling={} stored_tiling={} request_format={} stored_format={} current_view_match={} viewport={}",
++            trace_index, address, ite->first, original_width, original_height, stride_bytes, info.stride_bytes,
++            static_cast<std::uint32_t>(tiling), static_cast<std::uint32_t>(info.tiling),
++            static_cast<std::uint32_t>(base_format), static_cast<std::uint32_t>(info.format), is_same_image,
++            state.features.use_texture_viewport);
+
+     if (state.features.use_texture_viewport && base_format == info.format) {
+         // use a texture viewport
+--- a/vita3k/renderer/src/vulkan/texture.cpp
++++ b/vita3k/renderer/src/vulkan/texture.cpp
+@@ -16,6 +16,9 @@
+ // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+ #include <renderer/vulkan/functions.h>
++
++#include <atomic>
++#include <cstdint>
+
+ #include <renderer/vulkan/gxm_to_vulkan.h>
+
+@@ -123,6 +126,7 @@
+         lookup_result = context.state.surface_cache.retrieve_depth_stencil_as_texture(texture, &texture_viewport);
+     }
+
++    const bool used_cached_surface = lookup_result.has_value();
+     if (lookup_result.has_value()) {
+         // get the sampler now
+         context.state.texture_cache.cache_and_bind_sampler(texture, is_depth_surface);
+@@ -139,10 +143,21 @@
+     const vk::ImageLayout layout = vkutil::get_underlying_layout(lookup_result->layout);
+     const vk::Sampler sampler = context.state.texture_cache.get_retrieved_sampler();
+
++    static std::atomic<std::uint32_t> display_texture_sync_trace_count{ 0 };
++    const std::uint32_t trace_index = display_texture_sync_trace_count.fetch_add(1, std::memory_order_relaxed) + 1;
++    const bool trace = trace_index <= 64;
+     vk::DescriptorImageInfo &image_info = is_vertex
+         ? context.vertex_textures[index - SCE_GXM_MAX_TEXTURE_UNITS]
+         : context.fragment_textures[index];
+-    if (image_info.sampler != sampler || image_info.imageView != lookup_result->view) {
++    const bool descriptor_changed = image_info.sampler != sampler || image_info.imageView != lookup_result->view;
++    if (trace)
++        LOG_INFO("PCSX display texture sync n={} unit={} addr={:08x} route={} depth={} type={} extent={}x{} stride_bytes={} format={} requested_layout={} descriptor_layout={} descriptor_changed={} viewport_ratio={}:{} viewport_offset={}:{}",
++            trace_index, index, texture.data_addr << 2, used_cached_surface ? "renderer-cache" : "guest-texture-cache",
++            is_depth_surface, static_cast<std::uint32_t>(texture.texture_type()), gxm::get_width(texture), gxm::get_height(texture),
++            gxm::get_stride_in_bytes(texture), static_cast<std::uint32_t>(base_format), vk::to_string(layout),
++            vk::to_string(image_info.imageLayout), descriptor_changed, texture_viewport.ratio.first,
++            texture_viewport.ratio.second, texture_viewport.offset.first, texture_viewport.offset.second);
++    if (descriptor_changed) {
+         image_info = vk::DescriptorImageInfo{
+             .sampler = sampler,
+             .imageView = lookup_result->view,

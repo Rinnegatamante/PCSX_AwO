@@ -138,3 +138,29 @@ regression passes in `/tmp/pcsx-vita3k-display-runner-tests-20261005.log`.
 These shader changes are confined to the SDK scratch tree. They are diagnostic
 probes, not renderer fixes: native presentation draws correctly with a constant
 fragment, while sampling the source render texture in this path still fails.
+
+The sampler-binding scratch probe (`/tmp/pcsx-vitagl-display-sampler-20261005.log`)
+records texture ID 3 on unit `GL_TEXTURE0` for both pack program 57 and
+presentation program 59. Reassigning `s_src=0` immediately before presentation
+does not fix the black backbuffer. Its native screenshots at `035443` and
+`035444` were taken after the main-RT pixel reads at `03:54:42.825`; both remain
+black. The earlier constant-UV screenshots preceded the first main-RT draw
+because of shader compilation and are not evidence of a rendered-frame
+failure; the constant-UV backbuffer read is the relevant result of that probe.
+Future short probes must cover shader warmup or reuse the isolated shader
+cache and compare capture timestamps with the first draw.
+
+The optional host trace also records the first 64 texture-cache lookups and
+texture synchronizations. It logs overlap/dirty state, the chosen GPU-surface
+or guest-memory texture route, descriptor layout changes and texture viewport
+ratio/offset. Its renderer TUs are rebuilt only in the isolated host.
+
+The production VPK passes on `build/vita-validation-display-trace5` with all
+11 forwarded faults recovered, shutdown and Idle. The retained run is
+`/tmp/pcsx-vitagl-display-cache-20261005.log`. A texture synchronization at
+`04:03:52.323` uses GPU surface `62a7f050`, size `640x478`, matching stride 2560,
+dirty=false and viewport ratio 1:1. The next synchronization uses a different
+`320x240` texture from guest memory. These records alone do not associate a
+specific draw with the missing source binding. Native captures at `040353`
+and `040354` remain black after the GPU-surface lookup. This host reuses only
+the isolated guest shader cache; its source/patch hashes match its manifest.

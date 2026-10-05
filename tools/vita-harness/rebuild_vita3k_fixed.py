@@ -73,6 +73,10 @@ SOURCES = [
 ]
 if options.trace_display_presentation:
     SOURCES.append(('modules', 'SceGxm/SceGxm.cpp', 'vita3k/modules/SceGxm/SceGxm.cpp', 'SceGxm.cpp.o'))
+    SOURCES.append(('renderer', 'src/vulkan/texture.cpp', 'vita3k/renderer/src/vulkan/texture.cpp', 'texture.cpp.o'))
+    if not options.fix_unmapped_readback:
+        SOURCES.append(('renderer', 'src/vulkan/surface_cache.cpp',
+                        'vita3k/renderer/src/vulkan/surface_cache.cpp', 'surface_cache.cpp.o'))
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
