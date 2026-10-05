@@ -787,6 +787,8 @@ int main(int argc, char **argv)
     bool verify_system12_vram_pattern = false;
     bool verify_system12_framebuffer = false;
     bool verify_system12_texture_window = false;
+    bool verify_system12_vram_x_wrap = false;
+    bool verify_system12_coord_alias = false;
     unsigned verify_system12_drc_ram_mb = 0;
     bool system12_profile = false;
     struct retro_system_av_info av;
@@ -806,6 +808,14 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[ret], "--verify-system12-texture-window")) {
             verify_system12_texture_window = true;
+            continue;
+        }
+        if (!strcmp(argv[ret], "--verify-system12-vram-x-wrap")) {
+            verify_system12_vram_x_wrap = true;
+            continue;
+        }
+        if (!strcmp(argv[ret], "--verify-system12-coord-alias")) {
+            verify_system12_coord_alias = true;
             continue;
         }
         if (!strcmp(argv[ret], "--verify-system12-drc")) {
@@ -879,9 +889,17 @@ int main(int argc, char **argv)
     if (verify_system12_texture_window && (!system12_profile || !validation_frames ||
         verify_smoke || verify_system12_drc_ram_mb || verify_system12_vram ||
         verify_system12_framebuffer)) return 4;
+    if (verify_system12_vram_x_wrap && (!system12_profile || !validation_frames ||
+        verify_smoke || verify_system12_drc_ram_mb || verify_system12_vram ||
+        verify_system12_framebuffer || verify_system12_texture_window)) return 4;
+    if (verify_system12_coord_alias && (!system12_profile || !validation_frames ||
+        verify_smoke || verify_system12_drc_ram_mb || verify_system12_vram ||
+        verify_system12_framebuffer || verify_system12_texture_window ||
+        verify_system12_vram_x_wrap)) return 4;
     if (g_inputs_path[0] && (!system12_profile || !validation_frames || verify_smoke ||
                             verify_system12_drc_ram_mb || verify_system12_vram ||
-                            verify_system12_framebuffer || verify_system12_texture_window)) {
+                            verify_system12_framebuffer || verify_system12_texture_window ||
+                            verify_system12_vram_x_wrap || verify_system12_coord_alias)) {
         sceClibPrintf("pcsx-vita: --inputs requires a finite System12 game run\n");
         return 4;
     }
@@ -1064,6 +1082,41 @@ int main(int argc, char **argv)
             result[9], result[10], result[11], result[12], result[13], result[14],
             result[15], result[16], result[17], result[18], result[19], result[20],
             result[21], result[22], result[23], result[24], runs);
+    }
+    if (verify_system12_vram_x_wrap || verify_system12_coord_alias) {
+        const uint8_t *ram = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+        uint32_t result[28] = {0};
+        const uint32_t *samples;
+        static const uint16_t vram_x_wrap_expected[9] = {
+            0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
+            0x001f, 0x03e0, 0x001f, 0x03e0
+        };
+        static const uint16_t coord_alias_expected[9] = {
+            0x001f, 0x03e0, 0x03e0,
+            0x001f, 0x03e0, 0x03e0,
+            0x001f, 0x03e0, 0x03e0
+        };
+        bool vram_x_mode = verify_system12_vram_x_wrap;
+        const uint16_t *expected = vram_x_mode ? vram_x_wrap_expected : coord_alias_expected;
+        if (ram && retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM) >= 0x23f100 + sizeof(result))
+            memcpy(result, ram + 0x23f100, sizeof(result));
+        samples = result + 19;
+        validation_result = !pcsx_vita_uses_dynarec() || result[0] != 0x53314642;
+        for (unsigned i = 0; i < 9; i++)
+            validation_result = validation_result || (uint16_t)samples[i] != expected[i];
+        if (vram_x_mode) {
+            sceClibPrintf("pcsx-vita: system12-vram-x-wrap %s cpu=%s magic=%08x p8_poly_u128=%04x p8_poly_u136=%04x p8_sprite_u120=%04x p8_sprite_u136=%04x p8_clut_x4=%04x p16_poly_u64=%04x p16_poly_u72=%04x p16_sprite_u56=%04x p16_sprite_u64=%04x runs=%u\n",
+                validation_result ? "FAIL" : "PASS",
+                pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
+                samples[0], samples[1], samples[2], samples[3], samples[4],
+                samples[5], samples[6], samples[7], samples[8], runs);
+        } else {
+            sceClibPrintf("pcsx-vita: system12-coord-alias %s cpu=%s magic=%08x ft3_control=%04x ft3_upper=%04x ft3_negative=%04x ft4_control=%04x ft4_upper=%04x ft4_negative=%04x sprite_control=%04x sprite_upper=%04x sprite_negative=%04x runs=%u\n",
+                validation_result ? "FAIL" : "PASS",
+                pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
+                samples[0], samples[1], samples[2], samples[3], samples[4],
+                samples[5], samples[6], samples[7], samples[8], runs);
+        }
     }
     if (verify_system12_drc_ram_mb) {
         pcsx_vita_system12_drc_result result;

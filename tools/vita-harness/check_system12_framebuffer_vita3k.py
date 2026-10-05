@@ -25,6 +25,17 @@ EXPECTED_TEXTURE_WINDOW = re.compile(
     r"ft4_tl=7fe0 ft4_tr=7c1f ft4_bl=7fff ft4_br=4210 "
     r"tw_tl=7c1f tw_tr=7c1f tw_br=4210 "
     r"reset_tl=7fe0 reset_tr=7c1f reset_bl=7fff runs=1\b")
+EXPECTED_VRAM_X_WRAP = re.compile(
+    r"pcsx-vita: system12-vram-x-wrap PASS cpu=ari64 magic=53314642 "
+    r"p8_poly_u128=7fe0 p8_poly_u136=7fe0 "
+    r"p8_sprite_u120=7fe0 p8_sprite_u136=7c1f p8_clut_x4=7c1f "
+    r"p16_poly_u64=001f p16_poly_u72=03e0 "
+    r"p16_sprite_u56=001f p16_sprite_u64=03e0 runs=1\b")
+EXPECTED_COORD_ALIAS = re.compile(
+    r"pcsx-vita: system12-coord-alias PASS cpu=ari64 magic=53314642 "
+    r"ft3_control=001f ft3_upper=03e0 ft3_negative=03e0 "
+    r"ft4_control=001f ft4_upper=03e0 ft4_negative=03e0 "
+    r"sprite_control=001f sprite_upper=03e0 sprite_negative=03e0 runs=1\b")
 RESULT_MAGIC = 0x53314642  # S1FB
 DEFAULT_MAIN_SHA256 = "07cbcdecd6a8c4c6cb3b85b060dbd211e06e70f2fea5af62336099c458661bf6"
 TEXTURE_WINDOW_MAIN_SHA256 = "8eb3780d65e540b668f82e52899c41721ef416201a9d0e0683ff59b4a85a6562"
@@ -60,6 +71,23 @@ def module(name, path):
     result = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(result)
     return result
+
+
+def probe_configuration(texture_window=False, vram_x_wrap=False, coord_alias=False):
+    """Return the Vita verifier, log oracle, and colors for one fixture mode."""
+    if sum((texture_window, vram_x_wrap, coord_alias)) > 1:
+        raise ValueError("texture-window, VRAM-X-wrap, and coordinate-alias probes are separate modes")
+    if texture_window:
+        return ("--verify-system12-texture-window", EXPECTED_TEXTURE_WINDOW,
+                "System12 texture-window probe", EXPECTED_TEXTURE_WINDOW_PIXELS)
+    if vram_x_wrap:
+        return ("--verify-system12-vram-x-wrap", EXPECTED_VRAM_X_WRAP,
+                "System12 VRAM X-wrap probe", EXPECTED_VRAM_X_WRAP_PIXELS)
+    if coord_alias:
+        return ("--verify-system12-coord-alias", EXPECTED_COORD_ALIAS,
+                "System12 coordinate-alias probe", EXPECTED_COORD_ALIAS_PIXELS)
+    return ("--verify-system12-framebuffer", EXPECTED,
+            "System12 framebuffer coherence", EXPECTED_PIXELS)
 
 
 def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
@@ -485,8 +513,13 @@ def main():
                         help="existing local libshacccg.suprx")
     parser.add_argument("--timeout", type=float, default=90)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--texture-window", action="store_true",
-                        help="add the optional E2 mask/offset and reset probe")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--texture-window", action="store_true",
+                       help="add the optional E2 mask/offset and reset probe")
+    modes.add_argument("--vram-x-wrap", action="store_true",
+                       help="probe P8 CLUT carry and P8/P16 texture-page X seams")
+    modes.add_argument("--coord-alias", action="store_true",
+                       help="probe FT3, FT4, and sprite 11-bit coordinate aliases")
     args = parser.parse_args()
     if (args.output_dir.exists() or not args.emulator.exists() or
             not args.vpk.is_file() or not args.firmware_fs.is_dir() or
@@ -497,7 +530,10 @@ def main():
     checker = module("vram_checker", Path(__file__).with_name("check_vita3k.py"))
     drc = module("vram_host_helpers", Path(__file__).with_name("check_system12_drc_vita3k.py"))
     gameplay = module("vram_pack_helpers", Path(__file__).with_name("check_system12_gameplay_vita3k.py"))
-    checker.CapturedSmoke.ISSUE_MARKERS += (b"pcsx-vita: system12-framebuffer FAIL",)
+    checker.CapturedSmoke.ISSUE_MARKERS += (
+        b"pcsx-vita: system12-framebuffer FAIL",
+        b"pcsx-vita: system12-vram-x-wrap FAIL",
+        b"pcsx-vita: system12-coord-alias FAIL")
     args.output_dir.mkdir(parents=True)
     log = args.output_dir / "vita3k.log"
     passed = False
@@ -515,7 +551,9 @@ def main():
         checker.install_local_shader_compiler(emulator, args.shader_compiler)
         region = temp / "framebuffer"
         region.mkdir()
-        make_regions(region, texture_window=args.texture_window)
+        make_regions(region, texture_window=args.texture_window,
+                     vram_x_wrap=args.vram_x_wrap,
+                     coord_alias=args.coord_alias)
         (args.output_dir / "board.cfg").write_bytes((region / "board.cfg").read_bytes())
         packer = Path(shutil.which("vita-pack-vpk")) if shutil.which("vita-pack-vpk") else None
         mksfoex = Path(shutil.which("vita-mksfoex")) if shutil.which("vita-mksfoex") else None
@@ -528,16 +566,16 @@ def main():
         base = [str(emulator), "--keep-config", "--log-level", "1"]
         installed = checker.run_owned(base + ["--", str(vpk)], log, args.timeout,
             "framebuffer fixture install", f"[{TITLE_ID}] installed successfully!", installation=True)
-        verify_arg = ("--verify-system12-texture-window" if args.texture_window
-                      else "--verify-system12-framebuffer")
-        expected = EXPECTED_TEXTURE_WINDOW if args.texture_window else EXPECTED
+        verify_arg, expected, run_name, expected_colors = probe_configuration(
+            texture_window=args.texture_window,
+            vram_x_wrap=args.vram_x_wrap,
+            coord_alias=args.coord_alias)
         passed = installed and checker.run_owned(base + ["--installed-path", TITLE_ID,
             "--app-args", f"pcsx-vita, --system12, ux0:app/{TITLE_ID}/framebuffer, "
             f"{verify_arg}, --frames, 1"], log, args.timeout,
-            "System12 texture-window probe" if args.texture_window else
-            "System12 framebuffer coherence", expected, require_ari64=True)
+            run_name, expected, require_ari64=True)
         evidence = dict(passed=passed, expected=expected.pattern,
-            colors_rgb555=list(EXPECTED_PIXELS),
+            colors_rgb555=list(expected_colors),
             polygon_colors_rgb555=list(EXPECTED_POLYGON_PIXELS),
             texture_window_colors_rgb555=(list(EXPECTED_TEXTURE_WINDOW_PIXELS)
                                           if args.texture_window else None),

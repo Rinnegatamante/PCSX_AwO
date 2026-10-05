@@ -14,6 +14,37 @@ SPEC.loader.exec_module(FIXTURE)
 
 
 class System12FramebufferFixtureTests(unittest.TestCase):
+    def test_vita_runtime_mode_oracles_cover_both_nine_pixel_probes(self):
+        vram_arg, vram_oracle, _, vram_pixels = FIXTURE.probe_configuration(vram_x_wrap=True)
+        self.assertEqual(vram_arg, "--verify-system12-vram-x-wrap")
+        self.assertEqual(vram_pixels, FIXTURE.EXPECTED_VRAM_X_WRAP_PIXELS)
+        self.assertRegex(
+            "pcsx-vita: system12-vram-x-wrap PASS cpu=ari64 magic=53314642 "
+            "p8_poly_u128=7fe0 p8_poly_u136=7fe0 "
+            "p8_sprite_u120=7fe0 p8_sprite_u136=7c1f p8_clut_x4=7c1f "
+            "p16_poly_u64=001f p16_poly_u72=03e0 "
+            "p16_sprite_u56=001f p16_sprite_u64=03e0 runs=1",
+            vram_oracle)
+
+        alias_arg, alias_oracle, _, alias_pixels = FIXTURE.probe_configuration(coord_alias=True)
+        self.assertEqual(alias_arg, "--verify-system12-coord-alias")
+        self.assertEqual(alias_pixels, FIXTURE.EXPECTED_COORD_ALIAS_PIXELS)
+        self.assertRegex(
+            "pcsx-vita: system12-coord-alias PASS cpu=ari64 magic=53314642 "
+            "ft3_control=001f ft3_upper=03e0 ft3_negative=03e0 "
+            "ft4_control=001f ft4_upper=03e0 ft4_negative=03e0 "
+            "sprite_control=001f sprite_upper=03e0 sprite_negative=03e0 runs=1",
+            alias_oracle)
+        with self.assertRaises(ValueError):
+            FIXTURE.probe_configuration(vram_x_wrap=True, coord_alias=True)
+
+        frontend = (ROOT / "frontend/vita/standalone.c").read_text(encoding="utf-8")
+        self.assertIn('"--verify-system12-vram-x-wrap"', frontend)
+        self.assertIn('"--verify-system12-coord-alias"', frontend)
+        self.assertIn("uint32_t result[28] = {0};", frontend)
+        self.assertIn("samples = result + 19;", frontend)
+        self.assertIn("for (unsigned i = 0; i < 9; i++)", frontend)
+
     def test_guest_covers_onscreen_pages_clip_transfer_and_move(self):
         code, commands = FIXTURE.make_guest_code()
         registers = {0: 0}
