@@ -423,3 +423,19 @@ background streaks during Stage 1. The title and combat geometry improve,
 but passing pixel probes and replay completion are insufficient to call
 this VitaGL version validated. `graphics-review.json` records that failure
 separately from the runner's successful execution results.
+
+The framebuffer guest also submits two FT3 triangles and one FT4 quad with
+interpolated UVs, changing CLUT and TPAGE consecutively in one onscreen clip.
+Ten interior C0 reads cover broad index regions, away from raster edges.
+The identical generated guest SHA256
+`07cbcdecd6a8c4c6cb3b85b060dbd211e06e70f2fea5af62336099c458661bf6`
+passes all eight transfer checks and ten polygon reads on NEON
+(`/tmp/pcsx-neon-polygons-20261005`, VPK
+`5e87c12a011c7ff460bfe983c7177442074562bb778260fcd5f99a6f3437a276`)
+and on segmented VitaGL (`/tmp/pcsx-vitagl-polygons-20261005`, VPK
+`4a26f6817256cbc121fbfdff12ed9f97878df589378a2fdd9debda204b51cf74`).
+Both reach Idle and close automatically. Frozen packages and source/library
+identities are recorded in `polygons-evidence.json` under the respective
+build directories. This excludes a general FT3/FT4 or TPAGE/CLUT switching
+failure in these probe cases; it does not explain or clear the remaining
+authentic-game graphics artifacts.
