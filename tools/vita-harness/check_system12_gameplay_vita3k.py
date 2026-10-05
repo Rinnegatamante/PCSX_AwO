@@ -32,6 +32,7 @@ GAME_FILES = ("board.cfg", "main.bin", "banked.bin", "sub.bin", "wave.bin")
 MILESTONES = (400, 800, 1800)
 DIAGNOSTIC_MILESTONES = MILESTONES + (3600,)
 GAMEPLAY_REPLAY_FRAMES = 12000
+GAMEPLAY_REPLAY_FRAME_CHOICES = (3600, 6000, GAMEPLAY_REPLAY_FRAMES)
 AUTO_SCREENSHOT_TIMES = "0.5,1,2,5,10,20,30,45,60"
 GAMEPLAY_SCREENSHOT_TIMES = AUTO_SCREENSHOT_TIMES + ",90,120,150,180,210,240,270,300,330,360,390,420,450,480,540,600"
 
@@ -499,11 +500,16 @@ def preserve_guest_capture(screenshot_root, before, guest_data, output_dir, fram
     return screenshots, screenshot_error
 
 
-def select_milestones(frames=None, gameplay_replay=False):
+def select_milestones(frames=None, gameplay_replay=False, replay_frames=None):
     if gameplay_replay and frames is not None:
         raise ValueError("--frames cannot be combined with --gameplay-replay")
+    if replay_frames is not None and not gameplay_replay:
+        raise ValueError("--replay-frames requires --gameplay-replay")
     if gameplay_replay:
-        return (GAMEPLAY_REPLAY_FRAMES,)
+        selected = GAMEPLAY_REPLAY_FRAMES if replay_frames is None else replay_frames
+        if selected not in GAMEPLAY_REPLAY_FRAME_CHOICES:
+            raise ValueError(f"--replay-frames must be one of {', '.join(map(str, GAMEPLAY_REPLAY_FRAME_CHOICES))}")
+        return (selected,)
     if frames is None:
         return MILESTONES
     if frames not in DIAGNOSTIC_MILESTONES:
@@ -543,14 +549,16 @@ def main():
     parser.add_argument("--timeout", type=float,
                         help="per-process timeout (replay defaults to 1200 seconds)")
     parser.add_argument("--gameplay-replay", action="store_true",
-                        help="replay the 177 deterministic inputs through frame 12,000")
+                        help="replay deterministic inputs through the selected replay frame count")
+    parser.add_argument("--replay-frames", type=int, choices=GAMEPLAY_REPLAY_FRAME_CHOICES,
+                        help="replay inputs through frame 3,600, 6,000, or 12,000 (requires --gameplay-replay)")
     parser.add_argument("--frames", type=int, choices=DIAGNOSTIC_MILESTONES,
                         help="run only this frame milestone (400, 800, 1800, or 3600)")
     parser.add_argument("--reuse-console-smoke", type=Path,
                         help="reuse smoke evidence JSON when VPK and host hashes match")
     args = parser.parse_args()
     try:
-        frames_to_run = select_milestones(args.frames, args.gameplay_replay)
+        frames_to_run = select_milestones(args.frames, args.gameplay_replay, args.replay_frames)
     except ValueError as error:
         parser.error(str(error))
     if args.timeout is None:
@@ -599,7 +607,8 @@ def main():
         inputs_path = None
         if args.gameplay_replay:
             inputs_path = args.output_dir / "inputs.csv"
-            input_events = write_gameplay_replay(inputs_path)
+            replay_frames = frames_to_run[0]
+            input_events = write_gameplay_replay(inputs_path, replay_frames)
             (args.output_dir / "inputs.json").write_text(json.dumps(
                 [{"frame": frame, "control": control, "pressed": bool(value)}
                  for frame, control, value in input_events], indent=2) + "\n",
@@ -685,8 +694,9 @@ def main():
                 expected += ("pcsx-vita: GPU = CTR High Octane native, VRAM=1024x1024",
                              "pcsx-vita: vitaGL shutdown PASS (0)")
             if inputs_path:
-                expected += ("pcsx-vita: inputs replay PASS events=177/177 "
-                             "frames=12000/12000 final=0002/0000",)
+                event_count = len(input_events)
+                expected += (f"pcsx-vita: inputs replay PASS events={event_count}/{event_count} "
+                             f"frames={frames}/{frames} final=0002/0000",)
             before_screenshots = (set(screenshot_root.rglob("*.png"))
                                   if screenshot_root.exists() else set())
             guest_ok, runtime_issues = False, {}

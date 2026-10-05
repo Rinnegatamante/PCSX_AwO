@@ -84,12 +84,46 @@ def main():
     assert gameplay.select_milestones(1800) == (1800,)
     assert gameplay.select_milestones(3600) == (3600,)
     assert gameplay.select_milestones(None, True) == (12000,)
+    assert gameplay.select_milestones(None, True, 3600) == (3600,)
+    assert gameplay.select_milestones(None, True, 6000) == (6000,)
+    assert gameplay.select_milestones(None, True, 12000) == (12000,)
     try:
         gameplay.select_milestones(1800, True)
     except ValueError as error:
         assert "cannot be combined" in str(error)
     else:
         raise AssertionError("--frames and --gameplay-replay should conflict")
+
+    try:
+        gameplay.select_milestones(None, False, 3600)
+    except ValueError as error:
+        assert "requires --gameplay-replay" in str(error)
+    else:
+        raise AssertionError("--replay-frames should require --gameplay-replay")
+
+    replay = gameplay.load_module("system12_replay_for_runner_test",
+                                  ROOT / "tests/check_system12_gameplay.py")
+    full_events = replay.replay_events(12000)
+    assert len(full_events) == 177
+    for replay_frames in (3600, 6000, 12000):
+        events = replay.replay_events(replay_frames)
+        if replay_frames == 12000:
+            assert events == full_events
+        else:
+            timeline_end = replay_frames - 240
+            assert events[:-1] == [event for event in full_events if event[0] < timeline_end]
+        assert events[-1] == (replay_frames - 1, "p1button3", 1)
+
+    with tempfile.TemporaryDirectory(prefix="pcsx-vita3k-replay-generation-") as tmp:
+        replay_path = Path(tmp) / "inputs.csv"
+        default_events = gameplay.write_gameplay_replay(replay_path)
+        assert default_events == full_events
+        expected_csv = "frame,control,pressed\n" + "".join(
+            f"{frame},{control},{pressed}\n" for frame, control, pressed in full_events)
+        assert replay_path.read_text() == expected_csv
+        focused_events = gameplay.write_gameplay_replay(replay_path, 3600)
+        assert focused_events == replay.replay_events(3600)
+        assert replay_path.read_text().endswith("3599,p1button3,1\n")
 
     with tempfile.TemporaryDirectory(prefix="pcsx-vita3k-runner-") as tmp:
         root = Path(tmp)

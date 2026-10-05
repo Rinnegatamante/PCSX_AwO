@@ -39,18 +39,32 @@ Native screenshots and any source report/PPM are copied out even after a guest
 failure or interruption. `capture-evidence-<frames>.json` records whether the
 guest completed and retains diagnostics separately from successful results.
 
-Add `--gameplay-replay` to run 12,000 frames with the same 177 CSV input events
-as the MAME/Mac comparison. This mode defaults to a 1,200-second per-process
-deadline and schedules native screenshots through 600 seconds. The Vita
-frontend reads `--inputs` only for a finite System 12 game run, checks bounded
-ordered `frame,control,pressed` rows before initialization, and applies them at
-the libretro input poll. It rejects embedded NUL, overlong rows, unknown
-controls and out-of-range events. Hardware still supplies the exit chord.
-Completion requires all 177 events consumed, the final joypad state, and
-JAMMA `ff/bf/ff/ff` in the board report; those input checks alone do not establish
-a playable match. The runner saves the CSV, input JSON, exact VPK/host hashes
-and `smoke-evidence.json`. `--reuse-console-smoke PATH` accepts a prior PASS
-only when both hashes match, otherwise the console probe runs again.
+Add `--gameplay-replay` to run the same input timeline as the MAME/Mac
+comparison. The default remains 12,000 frames and 177 CSV events. To shorten a
+focused capture, select a supported replay endpoint:
+
+```sh
+python3 tools/vita-harness/check_system12_gameplay_vita3k.py \
+  --gameplay-replay --replay-frames 3600 \
+  --emulator ... --vpk ... --firmware-fs ... --output-dir ...
+```
+
+`--replay-frames` accepts 3,600, 6,000, or 12,000 and is valid only with
+`--gameplay-replay`; `--frames` remains incompatible with replay. Shorter CSVs
+use the same event timeline through the requested endpoint and retain a final
+`p1button3` event so the terminal input check remains meaningful. The runner
+derives the expected event count and completion frame from the selected
+timeline. Replay mode defaults to a 1,200-second per-process deadline and keeps
+the native screenshot schedule through 600 seconds. The Vita frontend reads
+`--inputs` only for a finite System 12 game run, checks bounded ordered
+`frame,control,pressed` rows before initialization, and applies them at the
+libretro input poll. It rejects embedded NUL, overlong rows, unknown controls
+and out-of-range events. Hardware still supplies the exit chord. Completion
+requires all generated events consumed, the final joypad state, and JAMMA
+`ff/bf/ff/ff` in the board report; those input checks alone do not establish a
+playable match. The runner saves the CSV, input JSON, exact VPK/host hashes and
+`smoke-evidence.json`. `--reuse-console-smoke PATH` accepts a prior PASS only
+when both hashes match, otherwise the console probe runs again.
 
 The first step is a console ari64 GPU smoke test, which checks the existing
 triangle, background, and guest-memory signature before the System 12 runs.
