@@ -25,6 +25,8 @@ parser.add_argument('--dynarmic-archive', type=Path,
                     help='Tested patched Dynarmic archive to link into this private host')
 parser.add_argument('--diagnose-null-memcpy', action='store_true',
                     help='Log invalid guest memcpy arguments and caller PC/LR without changing behavior')
+parser.add_argument('--fix-host-page-protection', action='store_true',
+                    help='Track native host-page coverage for direct guest memory protections')
 options = parser.parse_args()
 ORIG = options.source.resolve()
 BUILD = (options.build or ORIG / 'build/macos').resolve()
@@ -46,6 +48,7 @@ BIN = APP / 'Contents/MacOS/Vita3K'
 PATCH = Path(__file__).resolve().parent / 'patches/vita3k-teardown.patch'
 SCREENSHOT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-cpu-frame-dump.patch'
 MEMCPY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-memcpy-diagnostic.patch'
+HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-protection.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -59,6 +62,8 @@ SOURCES = [
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
+if options.fix_host_page_protection:
+    SOURCES.append(('mem', 'src/mem.cpp', 'vita3k/mem/src/mem.cpp', 'mem.cpp.o'))
 
 # Only the patched sources/header are copied. Apply the checked-in patch to
 # these private copies, so even a dirty user's source checkout stays untouched.
@@ -81,6 +86,9 @@ subprocess.run(['git', 'apply', str(SCREENSHOT_PATCH)], check=True, cwd=SRC, env
 if options.diagnose_null_memcpy:
     subprocess.run(['git', 'apply', '--check', str(MEMCPY_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(MEMCPY_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.fix_host_page_protection:
+    subprocess.run(['git', 'apply', '--check', str(HOST_PAGE_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(HOST_PAGE_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -114,7 +122,7 @@ for target, source_rel, patch_rel, obj_name in SOURCES:
 # Reconstruct each touched static library from the exact existing CMake object
 # list, substituting only the patched TU objects. This preserves distinct GL
 # and Vulkan renderer.cpp archive members despite their common basename.
-for target in ('display', 'modules', 'renderer'):
+for target in ('display', 'modules', 'renderer', *(['mem'] if options.fix_host_page_protection else [])):
     target_dir = BUILD / 'vita3k' / target
     link_txt = target_dir / 'CMakeFiles' / f'{target}.dir/link.txt'
     words = shlex.split(link_txt.read_text())
@@ -136,6 +144,8 @@ for target in ('display', 'modules', 'renderer'):
             replacement = compiled[('renderer', 'src/gl/renderer.cpp')]
         elif target == 'renderer' and obj.as_posix().endswith('src/vulkan/renderer.cpp.o'):
             replacement = compiled[('renderer', 'src/vulkan/renderer.cpp')]
+        elif target == 'mem' and obj.as_posix().endswith('src/mem.cpp.o'):
+            replacement = compiled[('mem', 'src/mem.cpp')]
         args.append(str(replacement if replacement else target_dir / obj))
     subprocess.run(args, check=True, cwd=BUILD)
     subprocess.run(['/usr/bin/ranlib', str(archive)], check=True)
@@ -159,7 +169,7 @@ for target, source_rel, patch_rel, obj_name in SOURCES[:2]:
     subprocess.run(['/usr/bin/ranlib', str(archive)], check=True)
 
 # Link against the original command's already-built dependencies, but redirect
-# all five patched archives and the executable to the isolated bundle.
+# all patched archives and the executable to the isolated bundle.
 link_txt = BUILD / 'vita3k/CMakeFiles/vita3k.dir/link.txt'
 words = shlex.split(link_txt.read_text())
 rewrites = {
@@ -169,6 +179,10 @@ rewrites = {
     'modules/libmodules.a': str(OBJ / 'libmodules.a'),
     'renderer/librenderer.a': str(OBJ / 'librenderer.a'),
 }
+if options.fix_host_page_protection:
+    if 'mem/libmem.a' not in words:
+        raise RuntimeError('existing link command does not identify the mem archive')
+    rewrites['mem/libmem.a'] = str(OBJ / 'libmem.a')
 dynarmic_input = BUILD / 'external/dynarmic/src/dynarmic/libdynarmic.a'
 if options.dynarmic_archive:
     original_link_path = '../external/dynarmic/src/dynarmic/libdynarmic.a'
@@ -197,6 +211,8 @@ manifest = {
     'screenshot_patch_sha256': hashlib.sha256(SCREENSHOT_PATCH.read_bytes()).hexdigest(),
     'memcpy_diagnostic_patch_sha256': (hashlib.sha256(MEMCPY_PATCH.read_bytes()).hexdigest()
                                       if options.diagnose_null_memcpy else None),
+    'host_page_protection_patch_sha256': (hashlib.sha256(HOST_PAGE_PATCH.read_bytes()).hexdigest()
+                                        if options.fix_host_page_protection else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),

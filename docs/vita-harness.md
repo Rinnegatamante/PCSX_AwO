@@ -313,3 +313,13 @@ its own host process (`/tmp/pcsx-vita3k-neon-system12-build-console-smoke.log`).
 That checks console execution in the arcade-enabled binary. The separate
 System 12 generated guests now pass on its ARMv7 DRC for both RAM profiles;
 actual game validation remains a separate gate.
+
+That separate NEON game gate now includes the 12,000-frame input replay through
+Stage 2 documented in [system12-vita-gameplay.md](system12-vita-gameplay.md).
+It establishes observed match progression in Vita3K, while full board timing
+equivalence and physical Vita validation remain pending.
+
+For the direct-memory M1 host protection correction and its real fault
+regression, see [host-page-protection.md](../tools/vita-harness/host-page-protection.md).
+The latest VitaGL pixel diagnostic still fails: both sampled pixels are `2082`
+instead of the expected triangle `03ff` and background `2082`.

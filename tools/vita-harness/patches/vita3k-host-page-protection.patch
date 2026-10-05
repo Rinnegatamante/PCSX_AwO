@@ -1,0 +1,39 @@
+--- a/vita3k/mem/src/mem.cpp
++++ b/vita3k/mem/src/mem.cpp
+@@ -328,13 +328,25 @@
+ bool add_protect(MemState &state, Address addr, const uint32_t size, const MemPerm perm, const ProtectCallback &callback) {
+     const std::lock_guard<std::mutex> lock(state.protect_mutex);
+     ProtectSegmentInfo protect(size, perm);
+-    align_to_page(state, addr, protect.size);
++    Address block_addr = addr;
++    Address block_size = size;
++    align_to_page(state, block_addr, block_size);
+ 
+     ProtectBlockInfo block;
+     block.size = size;
+     block.callback = callback;
+ 
+-    protect.blocks.emplace(addr, std::move(block));
++    // Keep callbacks keyed at guest-page granularity even when the host
++    // protection segment must cover a larger page.
++    protect.blocks.emplace(block_addr, std::move(block));
++
++    addr = block_addr;
++    protect.size = block_size;
++    if (!state.use_page_table) {
++        const Address end = align(addr + protect.size, state.host_page_size);
++        addr = align_down(addr, state.host_page_size);
++        protect.size = end - addr;
++    }
+ 
+     auto it = state.protect_tree.lower_bound(addr);
+     if (it == state.protect_tree.end() || it->first + it->second.size <= addr) {
+@@ -344,7 +356,7 @@
+             --it;
+     }
+ 
+-    while (it != state.protect_tree.end() && it->first < addr + size) {
++    while (it != state.protect_tree.end() && it->first < addr + protect.size) {
+         const Address start = std::min(it->first, addr);
+         protect.size = std::max(it->first + it->second.size, addr + protect.size) - start;
+         addr = start;
