@@ -239,3 +239,17 @@ fake-host regression emits 256 diagnostic messages after early tokens and a
 forwarded/recovered fault pair; gameplay evidence tests also reject empty or
 mismatched token sets. Both suites pass. The separate console renderer's regex
 smoke path is unchanged; installation registers its literal completion token.
+
+A fresh private experiment makes both projection and onscreen scissor use the
+clip-local target (`44e053b939deb668c0bc5222fe095625b5fd19e12d751808e7270b008a193cfa`).
+The corrected runner completes the 3600-frame/33-input replay, pairs all 2652
+forwarded faults with recoveries, observes shutdown PASS/Idle, and closes its
+host automatically. Ten native PNGs are retained in
+`/tmp/pcsx-vita-system12-vitagl-cliplocal-20261005`. The title's bottom strip is
+removed, but Stage 1 Voldo/Astaroth still contains broad horizontal bands;
+**graphics review fails**. `clip-local-source.patch`, `clip-local-evidence.json`
+and the output `graphics-review.json` preserve that distinction. This change
+is not applied to repository rendering code. The trace still shows target/load
+geometry changing independently of the final store rect; fixing only projection
+and scissor is insufficient. Main-target segmentation and independent display
+scanout remain open.
