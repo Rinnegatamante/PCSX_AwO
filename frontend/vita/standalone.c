@@ -785,6 +785,7 @@ int main(int argc, char **argv)
     bool verify_smoke = false;
     bool verify_system12_vram = false;
     bool verify_system12_vram_pattern = false;
+    bool verify_system12_framebuffer = false;
     unsigned verify_system12_drc_ram_mb = 0;
     bool system12_profile = false;
     struct retro_system_av_info av;
@@ -798,6 +799,10 @@ int main(int argc, char **argv)
             continue;
         }
         if (!strcmp(argv[ret], "--verify-system12-vram")) { verify_system12_vram = true; continue; }
+        if (!strcmp(argv[ret], "--verify-system12-framebuffer")) {
+            verify_system12_framebuffer = true;
+            continue;
+        }
         if (!strcmp(argv[ret], "--verify-system12-drc")) {
             char *end;
             unsigned long ram_mb;
@@ -864,8 +869,11 @@ int main(int argc, char **argv)
     if (verify_system12_drc_ram_mb && verify_smoke) return 4;
     if (verify_system12_vram && (!system12_profile || !validation_frames ||
         verify_smoke || verify_system12_drc_ram_mb)) return 4;
+    if (verify_system12_framebuffer && (!system12_profile || !validation_frames ||
+        verify_smoke || verify_system12_drc_ram_mb || verify_system12_vram)) return 4;
     if (g_inputs_path[0] && (!system12_profile || !validation_frames || verify_smoke ||
-                            verify_system12_drc_ram_mb || verify_system12_vram)) {
+                            verify_system12_drc_ram_mb || verify_system12_vram ||
+                            verify_system12_framebuffer)) {
         sceClibPrintf("pcsx-vita: --inputs requires a finite System12 game run\n");
         return 4;
     }
@@ -1003,6 +1011,21 @@ int main(int argc, char **argv)
                 pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
                 result[1], result[2], result[3], result[4], result[5], result[6], result[7], result[8], result[9], result[10], result[11], runs);
         }
+    }
+    if (verify_system12_framebuffer) {
+        const uint8_t *ram = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+        uint32_t result[9] = {0};
+        if (ram && retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM) >= 0x23f100 + sizeof(result))
+            memcpy(result, ram + 0x23f100, sizeof(result));
+        validation_result = !pcsx_vita_uses_dynarec() || result[0] != 0x53314642 ||
+            result[1] != 0x001f || result[2] != 0x03e0 || result[3] != 0x001f ||
+            result[4] != 0x7c00 || result[5] != 0x7fff || result[6] != 0x03e0 ||
+            result[7] != 0x7c1f || result[8] != 0x7c1f;
+        sceClibPrintf("pcsx-vita: system12-framebuffer %s cpu=%s magic=%08x page0=%04x page1=%04x page0again=%04x clip=%04x upload=%04x postupload=%04x move=%04x source=%04x runs=%u\n",
+            validation_result ? "FAIL" : "PASS",
+            pcsx_vita_uses_dynarec() ? "ari64" : "interpreter", result[0],
+            result[1], result[2], result[3], result[4], result[5], result[6],
+            result[7], result[8], runs);
     }
     if (verify_system12_drc_ram_mb) {
         pcsx_vita_system12_drc_result result;

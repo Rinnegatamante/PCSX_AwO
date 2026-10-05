@@ -370,3 +370,23 @@ passes the same generated guest and reaches Idle; log:
 `/tmp/pcsx-neon-texture-pattern-20261005/vita3k.log`.
 Frozen packages and `texture-pattern-evidence.json` are retained under
 `build/vita-system12-vitagl-teardown` and `build/vita-system12`.
+
+The guarded `tools/vita-harness/check_system12_framebuffer_vita3k.py` probe uses
+an executed ari64 guest to draw into two framebuffer-sized GP0 areas, rather
+than only the small offscreen areas used by the texture probe. It initializes
+a 320x240 display and checks eight exact RGB555 reads before the first vblank:
+page 0, page 1 with E5 y=240, the old page again, a 320x220 clip, preservation
+of a partial A0 upload across a new draw, and both sides of MoveImage. The
+frontend's `--verify-system12-framebuffer` mode validates the S1FB marker and
+pixel words at RAM 0x23f100. All draw areas meet the native onscreen threshold.
+Use an existing local shader compiler and a freshly built NEON or VitaGL VPK
+containing that frontend; firmware/media downloads are not needed.
+
+On the stale-fault host, the identical guest SHA256
+`e18d86d7620674ad0f2f747e83c82f5b97fd3f5c9129f4decea8c7b8e72bad3d`
+passes NEON (`/tmp/pcsx-neon-framebuffer-20261005`) but fails the original
+VitaGL target lifecycle (`/tmp/pcsx-vitagl-fb-baseline-20261005`): all draw
+readbacks are zero, while the direct upload returns 0x7fff. The segmented
+VitaGL candidate passes all eight reads in
+`/tmp/pcsx-vitagl-fb-segments-20261005`. This is a framebuffer coherency
+regression test, not an authentic-game or whole-system validation.
