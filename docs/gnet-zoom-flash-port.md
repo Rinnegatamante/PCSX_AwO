@@ -50,8 +50,16 @@ widths fail explicitly.
 low/high-byte register pair (`1fb003e0/1fb003e1`), zero-valued selected-register
 reads, and register-3 bit-6 card-reset behavior. Its optional callbacks mirror
 MAME's PC Card `read_memory/write_memory`, `read_reg/write_reg`, and `reset` calls.
+The callback descriptor is copied at board creation, while its opaque state is
+borrowed for the board lifetime. Controller I/O doubles the supplied word
+offset (and increments it for the high byte) before calling `read_memory` or
+`write_memory`; the banked memory window passes its x16 word offset unchanged
+to `read_reg` or `write_reg`. Callbacks run synchronously and must not reenter,
+synchronize, or destroy the G-Net board; an attempted destroy during a callback
+returns `GNET_ZOOM_BUSY` and can be retried after the callback returns.
 The synthetic fixture verifies both PSX windows, byte-lane forwarding, selected
-register behavior, and reset. No ATA task-file engine, CIS/card implementation,
+register behavior, reset, and destroy/retry behavior from read and reset
+callbacks. No ATA task-file engine, CIS/card implementation,
 Taito unlock/security, mounted media, or real game boot is included; the native
 G-Net adapter still supplies no card callbacks.
 

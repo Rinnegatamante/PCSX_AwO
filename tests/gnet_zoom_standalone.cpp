@@ -58,6 +58,11 @@ struct PcCardProbe {
     uint16_t write_reg_data = 0;
     uint16_t write_reg_mask = 0;
     unsigned reset_count = 0;
+    gnet_zoom_board *board = nullptr;
+    bool destroy_from_read = false;
+    bool destroy_from_reset = false;
+    int read_destroy_result = GNET_ZOOM_OK;
+    int reset_destroy_result = GNET_ZOOM_OK;
 };
 
 uint16_t pc_read_memory(void *opaque, uint32_t offset, uint16_t mask)
@@ -65,6 +70,8 @@ uint16_t pc_read_memory(void *opaque, uint32_t offset, uint16_t mask)
     auto *probe = static_cast<PcCardProbe *>(opaque);
     probe->read_memory_offset = offset;
     probe->read_memory_mask = mask;
+    if (probe->destroy_from_read)
+        probe->read_destroy_result = gnet_zoom_try_destroy(probe->board);
     return uint16_t(0x1200 | (offset & 0xff));
 }
 
@@ -96,7 +103,10 @@ void pc_write_reg(void *opaque, uint32_t offset, uint16_t data,
 
 void pc_reset(void *opaque)
 {
-    ++static_cast<PcCardProbe *>(opaque)->reset_count;
+    auto *probe = static_cast<PcCardProbe *>(opaque);
+    ++probe->reset_count;
+    if (probe->destroy_from_reset)
+        probe->reset_destroy_result = gnet_zoom_try_destroy(probe->board);
 }
 
 void write_intel_word(gnet_zoom_board *b, uint32_t address, uint16_t data)
@@ -411,6 +421,7 @@ void test_rf5c296_controller_and_optional_pc_card_windows()
     config.pc_card = &card;
     gnet_zoom_board *board = nullptr;
     assert(gnet_zoom_create(&config, &board) == GNET_ZOOM_OK && board);
+    probe.board = board;
 
     uint32_t value = 0;
     /* Bank-zero offset 0x200000 is PC Card attribute/configuration memory;
@@ -429,6 +440,11 @@ void test_rf5c296_controller_and_optional_pc_card_windows()
      * Byte high-lane accesses increment the card byte address and shift data. */
     assert(gnet_zoom_bus_read(board, 0x1fb00008, 2, &value) == GNET_ZOOM_OK &&
            value == 0x1208);
+    probe.destroy_from_read = true;
+    assert(gnet_zoom_bus_read(board, 0x1fb00008, 2, &value) == GNET_ZOOM_OK &&
+           value == 0x1208);
+    assert(probe.read_destroy_result == GNET_ZOOM_BUSY);
+    probe.destroy_from_read = false;
     assert(probe.read_memory_offset == 8 &&
            probe.read_memory_mask == 0xffff);
     assert(gnet_zoom_bus_read(board, 0x1fb00009, 1, &value) == GNET_ZOOM_OK &&
@@ -449,8 +465,11 @@ void test_rf5c296_controller_and_optional_pc_card_windows()
            value == 0);
     assert(gnet_zoom_bus_write(board, 0x1fb003e1, 1, 0x40) == GNET_ZOOM_OK);
     assert(probe.reset_count == 0);
+    probe.destroy_from_reset = true;
     assert(gnet_zoom_bus_write(board, 0x1fb003e1, 1, 0) == GNET_ZOOM_OK);
     assert(probe.reset_count == 1);
+    assert(probe.reset_destroy_result == GNET_ZOOM_BUSY);
+    probe.destroy_from_reset = false;
 
     assert(gnet_zoom_try_destroy(board) == GNET_ZOOM_OK);
 

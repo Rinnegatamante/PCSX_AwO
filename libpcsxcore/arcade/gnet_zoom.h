@@ -45,9 +45,11 @@ typedef struct gnet_zoom_config {
     gnet_zoom_soft_reset_fn request_soft_reset;
     void *audio_opaque;
     zoom_audio_frame_fn audio_frame;
-    /* Optional borrowed PC Card interface. When absent, both source RF5C296
-     * windows keep returning GNET_ZOOM_UNSUPPORTED. This is only the
-     * controller/card boundary; it does not provide ATA or card security. */
+    /* Optional PC Card callback descriptor, copied during create. Its opaque
+     * state is borrowed and must outlive this board. Callbacks run synchronously
+     * and must not reenter this board, synchronize it, or destroy it. When
+     * absent, both source RF5C296 windows keep returning UNSUPPORTED. This is
+     * only the controller/card boundary; it does not provide ATA/security. */
     const rf5c296_card_ops_t *pc_card;
 } gnet_zoom_config_t;
 

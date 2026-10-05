@@ -14,9 +14,10 @@ extern "C" {
 
 typedef struct rf5c296_device rf5c296_device_t;
 
-/* Borrowed callbacks following MAME's PC Card interface. read_memory receives
- * the decoded I/O byte/register offset; read_reg receives the x16 aperture
- * offset. Data and masks are 16-bit bus values. */
+/* Borrowed callbacks following MAME's PC Card interface. io_r/io_w double
+ * the RF5C296 word offset (and adjust for the upper byte lane) before calling
+ * read_memory/write_memory. mem_r/mem_w pass the x16 aperture word offset
+ * unchanged to read_reg/write_reg. Data and masks are 16-bit bus values. */
 typedef struct rf5c296_card_ops {
     void *opaque;
     uint16_t (*read_memory)(void *opaque, uint32_t offset, uint16_t mem_mask);

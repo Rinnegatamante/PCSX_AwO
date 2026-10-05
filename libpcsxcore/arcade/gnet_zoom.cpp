@@ -19,6 +19,7 @@ struct gnet_zoom_board {
     std::array<std::vector<uint8_t>, 5> engine_image{};
     zoom_board *zoom = nullptr;
     rf5c296_device_t *rf5c296 = nullptr;
+    rf5c296_card_ops_t pc_card{};
     uint64_t last_cycle = 0;
     uint64_t fractional_25ths = 0;
     uint64_t watchdog_time_us = 0;
@@ -28,6 +29,7 @@ struct gnet_zoom_board {
     uint16_t control2 = 0;
     uint32_t fault = 0;
     bool reset_callback_active = false;
+    unsigned pc_card_callback_depth = 0;
 };
 
 namespace {
@@ -94,6 +96,54 @@ static bool valid_pc_card(const rf5c296_card_ops_t *card)
 {
     return !card || (card->read_memory && card->write_memory &&
         card->read_reg && card->write_reg && card->reset);
+}
+
+struct PcCardCallbackGuard {
+    explicit PcCardCallbackGuard(gnet_zoom_board *board_) : board(board_)
+    {
+        ++board->pc_card_callback_depth;
+    }
+    ~PcCardCallbackGuard() { --board->pc_card_callback_depth; }
+    gnet_zoom_board *board;
+};
+
+static uint16_t pc_card_read_memory(void *opaque, uint32_t offset,
+                                    uint16_t mem_mask)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    PcCardCallbackGuard guard(b);
+    return b->pc_card.read_memory(b->pc_card.opaque, offset, mem_mask);
+}
+
+static void pc_card_write_memory(void *opaque, uint32_t offset, uint16_t data,
+                                 uint16_t mem_mask)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    PcCardCallbackGuard guard(b);
+    b->pc_card.write_memory(b->pc_card.opaque, offset, data, mem_mask);
+}
+
+static uint16_t pc_card_read_reg(void *opaque, uint32_t offset,
+                                 uint16_t mem_mask)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    PcCardCallbackGuard guard(b);
+    return b->pc_card.read_reg(b->pc_card.opaque, offset, mem_mask);
+}
+
+static void pc_card_write_reg(void *opaque, uint32_t offset, uint16_t data,
+                              uint16_t mem_mask)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    PcCardCallbackGuard guard(b);
+    b->pc_card.write_reg(b->pc_card.opaque, offset, data, mem_mask);
+}
+
+static void pc_card_reset(void *opaque)
+{
+    auto *b = static_cast<gnet_zoom_board *>(opaque);
+    PcCardCallbackGuard guard(b);
+    b->pc_card.reset(b->pc_card.opaque);
 }
 
 static int pc_io_read(gnet_zoom_board *b, uint32_t address, unsigned width,
@@ -318,8 +368,17 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     auto *b = new (std::nothrow) gnet_zoom_board;
     if (!b) return GNET_ZOOM_NOMEM;
     b->config = *config;
+    b->config.pc_card = nullptr; // The callback descriptor is copied below.
     if (config->pc_card) {
-        b->rf5c296 = rf5c296_create(config->pc_card);
+        b->pc_card = *config->pc_card;
+        rf5c296_card_ops_t adapter_card{};
+        adapter_card.opaque = b;
+        adapter_card.read_memory = pc_card_read_memory;
+        adapter_card.write_memory = pc_card_write_memory;
+        adapter_card.read_reg = pc_card_read_reg;
+        adapter_card.write_reg = pc_card_write_reg;
+        adapter_card.reset = pc_card_reset;
+        b->rf5c296 = rf5c296_create(&adapter_card);
         if (!b->rf5c296) {
             delete b;
             return GNET_ZOOM_NOMEM;
@@ -405,7 +464,8 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
 extern "C" int gnet_zoom_try_destroy(gnet_zoom_board *b)
 {
     if (!b) return GNET_ZOOM_OK;
-    if (b->reset_callback_active || zoom_board_is_busy(b->zoom))
+    if (b->reset_callback_active || b->pc_card_callback_depth ||
+        zoom_board_is_busy(b->zoom))
         return GNET_ZOOM_BUSY;
     zoom_board_destroy(b->zoom);
     for (nor_flash_t *flash : b->flash) nor_flash_destroy(flash);
