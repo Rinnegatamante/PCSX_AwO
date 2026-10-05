@@ -61,7 +61,7 @@ elseif mode == 'timer' then
   tapword(0xffff64, 'TCR0', 'TIER0')
   tapword(0xffff66, 'TIER0', 'TSR0')
   tapword(0xffff68, 'TCNT0H', 'TCNT0L')
-elseif mode == 'sci' or mode == 'sci_external' then
+elseif mode == 'sci' or mode == 'sci_external' or mode == 'sci_rx' then
   tapword(0xffffb0, 'SMR0', 'BRR0')
   tapword(0xffffb2, 'SCR0', 'TDR0')
   tapword(0xffffb4, 'SSR0', 'RDR0')

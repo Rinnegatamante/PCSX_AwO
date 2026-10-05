@@ -53,6 +53,23 @@ SCI_FIRMWARE = make_sci_firmware()
 SCI_EXTERNAL_FIRMWARE = make_sci_firmware(0x32)
 
 
+def make_sci_rx_firmware() -> list[int]:
+    # Synchronous receive without TX starts from scheduler time, not TX's
+    # charged CPU clock. Polling at cycle 60 exposes the divider phase.
+    words: list[int] = []
+    for address, value in ((0xFFB0, 0x80), (0xFFB1, 0), (0xFFB2, 0x10)):
+        words.extend((0xF800 | value, 0x6A88, address))
+    words.extend((0x0000, 0x0000, 0x0000))
+    loop = 0x100 + len(words) * 2
+    words.extend((0x6A08, 0xFFB4, 0x6AA8, 0x0008, 0x0000))
+    after_branch = 0x100 + (len(words) + 1) * 2
+    words.append(0x4000 | ((loop - after_branch) & 0xff))
+    return words
+
+
+SCI_RX_FIRMWARE = make_sci_rx_firmware()
+
+
 def run_mame(mame: str, rompath: Path, script: Path, work: Path) -> tuple[str, int, list[str], bool]:
     command = [mame, "soulclbrac", "-noreadconfig", "-rompath", str(rompath),
                "-skip_gameinfo", "-video", "none", "-sound", "none", "-nothrottle",
@@ -130,7 +147,8 @@ def main() -> int:
                         help="include the serial status firmware once the host pin model is integrated")
     args = parser.parse_args()
     firmware_by_mode = {"adc": ADC_FIRMWARE, "timer": TIMER_FIRMWARE,
-                        "sci": SCI_FIRMWARE, "sci_external": SCI_EXTERNAL_FIRMWARE}
+                        "sci": SCI_FIRMWARE, "sci_external": SCI_EXTERNAL_FIRMWARE,
+                        "sci_rx": SCI_RX_FIRMWARE}
     active_modes = tuple(firmware_by_mode) if args.include_sci else ("adc", "timer")
     archive = args.rompath / "soulclbr.zip"
     if not archive.is_file():
@@ -280,7 +298,8 @@ def main() -> int:
                     "firmware_words": {"adc": [f"0x{x:04x}" for x in ADC_FIRMWARE],
                     "timer": [f"0x{x:04x}" for x in TIMER_FIRMWARE],
                     "sci": [f"0x{x:04x}" for x in SCI_FIRMWARE],
-                    "sci_external": [f"0x{x:04x}" for x in SCI_EXTERNAL_FIRMWARE]}},
+                    "sci_external": [f"0x{x:04x}" for x in SCI_EXTERNAL_FIRMWARE],
+                    "sci_rx": [f"0x{x:04x}" for x in SCI_RX_FIRMWARE]}},
             "reset_events": resets,
             "accesses": all_rows,
             "peripheral_flag_transitions": flag_transitions,
