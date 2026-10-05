@@ -49,6 +49,10 @@ COORD_ALIAS_GP0_SHA256 = "185afe4f88d9594e7deafb7417d4cc2d4400b0b50894eff20a9b81
 EXPECTED_COORD_ALIAS_PIXELS = (0x001f, 0x03e0, 0x03e0,
                                0x001f, 0x03e0, 0x03e0,
                                0x001f, 0x03e0, 0x03e0)
+EXPECTED_COORD_SPAN_CULL_PIXELS = (0x001f, 0x001f,
+                                   0x001f, 0x03e0,
+                                   0x001f, 0x001f,
+                                   0x001f, 0x03e0)
 EXPECTED_VRAM_X_WRAP_PIXELS = (0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
                                0x001f, 0x03e0, 0x001f, 0x03e0)
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
@@ -91,10 +95,11 @@ def probe_configuration(texture_window=False, vram_x_wrap=False, coord_alias=Fal
 
 
 def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
-                    coord_alias=False):
+                    coord_alias=False, coord_span_cull=False):
     """Generate an ari64 MIPS guest that exercises main-target/VRAM ordering."""
-    if sum((texture_window, sprite_uv_wrap, vram_x_wrap, coord_alias)) > 1:
-        raise ValueError("texture-window, sprite-UV-wrap, VRAM-X-wrap, and coordinate-alias probes are separate modes")
+    if sum((texture_window, sprite_uv_wrap, vram_x_wrap, coord_alias,
+            coord_span_cull)) > 1:
+        raise ValueError("texture-window, sprite-UV-wrap, VRAM-X-wrap, coordinate-alias, and coordinate-span probes are separate modes")
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     code = []
     commands = []
@@ -478,6 +483,44 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
                 draw("negative", 8)
             c0_pixel(sample_x, sample_y, result_index + 2)
 
+    if coord_span_cull:
+        # A 1024-pixel GP0 triangle edge exceeds the PSX rasterizer's maximum
+        # X span. NEON rejects it in prepare_triangle; MAME rejects its edge
+        # in CULLPOINT. The GL bridge must apply the same primitive cull before
+        # rasterizing, or this oversized triangle overwrites the red witness.
+        draw_env(0, 0, 319, 239)
+        tile8(160, 80, 0x001f)
+        c0_pixel(160, 80, 19)
+        gp0(0x2000ff00)
+        gp0(0x00140600)  # (-512, 20), low 11-bit X = 0x600
+        gp0(0x00140200)  # ( 512, 20), low 11-bit X = 0x200
+        gp0(0x00c80000)  # (   0,200); witness is well inside the triangle
+        c0_pixel(160, 80, 20)
+
+        # The adjacent 1023-span case remains a valid triangle and must draw.
+        tile8(160, 80, 0x001f)
+        c0_pixel(160, 80, 21)
+        gp0(0x2000ff00)
+        gp0(0x00140600)  # (-512, 20)
+        gp0(0x001401ff)  # ( 511, 20), span is exactly 1023
+        gp0(0x00c80000)
+        c0_pixel(160, 80, 22)
+
+        # For an FT4 split along (v1,v2), cull the first span-1024 triangle
+        # but retain its valid second triangle. The two read points isolate
+        # each half away from the diagonal and top/side edges.
+        tile8(96, 56, 0x001f)
+        tile8(264, 56, 0x001f)
+        c0_pixel(100, 60, 23)
+        c0_pixel(270, 60, 24)
+        gp0(0x2800ff00)
+        gp0(0x00140600)  # v0=(-512,20)
+        gp0(0x00140200)  # v1=( 512,20)
+        gp0(0x00640000)  # v2=(   0,100)
+        gp0(0x00780014)  # v3=(  20,120)
+        c0_pixel(100, 60, 25)
+        c0_pixel(270, 60, 26)
+
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
     loop = 0xbfc01000 + len(code) * 4
@@ -486,14 +529,15 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
 
 
 def make_regions(path, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
-                 coord_alias=False):
+                 coord_alias=False, coord_span_cull=False):
     """Reuse the DRC's local System12 board/media regions; replace guest ROM."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     drc.make_regions(path, 4, vita_signature=True)
     code, _ = make_guest_code(texture_window=texture_window,
                               sprite_uv_wrap=sprite_uv_wrap,
                               vram_x_wrap=vram_x_wrap,
-                              coord_alias=coord_alias)
+                              coord_alias=coord_alias,
+                              coord_span_cull=coord_span_cull)
     if len(code) > (0x400000 - 0x1000) // 4:
         raise RuntimeError("generated framebuffer guest exceeds the main ROM region")
     main = bytearray(0x400000)

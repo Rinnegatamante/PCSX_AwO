@@ -433,6 +433,32 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             FIXTURE.make_guest_code(vram_x_wrap=True, coord_alias=True)
 
+    def test_optional_coordinate_span_cull_targets_exact_1024_edge(self):
+        _code, commands = FIXTURE.make_guest_code(coord_span_cull=True)
+        self.assertEqual(commands.count(0xc0000000), 26)
+        triangles = [(i, commands[i + 1:i + 4]) for i, word in enumerate(commands)
+                     if word == 0x2000ff00]
+        self.assertEqual([points for _, points in triangles], [
+            [0x00140600, 0x00140200, 0x00c80000],
+            [0x00140600, 0x001401ff, 0x00c80000],
+        ])
+        quad_at = commands.index(0x2800ff00)
+        self.assertEqual(commands[quad_at + 1:quad_at + 5],
+                         [0x00140600, 0x00140200, 0x00640000, 0x00780014])
+        read_points = []
+        for cursor, word in enumerate(commands):
+            if word == 0xc0000000:
+                xy = commands[cursor + 1]
+                read_points.append((xy & 0xffff, xy >> 16))
+        self.assertEqual(read_points[-8:], [(160, 80), (160, 80), (160, 80),
+                                            (160, 80), (100, 60), (270, 60),
+                                            (100, 60), (270, 60)])
+        self.assertEqual(FIXTURE.EXPECTED_COORD_SPAN_CULL_PIXELS,
+                         (0x001f, 0x001f, 0x001f, 0x03e0,
+                          0x001f, 0x001f, 0x001f, 0x03e0))
+        with self.assertRaises(ValueError):
+            FIXTURE.make_guest_code(coord_alias=True, coord_span_cull=True)
+
 
 if __name__ == "__main__":
     unittest.main()
