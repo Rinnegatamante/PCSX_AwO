@@ -108,6 +108,47 @@ static int write_system12_bus_trace(FILE *file,
   return ferror(file) ? -1 : 0;
 }
 
+#ifdef PCSX_SYSTEM12
+typedef struct {
+  FILE *file;
+  system12_edge_event last_read;
+  uint64_t sequence, last_read_sequence, printed_sequence;
+  unsigned rows;
+  int have_read, overflow;
+} HarnessEdgeTrace;
+
+static void write_edge_event(HarnessEdgeTrace *trace,
+    const system12_edge_event *event, uint64_t sequence)
+{
+  if (sequence <= trace->printed_sequence) return;
+  if (trace->rows >= 20000) { trace->overflow = 1; return; }
+  fprintf(trace->file, "%" PRIu64 ",%s,%u,%u,%u,%" PRIu64 ",%" PRIu64 "\n",
+    sequence, event->kind == SYSTEM12_EDGE_VBLANK ? "vblank" : "portb_input",
+    event->value, event->main_cycle, event->synced_main_cycle,
+    (uint64_t)event->h8_cycle, (uint64_t)event->h8_budget);
+  trace->printed_sequence = sequence;
+  trace->rows++;
+}
+
+static void harness_system12_edge_event(void *opaque,
+    const system12_edge_event *event)
+{
+  HarnessEdgeTrace *trace = opaque;
+  uint64_t sequence = ++trace->sequence;
+  if (event->kind == SYSTEM12_EDGE_VBLANK || !trace->have_read ||
+      ((trace->last_read.value ^ event->value) & 0x80)) {
+    if (trace->have_read)
+      write_edge_event(trace, &trace->last_read, trace->last_read_sequence);
+    write_edge_event(trace, event, sequence);
+  }
+  if (event->kind == SYSTEM12_EDGE_PORTB_INPUT) {
+    trace->last_read = *event;
+    trace->last_read_sequence = sequence;
+    trace->have_read = 1;
+  }
+}
+#endif
+
 typedef struct HarnessBoard {
   int family;
   const char *name;
@@ -235,7 +276,7 @@ static void usage(const char *name)
     "[--reset-at-cycle N] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
-    "[--board-bus-trace FILE] "
+    "[--board-bus-trace FILE] [--system12-edge-trace FILE] "
     "[--max-blocks N] [--icache] [--drc] [--interactive]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
@@ -427,9 +468,11 @@ int main(int argc, char **argv)
   FILE *snapshots = NULL;
   const char *bus_trace_path = NULL;
   FILE *bus_trace_file = NULL;
+  const char *edge_trace_path = NULL;
 #ifdef PCSX_SYSTEM12
   harness_bus_trace_bin *bus_trace_bins = NULL;
   int bus_trace_finished = 0;
+  HarnessEdgeTrace edge_trace = {0};
 #endif
   uint64_t snapshot_interval = 262144, snapshot_start = 262144, next_snapshot = 262144;
   unsigned int snapshot_count = 0;
@@ -508,6 +551,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
+    else if (!strcmp(argv[i], "--system12-edge-trace") && i + 1 < argc) edge_trace_path = argv[++i];
     else if ((!strcmp(argv[i], "--trace-blocks") || !strcmp(argv[i], "--max-blocks")) && i + 1 < argc) {
       int tracing = !strcmp(argv[i], "--trace-blocks");
       char *tail; unsigned long n;
@@ -563,7 +607,7 @@ int main(int argc, char **argv)
   next_snapshot = snapshot_start ? snapshot_start : snapshot_interval;
   if (vram_path) {
     const char *paths[] = {exe, output, inputs_path, audio_path, nvram_path,
-                          trace_path, snapshot_path, bus_trace_path};
+                          trace_path, snapshot_path, bus_trace_path, edge_trace_path};
     for (i = 0; i < (int)(sizeof(paths) / sizeof(paths[0])); i++) {
       if (paths[i] && !strcmp(vram_path, paths[i])) {
         fprintf(stderr, "--dump-vram must use a separate output path\n");
@@ -576,6 +620,7 @@ int main(int argc, char **argv)
       ((inputs_path || audio_path || audio_test_fixture || nvram_path) && !board) ||
       (snapshot_path && (!board || board_family != 12)) ||
       (bus_trace_path && (!board || board_family != 12)) ||
+      (edge_trace_path && (!board || board_family != 12 || board_test)) ||
       (reset_at_cycle && (!board || board_family != 12 || board_test || interactive)) ||
       (inputs_path && !strcmp(inputs_path, output)) ||
       (trace_path && inputs_path && !strcmp(trace_path, inputs_path)) ||
@@ -596,6 +641,20 @@ int main(int argc, char **argv)
         !strcmp(bus_trace_path, output))) ||
       (audio_test_fixture && (!board_test || !audio_path || board_family != 12))) {
     usage(argv[0]); return 2;
+  }
+  if (edge_trace_path) {
+    const char *paths[] = {exe, output, inputs_path, audio_path, nvram_path,
+                          trace_path, snapshot_path, bus_trace_path};
+    for (i = 0; i < (int)(sizeof(paths) / sizeof(paths[0])); i++) {
+      if (paths[i] && !strcmp(edge_trace_path, paths[i])) {
+        fprintf(stderr, "--system12-edge-trace must use a separate output path\n");
+        return 2;
+      }
+    }
+#ifndef PCSX_SYSTEM12
+    fprintf(stderr, "Rebuild with BOARD=1 for System12 edge tracing.\n");
+    return 2;
+#endif
   }
 #if !defined(GPU_VITA_CTR)
   if (capture_gl) {
@@ -892,6 +951,15 @@ int main(int argc, char **argv)
 #ifdef PCSX_SYSTEM12
   if (bus_trace_bins)
     system12_set_bus_trace(harness_system12_bus_event, bus_trace_bins);
+  if (edge_trace_path && !result) {
+    edge_trace.file = fopen(edge_trace_path, "w");
+    if (!edge_trace.file) { perror(edge_trace_path); result = 1; }
+    else {
+      fputs("sequence,event,value,main_cycle,synced_main_cycle,h8_cycle,h8_budget\n",
+        edge_trace.file);
+      system12_set_edge_trace(harness_system12_edge_event, &edge_trace);
+    }
+  }
 #endif
   cycle_limit = (uint64_t)PSXCLK * frames / 30 + PSXCLK;
   clock_gettime(CLOCK_MONOTONIC, &begin);
@@ -1017,6 +1085,17 @@ int main(int argc, char **argv)
   if (trace && fclose(trace)) result = 1;
   if (snapshots && fclose(snapshots)) result = 1;
 #ifdef PCSX_SYSTEM12
+  if (edge_trace.file) {
+    system12_set_edge_trace(NULL, NULL);
+    if (edge_trace.have_read)
+      write_edge_event(&edge_trace, &edge_trace.last_read,
+        edge_trace.last_read_sequence);
+    if (edge_trace.overflow || ferror(edge_trace.file)) {
+      fprintf(stderr, "System12 edge trace truncated or write failed\n");
+      result = 1;
+    }
+    if (fclose(edge_trace.file)) result = 1;
+  }
   if (bus_trace_bins) {
     system12_set_bus_trace(NULL, NULL);
     if (write_system12_bus_trace(bus_trace_file, bus_trace_bins)) result = 1;

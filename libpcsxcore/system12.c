@@ -77,6 +77,23 @@ static struct {
 static void pcm_sync_h8(void);
 static system12_bus_trace_cb bus_trace_cb;
 static void *bus_trace_opaque;
+static system12_edge_trace_cb edge_trace_cb;
+static void *edge_trace_opaque;
+
+void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque)
+{
+    edge_trace_cb = callback;
+    edge_trace_opaque = opaque;
+}
+
+static void trace_edge(unsigned kind, unsigned value)
+{
+    if (edge_trace_cb) {
+        system12_edge_event event = {kind, value, psxRegs.cycle,
+            board.last_cycle, h8_current_cycle(board.h8), board.h8_requested};
+        edge_trace_cb(edge_trace_opaque, &event);
+    }
+}
 
 void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque)
 {
@@ -334,7 +351,11 @@ static u8 sub_port_read(void *opaque, unsigned port)
 {
     (void)opaque;
     if (port == 8) return 0xef; /* sense None */
-    if (port == 11) return board.portb | 0x7f;
+    if (port == 11) {
+        u8 value = board.portb | 0x7f;
+        trace_edge(SYSTEM12_EDGE_PORTB_INPUT, value);
+        return value;
+    }
     return 0xff;
 }
 
@@ -476,6 +497,7 @@ void system12_vblank(int level)
     board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
     h8_set_irq(board.h8, 1, level);
     h8_adc_trigger(board.h8, level);
+    trace_edge(SYSTEM12_EDGE_VBLANK, level);
 }
 
 static int load_region(const char *directory, const char *name, size_t size, u8 **out)
@@ -638,6 +660,8 @@ void system12_unload(void)
     /* Call after psxShutdown(): sizes are needed to unmap the core. */
     bus_trace_cb = NULL;
     bus_trace_opaque = NULL;
+    edge_trace_cb = NULL;
+    edge_trace_opaque = NULL;
 #ifndef DRC_DISABLE
     new_dynarec_set_code_span_provider(NULL);
 #endif

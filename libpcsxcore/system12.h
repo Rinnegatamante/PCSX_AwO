@@ -12,6 +12,18 @@ typedef void (*system12_audio_cb)(void *opaque, const int16_t *stereo,
  * board bus handler, must not re-enter the core, and is cleared on unload. */
 typedef void (*system12_bus_trace_cb)(void *opaque, u32 address, unsigned width,
 		int is_write, u32 value, u32 pc, u32 cycle);
+/* Diagnostic pin observations, without changing the emulation schedule.
+ * PORTB_INPUT is the external input before H8 GPIO masking. VBLANK is emitted
+ * after line delivery. Main counters are 32-bit; H8 clocks are absolute across
+ * soft reset. This synchronous observer must not re-enter/reset the core. */
+enum { SYSTEM12_EDGE_PORTB_INPUT = 1, SYSTEM12_EDGE_VBLANK = 2 };
+typedef struct {
+	unsigned kind, value;
+	u32 main_cycle, synced_main_cycle;
+	u64 h8_cycle, h8_budget;
+} system12_edge_event;
+typedef void (*system12_edge_trace_cb)(void *opaque,
+		const system12_edge_event *event);
 
 int system12_load(const char *directory);
 void system12_unload(void);
@@ -35,6 +47,7 @@ int system12_close_audio(void);
  * Called synchronously from device advancement; must not re-enter/reset core. */
 void system12_set_audio_output(system12_audio_cb callback, void *opaque);
 void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque);
+void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque);
 unsigned char system12_jamma_read(unsigned offset);
 void system12_audio_test_fixture(void);
 int system12_read(u32 address, unsigned width, u32 *value);
