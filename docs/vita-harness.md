@@ -627,5 +627,15 @@ changes only `vglUseLowPrecision(GL_TRUE)` to `GL_FALSE` relative to that
 progress package. Compiler optimization/fast flags remain unchanged. Its
 exact source delta and build identities are recorded in
 `build/vita-system12-vitagl-teardown/fullprecision-evidence.json`.
-Native validation is pending; the public renderer still uses low precision
-and no artifact cause is established by this diagnostic build alone.
+With the same `f996dfab…` host and a fresh profile/shader cache, its native
+12,000-frame replay also fails the 900-second deadline. The last completed
+milestone is 8,400 at 349,542 ms, with 116/177 inputs; no 9,000 milestone,
+final report or shutdown PASS follows. Twenty-four native PNGs and two host
+samples are retained in `/tmp/pcsx-vitagl-fullprecision-native-12000-20261005`,
+with the observations in `precision-review.json`. The last screenshot still
+shows the VS BATTLE rank screen with header artifacts. Its animated text
+differs from the baseline, so these captures are not a pixel comparison.
+The slow-phase sample observes `S12GAME01` in an untimed lightweight-condition
+wait and `CTR Renderer` in `sceKernelDelayThread`. Disabling low precision
+did not resolve this replay failure; the sample does not establish its cause.
+The public renderer still uses low precision.
