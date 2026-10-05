@@ -639,3 +639,17 @@ The slow-phase sample observes `S12GAME01` in an untimed lightweight-condition
 wait and `CTR Renderer` in `sceKernelDelayThread`. Disabling low precision
 did not resolve this replay failure; the sample does not establish its cause.
 The public renderer still uses low precision.
+
+A private host with bounded lightweight-condition snapshots was then run with
+the unchanged progress VPK. This diagnostic was stopped after the 600-second
+screenshot schedule and several minutes without a frame-9,000 milestone; it
+required SIGKILL of its owned process group after SIGTERM did not close it.
+It is not a completed replay or a 900-second timeout result. Its last milestone
+is 8,400 at 355,799 ms. The retained snapshots show the renderer continuing to
+signal the main thread: the last eight sampled waits are approximately
+15.98–16.03 seconds, not a permanent lost wakeup. All 7,628 forwarded host
+faults have paired recoveries. Evidence, including the controlled-stop reason
+and matching wait/signal sequences, is in
+`/tmp/pcsx-vitagl-lwcond-trace2-native-12000-20261005/wait-review.json`.
+The result motivates a separate private probe for long renderer delays and
+their guest caller addresses; it does not attribute the waits to an allocator.

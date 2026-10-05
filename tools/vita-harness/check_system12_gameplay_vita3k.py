@@ -106,7 +106,8 @@ class ProcessGroupWatchdog:
 
 class CapturedGuest:
     """Drain Vita3K output without retaining its high-volume diagnostic lines."""
-    LIVE_DIAGNOSTIC_PREFIXES = (b"Vita3K lwcond trace", b"Vita3K delay trace")
+    LIVE_DIAGNOSTIC_PREFIXES = (b"Vita3K lwcond trace", b"Vita3K delay trace",
+                                b"Vita3K long renderer delay")
     LIVE_DIAGNOSTIC_LIMIT = 8192
     MARKERS = (b"Stopping -> Idle", b"pcsx-vita: smoke PASS",
                b"pcsx-vita: system12-report PASS", b"pcsx-vita: system12-capture PASS",
@@ -124,6 +125,7 @@ class CapturedGuest:
                  b"Vita3K recovered protected access", b"Vita3K protection miss",
                  b"Vita3K lwcond trace",
                  b"Vita3K delay trace",
+                 b"Vita3K long renderer delay",
                  b"vitaGL-shutdown stage=")
     FORWARDED = re.compile(rb"Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=(0x[0-9a-fA-F]+)\s*$")
     RECOVERED = re.compile(rb"Vita3K recovered protected access pc=(0x[0-9a-fA-F]+) addr=0x[0-9a-fA-F]+ write=[01]\s*$")

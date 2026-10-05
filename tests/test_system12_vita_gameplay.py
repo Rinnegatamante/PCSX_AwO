@@ -195,7 +195,7 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
             log = Path(directory) / "vita.log"
             code = (
                 "print('Vita3K lwcond trace snapshot=1'); "
-                "print('Vita3K delay trace delay_us=1000000 ' + 'x'*2000); "
+                "print('Vita3K long renderer delay delay_us=1000000 ' + 'x'*2000); "
                 "[print('Vita3K lwcond trace seq=' + str(i)) for i in range(5)]; "
                 "print('pcsx-vita: system12-report PASS'); print('Stopping -> Idle')")
             live = io.StringIO()
@@ -224,7 +224,7 @@ class System12VitaGameplayEvidenceTests(unittest.TestCase):
                     captured.close()
             # Suppressing live output does not suppress the retained evidence.
             self.assertIn("Vita3K lwcond trace seq=4", log.read_text())
-            self.assertIn("Vita3K delay trace", log.read_text())
+            self.assertIn("Vita3K long renderer delay", log.read_text())
 
     def test_ppm_dimensions_and_payload_are_checked(self):
         with tempfile.TemporaryDirectory() as directory:
