@@ -752,6 +752,9 @@ OBJS += libpcsxcore/systemgnet.o libpcsxcore/arcade/zsg2.o \
 	libpcsxcore/arcade/tms57002/tms57002_core.o \
 	libpcsxcore/arcade/tms57002/tms57kdec.o \
 	libpcsxcore/arcade/tms57002/tmsops.o
+ifeq ($(HAVE_CHD),1)
+OBJS += libpcsxcore/arcade/gnet_storage.o
+endif
 endif
 
 include Makefile

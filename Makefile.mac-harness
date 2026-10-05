@@ -90,6 +90,7 @@ CFLAGS += -DPCSX_SYSTEM_GV
 SOURCES += libpcsxcore/systemgv.c
 CXXSOURCES += libpcsxcore/arcade/konamigv.cpp libpcsxcore/arcade/nscsi_cd.cpp
 CXXSOURCES += libpcsxcore/arcade/chd_hd.cpp libpcsxcore/arcade/chd_cd.cpp
+CXXSOURCES += libpcsxcore/arcade/gnet_storage.cpp
 endif
 CFLAGS += -DPCSX_SYSTEM12
 ifeq ($(SYSTEM12_TIMING),1)
