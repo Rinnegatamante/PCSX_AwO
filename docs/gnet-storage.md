@@ -24,7 +24,8 @@ paths in the pinned source `deb2f54fe7300e7a192690318beb860159bfd52a`:
   little-endian words, including word 0. A present IDNT with another valid
   length is reported in `gnet_storage_info_t` but does not enter the raw-data
   path; the source CF IDENTIFY builder supplies the ATA data instead. Missing
-  IDNT uses that same builder.
+  IDNT uses that same builder, including its `MAME Compressed CompactFlash`
+  model string. The composition layer does not override source IDENTIFY strings.
 - A metadata I/O error fails open explicitly. It is never treated as missing.
 
 The ATA/CHD geometry must have 512-byte sectors, nonzero CHS, cylinders no
@@ -36,9 +37,11 @@ required by the hard-disk geometry record.
 RF5C296/G-Net board. That board must be destroyed or detached before the
 storage object. Calls are synchronous, single-owner, and non-reentrant. The
 component reports BUSY from destruction while one of its callback/API
-operations is active; retry after it returns. Teardown detaches the card from
-ATA, destroys card, ATA, and CHD, in that order. Overlay persistence is
-explicit; destroying an unflushed storage object discards pending writes.
+operations is active; retry after it returns. Every path into the private ATA
+and card children crosses those guarded entry points, so the preflight occurs
+before teardown mutates either child. Teardown detaches the card from ATA,
+destroys card, ATA, and CHD, in that order. Overlay persistence is explicit;
+destroying an unflushed storage object discards pending writes.
 
 The integration suite generates synthetic local CHDs with `chdman`; it does
 not use copyrighted game media. It exercises Type 1/Type 2/CF/generic cards,

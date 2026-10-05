@@ -227,7 +227,6 @@ extern "C" int gnet_storage_open(const gnet_storage_config_t *config,
   ata_config.heads = static_cast<uint8_t>(geometry.heads);
   ata_config.sectors_per_track = static_cast<uint8_t>(geometry.sectors_per_track);
   ata_config.dma_transfer_time_ns = config->dma_transfer_time_ns;
-  ata_config.model = "Taito G-Net PC Card";
   if (identify_present && storage->identify.size() == 512) {
     ata_config.identify_data = storage->identify.data();
     ata_config.identify_size = storage->identify.size();
@@ -312,13 +311,23 @@ extern "C" uint8_t gnet_storage_ata_status(const gnet_storage_t *storage) {
 
 extern "C" int gnet_storage_try_destroy(gnet_storage_t *storage) {
   if (!storage) return GNET_STORAGE_ARGUMENT;
+  // Every route into the private card/ATA children is through the RF callback
+  // wrappers or the guarded storage APIs above. Under the documented
+  // single-owner contract, these outer depths therefore preflight both child
+  // destruction guards before we detach anything.
   if (storage->callback_depth || storage->operation_depth)
     return GNET_STORAGE_BUSY;
   if (storage->ata && storage->card)
     (void)ata_storage_set_pccard(storage->ata, nullptr);
   if (storage->card) {
     const int result = gnet_pccard_try_destroy(storage->card);
-    if (result != GNET_PCCARD_OK) return GNET_STORAGE_BUSY;
+    if (result != GNET_PCCARD_OK) {
+      // Defensive rollback; the outer depth precheck makes this unreachable
+      // unless a child violates its callback/lifetime contract.
+      if (storage->ata)
+        (void)ata_storage_set_pccard(storage->ata, storage->card);
+      return GNET_STORAGE_BUSY;
+    }
     storage->card = nullptr;
   }
   if (storage->ata) {

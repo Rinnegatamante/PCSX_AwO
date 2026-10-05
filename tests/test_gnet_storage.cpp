@@ -121,7 +121,7 @@ void unlock(gnet_storage_t *storage, gnet_pccard_variant_t variant,
   }
 }
 
-uint16_t read_identify_word0(gnet_storage_t *storage) {
+std::array<uint16_t, 256> read_identify(gnet_storage_t *storage) {
   auto *rf = rf5c296_create(gnet_storage_card_ops(storage));
   assert(rf);
   if (gnet_storage_now(storage) < 4'000'000)
@@ -130,9 +130,21 @@ uint16_t read_identify_word0(gnet_storage_t *storage) {
   assert(gnet_storage_run_until(storage,
            gnet_storage_now(storage) + 10'000) == GNET_STORAGE_OK);
   assert(gnet_storage_ata_status(storage) & kDrq);
-  const uint16_t result = read_taskfile(rf, 0);
+  std::array<uint16_t, 256> result{};
+  for (auto &word : result) word = read_taskfile(rf, 0);
   rf5c296_destroy(rf);
   return result;
+}
+
+void assert_cf_builder_model(const std::array<uint16_t, 256> &identify) {
+  constexpr char model[] = "MAME Compressed CompactFlash";
+  for (size_t i = 0; i < 20; ++i) {
+    const char high = i * 2 < sizeof(model) - 1 ? model[i * 2] : ' ';
+    const char low = i * 2 + 1 < sizeof(model) - 1 ? model[i * 2 + 1] : ' ';
+    assert(identify[27 + i] ==
+           static_cast<uint16_t>((uint16_t(uint8_t(high)) << 8) |
+                                 uint8_t(low)));
+  }
 }
 
 void identify_and_sector_roundtrip(gnet_storage_t *storage) {
@@ -261,7 +273,9 @@ void test_metadata_and_card_variants(const std::string &dir) {
   auto *rf = rf5c296_create(gnet_storage_card_ops(missing));
   assert(rf && rf5c296_mem_read(rf, 0, 0xffff) == 0x01);
   assert(!gnet_storage_is_locked(missing));
-  assert(read_identify_word0(missing) == 0x848a);
+  const auto missing_identify = read_identify(missing);
+  assert(missing_identify[0] == 0x848a);
+  assert_cf_builder_model(missing_identify);
   rf5c296_io_write(rf, 0x1f0, 0x03, 0x00ff);
   rf5c296_io_write(rf, 0x1f0, 0x00, 0xff00);
   rf5c296_destroy(rf);
@@ -293,7 +307,9 @@ void test_metadata_and_card_variants(const std::string &dir) {
   gnet_storage_get_info(wrong_identify, &wrong_identify_info);
   assert(wrong_identify_info.metadata_identify_present &&
          wrong_identify_info.metadata_identify_bytes == 511);
-  assert(read_identify_word0(wrong_identify) == 0x848a);
+  const auto fallback_identify = read_identify(wrong_identify);
+  assert(fallback_identify[0] == 0x848a);
+  assert_cf_builder_model(fallback_identify);
   assert(gnet_storage_try_destroy(wrong_identify) == GNET_STORAGE_OK);
 }
 
