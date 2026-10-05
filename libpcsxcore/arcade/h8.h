@@ -9,6 +9,15 @@
 extern "C" {
 #endif
 typedef struct H8CPU H8CPU;
+typedef struct H8Time {
+    uint64_t seconds;
+    uint64_t attoseconds;
+} H8Time;
+typedef struct H8SyncTimer {
+    H8Time expires;
+    uint64_t generation;
+    uint8_t armed;
+} H8SyncTimer;
 typedef struct H8Config {
     void *opaque;
     uint8_t (*read8)(void *opaque, uint32_t address);
@@ -28,6 +37,11 @@ typedef struct H8Config {
     void (*serial_clk_pin)(void *opaque, unsigned channel, int level);
     /* Optional fixed external clock period, in integer attoseconds. */
     uint64_t serial_external_period_as[2];
+    /* Optional notice when an SCI's source-equivalent global sync timer is
+     * adjusted or fired. The scheduler callback itself is intentionally empty. */
+    void (*scheduler_timer_changed)(void *opaque, unsigned channel, int armed,
+                                    uint64_t generation, uint64_t seconds,
+                                    uint64_t attoseconds);
 } H8Config;
 typedef struct H8Status {
     uint32_t pc, er[8];
@@ -71,6 +85,25 @@ void h8_serial_receive(H8CPU *cpu, unsigned channel, uint8_t value);
 /* Physical receive/clock inputs; board devices should use these pin APIs. */
 void h8_serial_rx_pin(H8CPU *cpu, unsigned channel, int level);
 void h8_serial_clock_pin(H8CPU *cpu, unsigned channel, int level);
+/* Deliver a physical pin edge in an explicit scheduler callback-time context.
+ * The context is scoped and nested calls restore the prior timestamp. */
+void h8_serial_rx_pin_at_time(H8CPU *cpu, unsigned channel, int level,
+                              H8Time scheduler_time);
+void h8_serial_clock_pin_at_time(H8CPU *cpu, unsigned channel, int level,
+                                 H8Time scheduler_time);
+/* The global sync timer is distinct from the H8 internal_update deadline.
+ * Expiration uses normalized absolute attotime; an unarmed timer reports MAME's
+ * `never` timestamp (1,000,000,000 seconds). stop/soft-reset preserve an armed
+ * timer; cold reset invalidates it. Query returns 0 on success, -1 for invalid
+ * arguments. Peek returns 0 if found, 1 if none are armed, -1 on error.
+ * Fire returns 1 for a matching pending generation, 0 for stale/already fired,
+ * and -1 for invalid arguments; it never advances SCI or H8 state. The caller
+ * checks expiry before firing. Notifications may query state/deliver pins,
+ * but must not re-enter execution/reset; the owner arbitrates global timers. */
+int h8_get_sync_timer(const H8CPU *cpu, unsigned channel, H8SyncTimer *timer);
+int h8_peek_next_sync_timer(const H8CPU *cpu, unsigned *channel,
+                            H8SyncTimer *timer);
+int h8_fire_sync_timer(H8CPU *cpu, unsigned channel, uint64_t generation);
 /* Physical ADTRG pin level; falling edge triggers when ADCR bit7 is set. */
 void h8_adc_trigger(H8CPU *cpu, int level);
 void h8_get_status(const H8CPU *cpu, H8Status *status);

@@ -18,9 +18,13 @@ public:
     H8CycleClock() : m_time{0,0}, m_reset_ticks(0) {}
     static Time fromTicks(uint64_t cycles);
     static uint64_t asTicks(Time time);
+    static Time neverTime();
+    static Time addTime(Time first, Time delta);
     void advance(uint64_t cycles);
     void resetAtCycle(uint64_t old_cycle, uint64_t new_cycle);
     uint64_t nowAsCycles(uint64_t charged = 0) const;
+    uint64_t nowAsCyclesAt(Time time) const;
+    Time localTime(uint64_t charged = 0) const;
     Time time() const { return m_time; }
 private:
     static Time add(Time first, Time second);

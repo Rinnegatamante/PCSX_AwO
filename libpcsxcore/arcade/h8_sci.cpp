@@ -8,7 +8,8 @@ namespace arcade {
 
 H8Sci::H8Sci()
     : m_opaque(0), m_now(0), m_rx_now(0), m_tx_pin(0), m_clk_pin(0), m_irq(0),
-      m_reschedule(0), m_frame_tx(0), m_vector_base(0), m_channel(0),
+      m_reschedule(0), m_frame_tx(0), m_timer_adjust(0),
+      m_vector_base(0), m_channel(0),
       m_external_to_internal_ratio(0.0), m_internal_to_external_ratio(0.0),
       m_external_period_as(0), m_cpu_hz(0), m_tx_state(ST_IDLE),
       m_rx_state(ST_IDLE), m_tx_bit(0), m_rx_bit(0), m_clock_state(0),
@@ -22,10 +23,12 @@ H8Sci::H8Sci()
 void H8Sci::setCallbacks(void *opaque, NowCb now, PinCb tx, PinCb clk,
                          IrqRequest irq, unsigned vector_base,
                          unsigned channel, FrameTx frame_tx,
-                         RescheduleCb reschedule_cb, NowCb rx_now) {
+                         RescheduleCb reschedule_cb, NowCb rx_now,
+                         TimerAdjustCb timer_adjust) {
     m_opaque = opaque;
     m_now = now;
     m_rx_now = rx_now;
+    m_timer_adjust = timer_adjust;
     m_tx_pin = tx;
     m_clk_pin = clk;
     m_irq = irq;
@@ -109,6 +112,11 @@ void H8Sci::request_irq(unsigned offset) {
 void H8Sci::reschedule() {
     if (m_reschedule)
         m_reschedule(m_opaque);
+}
+
+void H8Sci::adjust_scheduler_timer(uint64_t delay_cycles) {
+    if (m_timer_adjust)
+        m_timer_adjust(m_opaque, m_channel, delay_cycles);
 }
 
 bool H8Sci::has_recv_error() const {
@@ -273,8 +281,14 @@ uint64_t H8Sci::update(uint64_t cycle) {
         } else {
             m_clock_event = 0;
         }
-        if (m_clock_event)
+        if (m_clock_event) {
+            const uint64_t now = m_rx_now ? m_rx_now(m_opaque) :
+                (m_now ? m_now(m_opaque) : 0);
+            const int64_t ticks = static_cast<int64_t>(m_clock_event - now);
+            if (ticks >= 0)
+                adjust_scheduler_timer(static_cast<uint64_t>(ticks));
             reschedule();
+        }
     } else {
         m_clock_event = 0;
         if (m_clock_mode == INTERNAL_ASYNC_OUT || m_clock_mode == INTERNAL_SYNC_OUT)
@@ -303,6 +317,7 @@ void H8Sci::clock_start(int mode) {
         const NowCb clock_now = mode == CLK_RX && m_rx_now ? m_rx_now : m_now;
         const uint64_t now = clock_now ? clock_now(m_opaque) : 0;
         m_clock_event = (now / m_clock_step + 1) * m_clock_step;
+        adjust_scheduler_timer(m_clock_event - now);
         reschedule();
         break;
     }
@@ -313,6 +328,7 @@ void H8Sci::clock_start(int mode) {
         m_clock_event = static_cast<uint64_t>(
             static_cast<uint64_t>(now * m_internal_to_external_ratio + 1.0) *
                 m_external_to_internal_ratio + 1.0);
+        adjust_scheduler_timer(m_clock_event - now);
         reschedule();
         break;
     }

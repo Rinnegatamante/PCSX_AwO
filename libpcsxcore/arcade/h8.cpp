@@ -34,6 +34,14 @@ struct H8CPU {
     arcade::H8Sci sci[2];
     arcade::H8Timer16 timers;
     arcade::H8CycleClock clock;
+    struct SyncTimerState {
+        bool armed;
+        u64 generation;
+        arcade::H8CycleClock::Time expires;
+    } sync_timer[2]={{false,0,arcade::H8CycleClock::neverTime()},
+                     {false,0,arcade::H8CycleClock::neverTime()}};
+    bool scheduler_time_override=false;
+    arcade::H8CycleClock::Time scheduler_time_value{0,0};
     void bind_peripherals();
     void refresh_bcount();
     void internal_update_at(u64 when);
@@ -112,7 +120,31 @@ static uint64_t peripheral_now(void *opaque) {
 }
 static uint64_t peripheral_rx_now(void *opaque) {
     H8CPU *c=static_cast<H8CPU*>(opaque);
-    return c->clock.nowAsCycles(c->executing_state?u64(-int64_t(c->m_icount)):0);
+    const arcade::H8CycleClock::Time now=c->executing_state?
+        c->clock.localTime(u64(-int64_t(c->m_icount))):
+        (c->scheduler_time_override?c->scheduler_time_value:c->clock.localTime());
+    return c->clock.nowAsCyclesAt(now);
+}
+static arcade::H8CycleClock::Time scheduler_now(const H8CPU *c) {
+    if(c->executing_state)
+        return c->clock.localTime(u64(-int64_t(c->m_icount)));
+    return c->scheduler_time_override?c->scheduler_time_value:c->clock.localTime();
+}
+static void notify_scheduler_timer(H8CPU *c,unsigned channel) {
+    if(!c->config.scheduler_timer_changed)return;
+    const H8CPU::SyncTimerState &timer=c->sync_timer[channel];
+    c->config.scheduler_timer_changed(c->config.opaque,channel,timer.armed,
+        timer.generation,timer.expires.seconds,timer.expires.attoseconds);
+}
+static void peripheral_timer_adjust(void *opaque,unsigned channel,u64 delay_cycles) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    if(channel>=2)return;
+    H8CPU::SyncTimerState &timer=c->sync_timer[channel];
+    ++timer.generation;
+    timer.armed=true;
+    timer.expires=arcade::H8CycleClock::addTime(scheduler_now(c),
+        arcade::H8CycleClock::fromTicks(delay_cycles));
+    notify_scheduler_timer(c,channel);
 }
 template<unsigned Channel> static void serial_tx_pin(void *opaque,int level) {
     H8CPU *c=static_cast<H8CPU*>(opaque);
@@ -132,11 +164,13 @@ void H8CPU::bind_peripherals() {
     sci[0].setCallbacks(this,peripheral_now,
         config.serial_tx_pin?serial_tx_pin<0>:nullptr,
         config.serial_clk_pin?serial_clk_pin<0>:nullptr,
-        peripheral_irq,52,0,serial_frame,peripheral_reschedule,peripheral_rx_now);
+        peripheral_irq,52,0,serial_frame,peripheral_reschedule,peripheral_rx_now,
+        peripheral_timer_adjust);
     sci[1].setCallbacks(this,peripheral_now,
         config.serial_tx_pin?serial_tx_pin<1>:nullptr,
         config.serial_clk_pin?serial_clk_pin<1>:nullptr,
-        peripheral_irq,56,1,serial_frame,peripheral_reschedule,peripheral_rx_now);
+        peripheral_irq,56,1,serial_frame,peripheral_reschedule,peripheral_rx_now,
+        peripheral_timer_adjust);
     for(unsigned ch=0;ch<2;ch++)
         sci[ch].setExternalClockPeriodAS(config.serial_external_period_as[ch],16934400);
 }
@@ -284,12 +318,21 @@ H8CPU *h8_create(const H8Config *config) {
 void h8_destroy(H8CPU *cpu) {delete cpu;}
 void h8_reset(H8CPU *c) {
     if(!c)return;
+    H8CPU::SyncTimerState old_timers[2]={c->sync_timer[0],c->sync_timer[1]};
     H8Config config=c->config;
     *c=H8CPU(config);
+    for(unsigned ch=0;ch<2;ch++) {
+        c->sync_timer[ch].generation=old_timers[ch].generation+
+            (old_timers[ch].armed?1:0);
+        if(old_timers[ch].armed&&!c->sync_timer[ch].generation)
+            ++c->sync_timer[ch].generation;
+    }
     c->bind_peripherals();
     c->io[0xf2]=0x09;
     c->io[0xc9]=0x80;c->io[0xcd]=0xf0;
     for(unsigned ch=0;ch<2;ch++)c->sci[ch].reset();
+    for(unsigned ch=0;ch<2;ch++)
+        if(old_timers[ch].armed)notify_scheduler_timer(c,ch);
 }
 int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     if(!c)return -1;
@@ -305,6 +348,7 @@ int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     for(unsigned i=0;i<13;i++)gpio[i]=c->io[gpio_regs[i]];
     // Device reset retains SCI's status-read latch and physical RX level.
     arcade::H8Sci serial[2]={c->sci[0],c->sci[1]};
+    H8CPU::SyncTimerState scheduled_timers[2]={c->sync_timer[0],c->sync_timer[1]};
     arcade::H8CycleClock clock=c->clock;
     clock.resetAtCycle(c->cycles,absolute_cycle);
     for(unsigned ch=0;ch<2;ch++) {
@@ -322,6 +366,8 @@ int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     c->m_CCR=ccr;
     c->cycles=c->cycle_epoch=absolute_cycle;
     c->clock=clock;
+    c->sync_timer[0]=scheduled_timers[0];
+    c->sync_timer[1]=scheduled_timers[1];
     c->timers.reset();
     for(unsigned ch=0;ch<2;ch++)c->sci[ch].reset();
     return 0;
@@ -440,6 +486,61 @@ void h8_serial_rx_pin(H8CPU *c,unsigned ch,int level) {
 }
 void h8_serial_clock_pin(H8CPU *c,unsigned ch,int level) {
     if(c&&ch<2)c->sci[ch].clk_w(level);
+}
+void h8_serial_rx_pin_at_time(H8CPU *c,unsigned ch,int level,H8Time time) {
+    if(!c||ch>1)return;
+    const bool old_override=c->scheduler_time_override;
+    const arcade::H8CycleClock::Time old_time=c->scheduler_time_value;
+    c->scheduler_time_override=true;
+    c->scheduler_time_value={time.seconds,time.attoseconds};
+    c->sci[ch].rx_w(level);
+    c->scheduler_time_override=old_override;
+    c->scheduler_time_value=old_time;
+}
+void h8_serial_clock_pin_at_time(H8CPU *c,unsigned ch,int level,H8Time time) {
+    if(!c||ch>1)return;
+    const bool old_override=c->scheduler_time_override;
+    const arcade::H8CycleClock::Time old_time=c->scheduler_time_value;
+    c->scheduler_time_override=true;
+    c->scheduler_time_value={time.seconds,time.attoseconds};
+    c->sci[ch].clk_w(level);
+    c->scheduler_time_override=old_override;
+    c->scheduler_time_value=old_time;
+}
+int h8_get_sync_timer(const H8CPU *c,unsigned ch,H8SyncTimer *timer) {
+    if(!c||!timer||ch>=2)return -1;
+    const H8CPU::SyncTimerState &state=c->sync_timer[ch];
+    timer->armed=state.armed?1:0;
+    timer->generation=state.generation;
+    timer->expires.seconds=state.expires.seconds;
+    timer->expires.attoseconds=state.expires.attoseconds;
+    return 0;
+}
+int h8_peek_next_sync_timer(const H8CPU *c,unsigned *channel,H8SyncTimer *timer) {
+    if(!c||!channel||!timer)return -1;
+    int selected=-1;
+    for(unsigned ch=0;ch<2;ch++) {
+        if(!c->sync_timer[ch].armed)continue;
+        if(selected<0)selected=static_cast<int>(ch);
+        else {
+            const arcade::H8CycleClock::Time a=c->sync_timer[ch].expires;
+            const arcade::H8CycleClock::Time b=c->sync_timer[selected].expires;
+            if(a.seconds<b.seconds||(a.seconds==b.seconds&&a.attoseconds<b.attoseconds))
+                selected=static_cast<int>(ch);
+        }
+    }
+    if(selected<0)return 1;
+    *channel=static_cast<unsigned>(selected);
+    return h8_get_sync_timer(c,*channel,timer);
+}
+int h8_fire_sync_timer(H8CPU *c,unsigned ch,uint64_t generation) {
+    if(!c||ch>=2)return -1;
+    H8CPU::SyncTimerState &timer=c->sync_timer[ch];
+    if(!timer.armed||timer.generation!=generation)return 0;
+    timer.armed=false;
+    timer.expires=arcade::H8CycleClock::neverTime();
+    notify_scheduler_timer(c,ch);
+    return 1;
 }
 void h8_get_status(const H8CPU *c,H8Status *s) {
     if(!c||!s)return;

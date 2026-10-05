@@ -10,6 +10,9 @@ static const uint64_t sqrt_second = UINT64_C(1000000000);
 H8CycleClock::Time H8CycleClock::fromTicks(uint64_t cycles) {
     return Time{cycles / frequency, (cycles % frequency) * period};
 }
+H8CycleClock::Time H8CycleClock::neverTime() {
+    return Time{UINT64_C(1000000000),0};
+}
 uint64_t H8CycleClock::asTicks(Time time) {
     // attotime::operator*(u32) splits attoseconds into billion-sized limbs.
     uint64_t product = (time.attoseconds % sqrt_second) * frequency;
@@ -37,6 +40,9 @@ H8CycleClock::Time H8CycleClock::subtract(Time first, Time delta) {
     first.attoseconds -= delta.attoseconds;
     return first;
 }
+H8CycleClock::Time H8CycleClock::addTime(Time first, Time delta) {
+    return add(first,delta);
+}
 void H8CycleClock::advance(uint64_t cycles) {
     // Match local_time() / scheduler accounting: per-slice from_ticks, then
     // accumulate attotime, rather than round the aggregate cycle count.
@@ -50,6 +56,12 @@ void H8CycleClock::resetAtCycle(uint64_t old_cycle,uint64_t new_cycle) {
     m_reset_ticks = asTicks(m_time);
 }
 uint64_t H8CycleClock::nowAsCycles(uint64_t charged) const {
-    return asTicks(add(m_time,fromTicks(charged))) - m_reset_ticks;
+    return nowAsCyclesAt(localTime(charged));
+}
+uint64_t H8CycleClock::nowAsCyclesAt(Time time) const {
+    return asTicks(time) - m_reset_ticks;
+}
+H8CycleClock::Time H8CycleClock::localTime(uint64_t charged) const {
+    return add(m_time,fromTicks(charged));
 }
 }

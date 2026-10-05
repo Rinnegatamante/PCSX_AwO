@@ -19,12 +19,15 @@ public:
     typedef void (*IrqRequest)(void *opaque, unsigned vector);
     typedef void (*RescheduleCb)(void *opaque);
     typedef void (*FrameTx)(void *opaque, unsigned channel, uint8_t byte);
+    typedef void (*TimerAdjustCb)(void *opaque, unsigned channel,
+                                   uint64_t delay_cycles);
 
     H8Sci();
     void setCallbacks(void *opaque, NowCb now, PinCb tx, PinCb clk,
                       IrqRequest irq, unsigned vector_base,
                       unsigned channel = 0, FrameTx frame_tx = 0,
-                      RescheduleCb reschedule = 0, NowCb rx_now = 0);
+                      RescheduleCb reschedule = 0, NowCb rx_now = 0,
+                      TimerAdjustCb timer_adjust = 0);
     void setExternalClockPeriodAS(uint64_t period_as, uint64_t cpu_hz);
     void reset();
 
@@ -65,6 +68,7 @@ private:
     void drive_clk(int level);
     void request_irq(unsigned offset);
     void reschedule();
+    void adjust_scheduler_timer(uint64_t delay_cycles);
     bool has_recv_error() const;
     void clock_update();
     void clock_start(int mode);
@@ -91,6 +95,7 @@ private:
     IrqRequest m_irq;
     RescheduleCb m_reschedule;
     FrameTx m_frame_tx;
+    TimerAdjustCb m_timer_adjust;
     unsigned m_vector_base;
     unsigned m_channel;
 
