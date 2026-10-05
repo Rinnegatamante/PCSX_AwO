@@ -103,7 +103,7 @@ unverified. `board_execution_verified` remains false in the machine-readable
 result, and this run does not establish physical Vita performance or VitaGL
 support.
 
-## VitaGL title capture and unresolved shutdown
+## VitaGL title capture and shutdown validation
 
 Use `--renderer vitagl --shader-compiler PATH` with an existing local
 `libshacccg.suprx`. VitaGL presents through GXM rather than the libretro video
@@ -135,3 +135,26 @@ The native title PNG has the same SHA-256 as the first run:
 `0f5c0e4fc8d77d2caebfdbf5e652cf9222d0cef063d8d8e19e199ef35e7c4951`.
 The diagnostic source delta, library flags/patches, and hashes are retained in
 `build/vita-system12-vitagl-teardown/evidence.json`.
+
+The shutdown trace identified a borrowed scratch-pool slice passed to
+`mspace_free`: `vglBufferData` changes a VBO's pointer, while `glDeleteBuffers`
+treats that pointer as owned storage with the required build flags. The plugin
+now detaches the borrowed batch pointers before deleting the VBOs; the static
+quad VBO retains its normal allocation ownership.
+
+The isolated 1800-frame run in
+`/tmp/pcsx-vita-system12-vitagl-detach-only-20261005` passes with diagnostic VPK
+`9cf45006079c0cab2fda2b8327aed28ab0a699a2f80bd468edcea9005922de2e`.
+Its nine native PNGs include the same title image as above, with a narrow
+striped artifact at the lower edge. H8 unsupported instructions, unmapped board
+accesses and DMA truncations are zero. All 815 forwarded faults have matching
+recoveries; every library shutdown phase completes, `vitaGL shutdown PASS (0)`
+and `Stopping -> Idle` are present. Exact source/library hashes and the frozen
+VPK are recorded by `build/vita-system12-vitagl-teardown/detach-only-evidence.json`.
+This validates title rendering and resource teardown, not a 3D match or physical
+Vita performance.
+
+The original initial VBO allocation remains unchanged in this run. Removing
+it in a separate experiment exposed a critical host protection diagnostic
+during gameplay before shutdown (`detach-evidence.json`); that experiment is
+recorded as failed and is not part of this fix. Its cause remains under review.

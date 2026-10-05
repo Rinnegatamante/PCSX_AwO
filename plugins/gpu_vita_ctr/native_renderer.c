@@ -514,6 +514,21 @@ void NativeRenderer_Shutdown(void)
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
 	SysPrintf("pcsx-vita: teardown-trace delete vertex storage\n");
 #endif
+#ifdef __vita__
+	/* vglBufferData borrows each batch from vitaGL's scratch pool. It does
+	 * not transfer ownership to the VBO, but glDeleteBuffers otherwise frees
+	 * its current pointer as an allocation. Detach the borrowed slices first;
+	 * the separately allocated quad VBO still follows normal GL ownership. */
+	for (int i = 0; i < MAX_NUM_VERTEX_BUFFERS; i++)
+	{
+		if (s_glVertexBuffer[i] != 0)
+		{
+			glBindBuffer(GL_ARRAY_BUFFER, s_glVertexBuffer[i]);
+			vglBufferData(GL_ARRAY_BUFFER, NULL);
+		}
+	}
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+#endif
 	glDeleteVertexArrays(MAX_NUM_VERTEX_BUFFERS, s_glVertexArray);
 	glDeleteBuffers(MAX_NUM_VERTEX_BUFFERS, s_glVertexBuffer);
 
