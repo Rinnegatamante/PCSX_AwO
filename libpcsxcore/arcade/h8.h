@@ -25,6 +25,7 @@ typedef struct H8Config {
 } H8Config;
 typedef struct H8Status {
     uint32_t pc, er[8];
+    /* Diagnostic counts since the latest cold/soft reset. */
     uint64_t cycles, instructions;
     uint32_t illegal_pc;
     uint16_t illegal_opcode;
@@ -35,12 +36,21 @@ typedef struct H8Status {
 H8CPU *h8_create(const H8Config *config);
 void h8_destroy(H8CPU *cpu);
 void h8_reset(H8CPU *cpu);
+/* Reset at a quiet CPU boundary, never from callbacks. Preserves ER/CCR,
+ * internal RAM and mapped GPIO DDR/DR/PCR; resets other modeled peripherals,
+ * pending requests and execution/debt state. Sets the absolute clock to the
+ * caller's accumulated budget timeline, which may precede prior overshoot.
+ * Diagnostic cycles/instructions restart at zero. Does not spend reset-vector
+ * cycles until run_cycles. Returns 0, -1 for NULL, -2 during run_cycles.
+ * h8_reset remains the original cold reset with clock zero and cleared storage. */
+int h8_soft_reset(H8CPU *cpu, uint64_t absolute_cycle);
 /* Executes whole instructions, carries cycle overshoot into the next call. */
 void h8_run_cycles(H8CPU *cpu, unsigned cycles);
 /* Current emulated H8 cycle, including access/internal costs already charged in
  * the executing state. Callbacks may query this without changing CPU state.
  * Outside state execution (including SCI/ADC tick callbacks and debug accesses)
- * returns committed cycles; reset restarts at zero. NULL returns zero. */
+ * returns committed absolute cycles; cold reset restarts at zero, soft reset
+ * uses its caller-supplied epoch (and can discard overshoot). NULL returns zero. */
 uint64_t h8_current_cycle(const H8CPU *cpu);
 /* IRQ0..IRQ5 are 0..5; NMI is -1. Level is 0/1 (asserted). */
 void h8_set_irq(H8CPU *cpu, int line, int level);

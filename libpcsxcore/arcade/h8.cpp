@@ -19,9 +19,9 @@ struct H8CPU {
     bool m_has_hc=true,m_has_mac=false,m_mode_advanced=true;
     int m_inst_state=STATE_RESET,m_icount=0,m_irq_vector=0,m_taken_irq_vector=0;
     int64_t budget=0;
-    bool executing_state=false;
+    bool executing_state=false,in_run=false;
     bool m_sleeping=false,halted=false,nmi_level=false,adc_level=true;
-    u64 cycles=0,instructions=0,pending=0;
+    u64 cycles=0,cycle_epoch=0,instructions=0,pending=0;
     u32 illegal_pc=0,unsupported=0;
     u16 illegal_opcode=0;
     u8 ram[0x200]={},io[0x100]={},irq_lines=0,ssr_read[2]={};
@@ -270,8 +270,29 @@ void h8_reset(H8CPU *c) {
         unsigned b=0xb0+i*8;c->io[b+1]=0xff;c->io[b+3]=0xff;c->io[b+4]=0x84;
     }
 }
+int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
+    if(!c)return -1;
+    if(c->in_run)return -2;
+    // MAME resets instruction/debt/IRQ/peripheral state while keeping ER/CCR,
+    // internal RAM and h8_port DDR/DR/PCR. H83002 maps no ODR register.
+    u16 registers[16];u8 memory[0x200],gpio[13],ccr=c->m_CCR;
+    static const unsigned gpio_regs[]={
+        0xc5,0xc7,0xc9,0xcb,0xcd,0xcf,0xd0,0xd1,0xd2,0xd3,0xd4,0xd6,0xda
+    };
+    std::memcpy(registers,c->m_R,sizeof(registers));
+    std::memcpy(memory,c->ram,sizeof(memory));
+    for(unsigned i=0;i<13;i++)gpio[i]=c->io[gpio_regs[i]];
+    h8_reset(c);
+    std::memcpy(c->m_R,registers,sizeof(registers));
+    std::memcpy(c->ram,memory,sizeof(memory));
+    for(unsigned i=0;i<13;i++)c->io[gpio_regs[i]]=gpio[i];
+    c->m_CCR=ccr;
+    c->cycles=c->cycle_epoch=absolute_cycle;
+    return 0;
+}
 void h8_run_cycles(H8CPU *c,unsigned requested) {
     if(!c)return;
+    c->in_run=true;
     c->budget+=requested;
     while(c->budget>0&&!c->halted) {
         c->update_irq_filter();
@@ -293,6 +314,7 @@ void h8_run_cycles(H8CPU *c,unsigned requested) {
         c->tick(n);c->budget-=n;
     }
     if(c->halted)c->budget=0;
+    c->in_run=false;
 }
 void h8_set_irq(H8CPU *c,int line,int level) {
     if(!c)return;
@@ -333,7 +355,7 @@ void h8_get_status(const H8CPU *c,H8Status *s) {
     if(!c||!s)return;
     std::memset(s,0,sizeof(*s));s->pc=c->m_NPC;
     for(unsigned i=0;i<8;i++)s->er[i]=c->r32_r(i);
-    s->ccr=c->m_CCR;s->cycles=c->cycles;s->instructions=c->instructions;
+    s->ccr=c->m_CCR;s->cycles=c->cycles-c->cycle_epoch;s->instructions=c->instructions;
     s->sleeping=c->m_sleeping;s->halted=c->halted;
     s->illegal_pc=c->illegal_pc;s->illegal_opcode=c->illegal_opcode;
     s->unsupported_peripherals=c->unsupported;

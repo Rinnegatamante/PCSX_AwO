@@ -3,6 +3,7 @@ CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
 BUILD ?= build/h8-tests
 TARGET := $(BUILD)/h8-standalone
 TIMESTAMP_TARGET := $(BUILD)/h8-timestamp
+SOFT_RESET_TARGET := $(BUILD)/h8-soft-reset
 .PHONY: all test irq-test rom-test clean
 all: $(TARGET)
 $(TARGET): libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_standalone.cpp
@@ -11,9 +12,13 @@ $(TARGET): libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8.h libpcsxcore/arcade/
 $(TIMESTAMP_TARGET): libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_timestamp.cpp
 	@mkdir -p $(BUILD)
 	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8.cpp tests/h8_timestamp.cpp -o $@
-test: $(TARGET) $(TIMESTAMP_TARGET)
+$(SOFT_RESET_TARGET): libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_soft_reset.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8.cpp tests/h8_soft_reset.cpp -o $@
+test: $(TARGET) $(TIMESTAMP_TARGET) $(SOFT_RESET_TARGET)
 	$(TARGET)
 	$(TIMESTAMP_TARGET)
+	$(SOFT_RESET_TARGET)
 IRQ_TARGET := $(BUILD)/h8-irq-filter
 $(IRQ_TARGET): libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_irq_filter.cpp
 	@mkdir -p $(BUILD)
