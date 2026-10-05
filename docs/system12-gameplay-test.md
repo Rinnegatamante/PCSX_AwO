@@ -13,6 +13,9 @@ move, and `A`/`S`/`D`/Space map to buttons one through four. Escape or closing
 the window ends the session. Losing focus releases held controls. Interactive
 mode paces presentation at 60 frames per second without changing board clocks;
 it cannot be combined with an input replay, GL capture, or board fixture.
+Interactive sessions disable the default execution-block budget so they stay
+open until closed. An explicit `--max-blocks` remains available for bounded
+diagnostic sessions.
 This window exercises the Mac OpenGL implementation, not VitaGL/GXM scheduling.
 
 `tests/check_system12_gameplay.py` runs the local Soul Calibur Asia SOC14/VER.C

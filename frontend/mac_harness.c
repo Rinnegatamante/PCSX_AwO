@@ -444,6 +444,7 @@ int main(int argc, char **argv)
   int use_drc = 0;
   int capture_gl = 0;
   int interactive = 0;
+  int max_blocks_requested = 0;
 #if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
   unsigned interactive_frame = 0;
   uint64_t interactive_started_ns = 0;
@@ -494,7 +495,11 @@ int main(int argc, char **argv)
       if (errno || *tail || n == 0 || n > (tracing ? 1000000UL : 100000000000UL)) {
         usage(argv[0]); return 2;
       }
-      if (tracing) trace_blocks = n; else max_blocks = n;
+      if (tracing) trace_blocks = n;
+      else {
+        max_blocks = n;
+        max_blocks_requested = 1;
+      }
     }
     else if (!strcmp(argv[i], "--snapshot-interval") && i + 1 < argc) {
       char *tail; unsigned long long n;
@@ -529,6 +534,7 @@ int main(int argc, char **argv)
       return 2;
     }
     frames = UINT32_MAX / 4;
+    if (!max_blocks_requested) max_blocks = ~0UL;
 #else
     fprintf(stderr, "interactive mode requires the vitagl-like Mac renderer build\n");
     return 2;
