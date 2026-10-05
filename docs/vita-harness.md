@@ -410,3 +410,16 @@ Idle. `segments-final-evidence.json` and `segments-final-source.patch` under
 delta, VPK, host and VitaGL library with the four requested build flags.
 These pixel probes do not establish authentic Soul Calibur graphics or
 physical Vita performance.
+
+The same final package completes a guarded 3,600-frame Soul Calibur replay
+with 33/33 input events, zero unsupported H8 instructions or DMA truncations,
+2,519 paired host fault recoveries and no unresolved faults. VitaGL shutdown
+PASS and Idle trigger automatic host closure; no native instance remains.
+Eleven native PNGs are retained at
+`/tmp/pcsx-vita-system12-vitagl-segments-final-20261005`. Manual review still
+fails graphics: capture 09 (VS) contains rectangular bands with mixed or
+stretched character/background portions, and capture 11 shows vertical
+background streaks during Stage 1. The title and combat geometry improve,
+but passing pixel probes and replay completion are insufficient to call
+this VitaGL version validated. `graphics-review.json` records that failure
+separately from the runner's successful execution results.
