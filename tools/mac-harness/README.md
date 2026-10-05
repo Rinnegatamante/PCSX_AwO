@@ -184,3 +184,22 @@ xcrun llvm-objdump --disassemble \
 Vector instructions such as `smull.4s`, `smlsl.4s`, `add.4s`, and `abs.4s`
 demonstrate that the compiled rasterizer uses NEON. The frontend also refuses to
 compile unless Apple ARM64 and ARM NEON are enabled.
+
+The native framebuffer comparison executes the Vita probe's GP0 stream on the
+Mac core. It adds only terminal RAM-to-register loads so cycle snapshots expose
+the eight transfer readbacks and ten interpolated FT3/FT4 pixels:
+
+```sh
+python3 tools/mac-harness/check_framebuffer_guest.py \
+  --harness build/mac-harness/pcsx-harness \
+  --output-dir /tmp/pcsx-mac-framebuffer-check
+```
+
+The output directory must be empty. It retains generated board regions, the
+expected register oracle, snapshots, a framebuffer, the harness log and binary,
+guest, command-stream and capture hashes. Failure and timeout evidence is kept.
+The same command accepts another native harness binary for a renderer
+comparison; the recorded host summary identifies what actually ran. The NEON
+interpreter passes all eighteen pixels in
+`/tmp/pcsx-mac-framebuffer-runner-neon-fixed-20261005`. This probe does not
+establish whole-game graphics compatibility.
