@@ -984,9 +984,23 @@ int main(int argc, char **argv)
         sceClibPrintf("pcsx-vita: audio initialized\n");
 
     unsigned runs = 0;
+#ifdef ARCADE_SYSTEM12
+    const bool report_progress = validation_frames && g_report_path[0];
+    const uint64_t validation_started_ms = SDL_GetTicks();
+    if (report_progress)
+        sceClibPrintf("pcsx-vita: system12-progress frames=0/%u elapsed_ms=0 inputs=%u/%u\n",
+            validation_frames, g_next_input_event, g_input_event_count);
+#endif
     sceClibPrintf("pcsx-vita: cpu_driver=%s\n", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter");
     while (!g_exit_requested && (!validation_frames || runs < validation_frames)) {
         retro_run(); ++runs;
+#ifdef ARCADE_SYSTEM12
+        if (report_progress && (runs % 600 == 0 || runs == validation_frames))
+            sceClibPrintf("pcsx-vita: system12-progress frames=%u/%u elapsed_ms=%llu inputs=%u/%u\n",
+                runs, validation_frames,
+                (unsigned long long)(SDL_GetTicks() - validation_started_ms),
+                g_next_input_event, g_input_event_count);
+#endif
     }
     int validation_result = 0;
     if (g_replay_active) {
