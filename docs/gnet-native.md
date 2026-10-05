@@ -91,8 +91,8 @@ executed MIPS program selects flash bank 1, reads the banked flash and constant
 ID register through the PSX memory bus, and records both values in PSX RAM. It
 also installs an audio sink before board load and reset, then advances the
 synthetic MN10200/TMS57002 tone program and verifies finite nonzero PCM with
-monotonic timestamps through the public adapter callback. It passes in both
-the interpreter harness; the earlier MIPS bus-only fixture also passes under
-the ARM64 DRC. The new callback assertions have not yet been run with DRC.
-This checks the board map bridge, audio callback lifecycle, and 4 MiB RAM path,
-not MAME assets, startup firmware, game boot, or real-board compatibility.
+monotonic timestamps through the public adapter callback. The complete fixture
+passes with both the interpreter and ARM64 DRC, including the PCM assertions
+and sink-disable check. This checks the board map bridge, audio callback
+lifecycle, and 4 MiB RAM path, not MAME assets, startup firmware, game boot, or
+real-board compatibility.
