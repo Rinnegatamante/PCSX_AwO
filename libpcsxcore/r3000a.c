@@ -31,6 +31,9 @@
 #include "system10.h"
 #include "systemzn.h"
 #include "systemtaito.h"
+#ifdef PCSX_SYSTEM_GNET
+#include "systemgnet.h"
+#endif
 #ifdef PCSX_SYSTEM_GV
 #include "systemgv.h"
 #endif
@@ -103,6 +106,12 @@ void psxReset() {
 		systemtaito_reset();
 		return;
 	}
+#ifdef PCSX_SYSTEM_GNET
+	if (systemgnet_active()) {
+		systemgnet_reset();
+		return;
+	}
+#endif
 #ifdef PCSX_SYSTEM_GV
 	if (systemgv_active()) {
 		systemgv_reset();

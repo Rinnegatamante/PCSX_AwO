@@ -26,6 +26,9 @@
 #ifdef PCSX_SYSTEM_GV
 #include "../libpcsxcore/systemgv.h"
 #endif
+#ifdef PCSX_SYSTEM_GNET
+#include "../libpcsxcore/systemgnet.h"
+#endif
 
 enum { BOARD_BUS_TRACE_BIN_CYCLES = 8192, BOARD_BUS_TRACE_MAX_BINS = 100000 };
 typedef struct harness_bus_trace_bin {
@@ -104,6 +107,9 @@ static int sync_system12(u32 cycle) { system12_sync(cycle); return 0; }
 #ifdef PCSX_SYSTEM_GV
 static int sync_systemgv(u32 cycle) { return systemgv_sync(cycle); }
 #endif
+#ifdef PCSX_SYSTEM_GNET
+static int sync_systemgnet(u32 cycle) { return systemgnet_sync(cycle); }
+#endif
 static const HarnessBoard boards[] = {
   {101, "TaitoFX1S", systemtaito_load, systemtaito_unload, systemtaito_sync,
     systemtaito_set_input, systemtaito_selftest, systemtaito_report,
@@ -112,6 +118,11 @@ static const HarnessBoard boards[] = {
   {102, "KonamiGV", systemgv_load, systemgv_unload, sync_systemgv,
     systemgv_set_input, systemgv_selftest, systemgv_report,
     NULL, NULL, systemgv_eeprom_import, systemgv_eeprom_export},
+#endif
+#ifdef PCSX_SYSTEM_GNET
+  {103, "GNet", systemgnet_load, systemgnet_unload, sync_systemgnet,
+    systemgnet_set_input, systemgnet_selftest, systemgnet_report,
+    NULL, NULL, systemgnet_eeprom_import, systemgnet_eeprom_export},
 #endif
   {100, "CapcomZN", systemzn_load, systemzn_unload, systemzn_sync,
     systemzn_set_input, systemzn_selftest, systemzn_report,
@@ -196,7 +207,7 @@ void SysRunGui(void) { interrupted = 1; }
 
 static void usage(const char *name)
 {
-  fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR | --system-gv REGION-DIR | --system-gv-fixture TEST-CHD) "
+  fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR | --system-gv REGION-DIR | --system-gnet REGION-DIR | --system-gnet-fixture) "
     "[--frames N] [--output FRAME.ppm] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
@@ -375,23 +386,35 @@ int main(int argc, char **argv)
   unsigned long blocks = 0, trace_blocks = 1000, max_blocks = 1000000000;
   int i, board_test = 0, audio_test_fixture = 0, verify = 0, result = 0, gpu_type1_test = 0;
   int gv_fixture = 0;
+  int gnet_fixture = 0;
+  int board_load_result = 0;
   int board_family = 12;
   int icache = 0;
   int use_drc = 0;
   struct timespec begin, end;
+  /* These fixture selectors are parsed for a clear BOARD=0 diagnostic too. */
+  (void)gnet_fixture;
+  (void)board_load_result;
   for (i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--exe") && i + 1 < argc) exe = argv[++i];
     else if (!strcmp(argv[i], "--system-gv-fixture") && i + 1 < argc) {
       if (board) { usage(argv[0]); return 2; }
       board = argv[++i]; board_family = 102; gv_fixture = 1; board_test = 1;
     }
+    else if (!strcmp(argv[i], "--system-gnet-fixture")) {
+      if (board) { usage(argv[0]); return 2; }
+      board = "<synthetic-gnet-fixture>"; board_family = 103;
+      gnet_fixture = 1; board_test = 1;
+    }
     else if ((!strcmp(argv[i], "--system12") || !strcmp(argv[i], "--system11") ||
         !strcmp(argv[i], "--system10") || !strcmp(argv[i], "--capcom-zn") ||
-        !strcmp(argv[i], "--taito-fx1") || !strcmp(argv[i], "--system-gv")) && i + 1 < argc) {
+        !strcmp(argv[i], "--taito-fx1") || !strcmp(argv[i], "--system-gv") ||
+        !strcmp(argv[i], "--system-gnet")) && i + 1 < argc) {
       if (board) { usage(argv[0]); return 2; }
       board_family = !strcmp(argv[i], "--system11") ? 11 :
         !strcmp(argv[i], "--system10") ? 10 : !strcmp(argv[i], "--capcom-zn") ? 100 :
-        !strcmp(argv[i], "--taito-fx1") ? 101 : !strcmp(argv[i], "--system-gv") ? 102 : 12;
+        !strcmp(argv[i], "--taito-fx1") ? 101 : !strcmp(argv[i], "--system-gv") ? 102 :
+        !strcmp(argv[i], "--system-gnet") ? 103 : 12;
       board = argv[++i];
     }
     else if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
@@ -539,11 +562,20 @@ int main(int argc, char **argv)
       if (trace) fclose(trace);
       return 2;
     }
+    if (gv_fixture) {
 #ifdef PCSX_SYSTEM_GV
-    if ((gv_fixture ? systemgv_test_load(board) : selected_board->load(board))) {
+      board_load_result = systemgv_test_load(board);
 #else
-    if (selected_board->load(board)) {
+      board_load_result = -1;
 #endif
+    } else if (gnet_fixture) {
+#ifdef PCSX_SYSTEM_GNET
+      board_load_result = systemgnet_test_load();
+#else
+      board_load_result = -1;
+#endif
+    } else board_load_result = selected_board->load(board);
+    if (board_load_result) {
       if (trace) fclose(trace); return 1;
     }
   }
@@ -619,6 +651,25 @@ int main(int argc, char **argv)
     systemgv_report(stderr);
     GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
     systemgv_unload();
+    return result;
+  }
+#endif
+#ifdef PCSX_SYSTEM_GNET
+  if (gnet_fixture) {
+    unsigned step;
+    for (step = 0; step < 600; step++) {
+      psxRegs.branchSeen = 0;
+      execI(&psxRegs);
+    }
+    if (psxMemRead32(&psxRegs, 0x80000100) != 2 ||
+        psxMemRead32(&psxRegs, 0x80000104) != 0x1234) {
+      fprintf(stderr, "SystemGNet MIPS fixture: FAIL const=%08x bankflash=%08x\n",
+        psxMemRead32(&psxRegs, 0x80000100), psxMemRead32(&psxRegs, 0x80000104));
+      result = 1;
+    } else fprintf(stderr, "SystemGNet MIPS fixture: PASS cpu=interpreter const=2 bank1_flash=1234\n");
+    systemgnet_report(stderr);
+    GPU_close(); SPU_close(); psxShutdown(); ReleasePlugins();
+    systemgnet_unload();
     return result;
   }
 #endif

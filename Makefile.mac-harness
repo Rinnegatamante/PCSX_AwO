@@ -37,7 +37,7 @@ CFLAGS += -DHAVE_CHD $(LIBCHDR_CFLAGS)
 SOURCES += $(LIBCHDR_SOURCES)
 endif
 ifeq ($(BOARD),1)
-SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c libpcsxcore/systemzn.c libpcsxcore/systemtaito.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/serial_nvram.c \
+SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c libpcsxcore/systemzn.c libpcsxcore/systemtaito.c libpcsxcore/systemgnet.c libpcsxcore/arcade/c352.c libpcsxcore/arcade/serial_nvram.c \
   libpcsxcore/arcade/namcos11_board.c libpcsxcore/arcade/at28c16.c libpcsxcore/arcade/pcm_wav.c \
   libpcsxcore/arcade/namcos10_io.c libpcsxcore/arcade/nor_flash.c \
   libpcsxcore/arcade/zn_board.c libpcsxcore/arcade/zn_mcu.c libpcsxcore/arcade/cat702.c \
@@ -45,7 +45,13 @@ SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c 
   libpcsxcore/arcade/taito_fx1.c libpcsxcore/arcade/taito_sound_comm.c libpcsxcore/arcade/mb3773.c \
   libpcsxcore/arcade/mb89371.c libpcsxcore/arcade/i8251.c \
   libpcsxcore/arcade/eeprom93c46.c
-CXXSOURCES := libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
+CFLAGS += -DPCSX_SYSTEM_GNET -I$(BUILD)/gnet-generated -Ilibpcsxcore/arcade/tms57002
+SOURCES += libpcsxcore/arcade/zsg2.c
+CXXSOURCES := libpcsxcore/arcade/gnet_zoom.cpp libpcsxcore/arcade/zoom_board.cpp \
+  libpcsxcore/arcade/mn10200.cpp libpcsxcore/arcade/tms57002.cpp \
+  libpcsxcore/arcade/tms57002/tms57002_core.cpp libpcsxcore/arcade/tms57002/tms57kdec.cpp \
+  libpcsxcore/arcade/tms57002/tmsops.cpp \
+  libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
   libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_board.cpp \
   libpcsxcore/arcade/z80.cpp libpcsxcore/arcade/qsound_hle.cpp \
   libpcsxcore/arcade/ym2610.cpp libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
@@ -64,8 +70,15 @@ CFLAGS += -DPCSX_SYSTEM12_SOURCE_TIMING
 endif
 endif
 OBJECTS := $(addprefix $(BUILD)/,$(SOURCES:.c=.o) $(CXXSOURCES:.cpp=.o) $(ASM_SOURCES:.S=.o)) $(LIBCHDR_EXTRA_OBJECTS)
+GNET_TMS_HEADER := $(BUILD)/gnet-generated/tms57002.hxx
+$(GNET_TMS_HEADER): libpcsxcore/arcade/tms57002/tmsinstr.lst libpcsxcore/arcade/tms57002/tmsmake.py
+	@mkdir -p $(dir $@)
+	python3 libpcsxcore/arcade/tms57002/tmsmake.py s $< $@
+$(BUILD)/libpcsxcore/arcade/tms57002/tms57002_core.o \
+$(BUILD)/libpcsxcore/arcade/tms57002/tms57kdec.o \
+$(BUILD)/libpcsxcore/arcade/tms57002/tmsops.o: $(GNET_TMS_HEADER)
 
-.PHONY: all clean smoke board-test system11-test system10-test systemgv-test capcom-zn-test taito-fx1-test gpu-type1-test devices-test FORCE
+.PHONY: all clean smoke board-test system11-test system10-test systemgv-test capcom-zn-test taito-fx1-test systemgnet-test gpu-type1-test devices-test FORCE
 all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CXX) -arch arm64 -Wl,-dead_strip -o $@ $^ -lz -lm
@@ -107,6 +120,8 @@ capcom-zn-test: $(TARGET)
 	python3 tests/check_capcom_zn_harness.py --harness $(TARGET)
 taito-fx1-test: $(TARGET)
 	python3 tests/check_taito_fx1_harness.py --harness $(TARGET)
+systemgnet-test: $(TARGET)
+	python3 tests/check_systemgnet_harness.py --harness $(TARGET)
 libpcsxcore/arcade/capcom_zn_profiles.inc: scripts/capcom_zn_boards.json scripts/generate_capcom_zn_profiles.py
 	python3 scripts/generate_capcom_zn_profiles.py
 libpcsxcore/arcade/taito_fx1_profiles.inc: scripts/taito_fx1_boards.json scripts/generate_taito_fx1_profiles.py

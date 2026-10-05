@@ -35,6 +35,9 @@
 #include "system10.h"
 #include "systemzn.h"
 #include "systemtaito.h"
+#ifdef PCSX_SYSTEM_GNET
+#include "systemgnet.h"
+#endif
 #endif
 #ifdef PCSX_SYSTEM_GV
 #include "systemgv.h"
@@ -309,6 +312,14 @@ void psxMemReset() {
 		Config.HLE = FALSE;
 		return;
 	}
+#ifdef PCSX_SYSTEM_GNET
+	if (systemgnet_active()) {
+		systemgnet_mem_reset();
+		if (!DISABLE_MEM_LUTS) mapRam(1);
+		Config.HLE = FALSE;
+		return;
+	}
+#endif
 #ifdef PCSX_SYSTEM_GV
 	if (systemgv_active()) {
 		systemgv_mem_reset();
@@ -414,6 +425,9 @@ u8 psxMemRead8(psxRegisters *regs, u32 mem) {
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_read(mem, 1, &board_value) ||
 #endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_read(mem, 1, &board_value) ||
+#endif
 	    systemtaito_read(mem, 1, &board_value) || systemzn_read(mem, 1, &board_value) || system10_read(mem, 1, &board_value) || system11_read(mem, 1, &board_value) || system12_read(mem, 1, &board_value))
 		return board_value;
 #endif
@@ -439,6 +453,9 @@ u16 psxMemRead16(psxRegisters *regs, u32 mem) {
 	if (
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_read(mem, 2, &board_value) ||
+#endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_read(mem, 2, &board_value) ||
 #endif
 	    systemtaito_read(mem, 2, &board_value) || systemzn_read(mem, 2, &board_value) || system10_read(mem, 2, &board_value) || system11_read(mem, 2, &board_value) || system12_read(mem, 2, &board_value))
 		return board_value;
@@ -466,6 +483,9 @@ u32 psxMemRead32(psxRegisters *regs, u32 mem) {
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_read(mem, 4, &board_value) ||
 #endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_read(mem, 4, &board_value) ||
+#endif
 	    systemtaito_read(mem, 4, &board_value) || systemzn_read(mem, 4, &board_value) || system10_read(mem, 4, &board_value) || system11_read(mem, 4, &board_value) || system12_read(mem, 4, &board_value))
 		return board_value;
 #endif
@@ -492,6 +512,9 @@ void psxMemWrite8(psxRegisters *regs, u32 mem, u32 value) {
 	if (
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_write(mem, 1, value, 0xff) ||
+#endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_write(mem, 1, value) ||
 #endif
 	    systemtaito_write(mem, 1, value) || systemzn_write(mem, 1, value) || system10_write(mem, 1, value, 0xff) || system11_write(mem, 1, value) || system12_write(mem, 1, value))
 		return;
@@ -524,6 +547,9 @@ void psxMemWrite16(psxRegisters *regs, u32 mem, u32 value) {
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_write(mem, 2, value, 0xffff) ||
 #endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_write(mem, 2, value) ||
+#endif
 	    systemtaito_write(mem, 2, value) || systemzn_write(mem, 2, value) || system10_write(mem, 2, value, 0xffff) || system11_write(mem, 2, value) || system12_write(mem, 2, value))
 		return;
 #endif
@@ -554,6 +580,9 @@ void psxMemWrite32(psxRegisters *regs, u32 mem, u32 value) {
 	if (
 #ifdef PCSX_SYSTEM_GV
 	    systemgv_write(mem, 4, value, 0xffffffffu) ||
+#endif
+#ifdef PCSX_SYSTEM_GNET
+	    systemgnet_write(mem, 4, value) ||
 #endif
 	    systemtaito_write(mem, 4, value) || systemzn_write(mem, 4, value) || system10_write(mem, 4, value, 0xffffffffu) || system11_write(mem, 4, value) || system12_write(mem, 4, value))
 		return;
