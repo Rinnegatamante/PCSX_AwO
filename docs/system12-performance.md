@@ -143,6 +143,99 @@ less than half a sample. Guest and independent host elapsed deltas over each
 | Audio queue wait (inside board audio) | 0.035 s | 0.01% |
 
 H8 retired 297,843,065 instructions and ran in 11,999 slices. This is the measured
-dominant section in this diagnostic, including gameplay. Throughput and profiler
-overhead still require the completed profiler-off control. No physical Vita
-performance claim follows from this Vita3K measurement.
+dominant section in this diagnostic, including gameplay.
+
+The same-source profiler-off control also passed 6,000 frames and normal shutdown:
+`/tmp/pcsx-neon-profile-off-6000-20261005/`, VPK SHA-256
+`d0c751368c32e5c566a55ef9b64749c4d55743a55338a8a591cabbfac1d3d326`.
+Host monotonic reception timestamps from CPU-driver start to replay completion
+span 361.434 seconds, or 16.60 fps. The profiler's 361.365 seconds is within
+0.02% of that interval. This single pair does not establish a statistical
+instrumentation overhead bound; it does show consistent throughput for this run.
+The final PPM, full board report and replay input CSV are byte-identical between
+on and off. PPM SHA-256:
+`21648aed86d979da130e4da29a36873f47b5f5bbe5863797ee24ac20f81356c0`.
+No physical Vita performance claim follows from these Vita3K measurements.
+
+## H8 IRQ selection optimization
+
+`fdfe62bd` replaces the unconditional scan of vectors 7–63 with iteration over
+the pending bits in ascending order. The six external interrupt-line checks,
+priority/filter rules, lowest-vector tie handling, latching, and all calls from
+instruction prefetch, tick and execution remain unchanged. No instructions or
+device events are skipped. VitaSDK lowers the trailing-zero operation to inline
+ARM RBIT/CLZ; the tested Dynarmic A32-to-ARM64 path supports both operations.
+
+The differential test compares against the old scan over empty, one-bit, two-bit,
+priority/mask and 100,000 deterministic random states. It and the synthetic H8
+instruction/IRQ/timer/SCI/ADC/scheduling suite pass normal and UBSan builds.
+
+The profiler-off optimized VPK SHA-256 is
+`b9ed187b9505f1bc3b13eab9d32e7faec542dcd6aa738393f9549cd0f48bab8a`.
+The guarded same-input 6,000-frame replay passed at
+`/tmp/pcsx-neon-h8-irq-6000-20261005/`:
+
+| Variant, profiler off | Host elapsed | Mean emulated frames/s |
+| --- | ---: | ---: |
+| Original IRQ scan | 361.434 s | 16.60 |
+| Pending-bit iteration | 184.165 s | 32.58 |
+
+This is a 1.96× improvement for this measured replay. Final image, complete board
+report and input CSV match byte-for-byte; main/H8/C352 clocks, scheduling and
+counter totals are unchanged. Both guests exited normally. This is a single
+paired experiment; per-scene throughput varies.
+
+The native Mac 12,000-frame replay also retained the original frame and entire
+VRAM hashes, 10,029,060,040 main cycles, 3,396,722,206 H8 cycles, 597,909,593 H8
+instructions, and 17,691,261 C352 samples. Evidence:
+`/tmp/pcsx-mac-h8-irq-soul-12000-20261005/`. Native emulation elapsed was 67.742 s;
+the previous baseline ran concurrently with Vita3K, so it is not used for a
+paired native speedup claim.
+
+## Current cost and architecture recommendation
+
+The post-change instrumented VPK
+`024b73e4d4679fd14b28d7ef72b1a42e76aeee9565d92f677761ccde30193419`
+also passed the same replay and identical output/report at
+`/tmp/pcsx-neon-h8-irq-profile-6000-20261005/`. Guest elapsed was 188.922 s;
+independent host elapsed was 188.928 s. This is 2.6% above the uninstrumented
+optimized run; individual scope times and sampled GPU estimates should be read
+with that measurement limitation.
+
+| Post-change scope | Elapsed | Share of instrumented total |
+| --- | ---: | ---: |
+| CPU inclusive | 135.644 s | 71.8% |
+| H8, inside CPU | 89.769 s | 47.5% |
+| C352, inside CPU | 6.911 s | 3.7% |
+| GPU lists, sampled inside CPU | estimated 21.705 s | estimated 11.5% |
+| External video | 53.030 s | 28.1% |
+| Vblank wait, inside video | 45.659 s | 24.2% |
+| Copy/scale, inside video | 7.342 s | 3.9% |
+| Audio queue wait, inside board audio | 7.002 s | 3.7% |
+
+The H8 scope fell from 273.680 to 89.769 seconds. It remains the largest measured
+compute section. GPU and main-CPU work still run sequentially with it; frontend
+display and audio waits have become more visible. This table is not an exact
+exclusive partition because of nested scopes and periodic GPU sampling.
+
+Keep the current synchronous architecture while studying these three points:
+
+1. Continue examining H8 interpreter/bus/peripheral costs while preserving
+   retired instructions, cycle budgets and IRQ/event boundaries.
+2. Reconcile Mac and libretro board scheduling before using their results as
+   evidence of equivalent hardware behavior. A common causal scheduler must
+   account for shared RAM, IRQ delivery and C352 register/sample timestamps.
+3. Review frontend pacing and buffer ownership together: video vblank waits and
+   audio queue backpressure can both block the same emulation thread. Additional
+   workers do not automatically remove that blocking.
+
+Threading is an architecture study only. No workers or core affinities were
+changed. If parallel execution is later evaluated, the existing GPU worker is a
+candidate with explicit VRAM/readback barriers. Keep PSX/H8 shared-memory and IRQ
+ordering defined; do not run H8 independently without a causal synchronization
+design. SDL already has an audio playback path, whose actual threads and
+affinities still need measurement. There is no validated allocation across Vita
+cores 0/1/2 yet.
+
+Combined manifests and comparisons:
+`build/vita-system12-h8-irq-20261005/comparison-evidence.json`.
