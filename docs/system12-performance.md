@@ -933,3 +933,89 @@ Next work is the shared CPU scheduler and global timer boundaries, retaining
 the passing peripheral gates, then real-game MAME state/pixel/audio comparison.
 Workers and H8 DRC remain studies. Vita NEON/DRC and vitaGL validation follow
 the Mac reference; no additional Vita run or completed driver family is claimed.
+
+## SCI global timers and PSX instruction costs (2026-10-05)
+
+MAME's SCI `sync_tick` callback is empty: its purpose is to create a global
+scheduling boundary. The timer is independent of the H8 internal `clock_event`.
+Stopping SCI or resetting its device clears the internal clock state but does
+not cancel an already armed global one-shot. Internal-clock and simulated
+external-rate modes arm/rearm it; physical external clock edges do not create
+that timer.
+
+The H8 port now retains each SCI global timer's absolute attotime expiry and
+generation, with query/earliest-event/fire APIs. A stale generation cannot
+consume a replacement timer. Firing consumes only the empty callback and sets
+expiry to MAME's exact `never` value, without advancing the CPU or SCI. Soft
+reset retains pending timers; cold reset invalidates them. Explicitly timestamped
+RX/CLK pin entry points provide a scoped, nestable scheduler callback context;
+an executing H8 still uses its charged CPU local time.
+
+The actual MAME capture injects/readbacks identical H8 firmware into SCI0 and
+SCI1, with either running or explicitly stopped synchronous receive clocks.
+It discovers global timer save-item groups using the source layout and a unique
+firmware-induced finite one-shot; no fixed global item index is used. Named
+SCI `m_clock_event` observations remain separate. All four cases reset once at
+time zero and leave the parent ROM archive unchanged. Each compares 96 stores:
+**384/384 exact index/cycle/armed/expiry/internal-deadline states**, including
+inactive `never` expiry. MAME timer start time is retained as diagnostic evidence
+but is not part of the native comparison.
+
+This gate uses an isolated H8 host that consumes due empty callbacks in
+one-cycle steps. It does not implement production PSX/H8 arbitration, CPU slice
+aborts when the global head changes, or complete machine-reset scheduling.
+Stop behavior has actual MAME evidence; pending soft-reset and nested external
+callback contexts have normal/UBSan contract tests. The strict production
+mailbox comparison remains red with its previous differences.
+
+A second firmware probe runs the real MAME PSX with CU2 enabled and an inert
+H8, observing eight 16-bit shared-RAM stores around MULT/MFLO, DIV/MFHI/MFLO,
+RTPS and a taken BEQ with a delay slot. The branch skips the fallthrough opcode.
+Main ROM words are read back, reset is at time zero, and both native engines
+preserve the full board report and PPM with the passive observer enabled or
+disabled. Intervals include the separating marker store, so these are measured
+firmware intervals rather than standalone instruction latency claims:
+
+| Marker interval | MAME | Mac interpreter | Mac ARI64 |
+| --- | ---: | ---: | ---: |
+| MULT + MFLO | 120 ns | 220 ns | 300 ns |
+| DIV + MFHI + MFLO | 160 ns | 860 ns | 860 ns |
+| COP2 RTPS, CU2 enabled | 80 ns | 80 ns | 80 ns |
+| Taken BEQ + delay slot | 120 ns | 120 ns | 120 ns |
+
+The exact reset-relative comparison fails for **8/8 interpreter markers and
+7/8 ARI64 markers**. ARI64's first marker matches at 600 ns; the interpreter's
+first marker is 640 ns. Later matching interval lengths retain earlier timing
+displacement. This confirms that the main clock frequency alone is not the
+problem. The source-compatible path must reconcile instruction costs and bus
+phase as well as global scheduling, while preserving the regular console path.
+
+Current PSX `ExecuteBlock` is not a deadline primitive: interpreter branches
+execute their delay slot before returning, and ARI64 can perform MMIO beyond a
+requested `next_interupt`. The next implementation should first provide a
+source-mode interpreter instruction step with resumable branch/delay-slot
+state and access time at instruction start. Its context must avoid changing
+the assembly/savestate layout of `psxRegisters`. Deadline checks in ARI64 and
+the shared frontend coordinator remain separate required work. No worker,
+affinity or H8 DRC change is included.
+
+Evidence: ignored `artifacts/validation/h8-sync-timer-20261005/`, including
+`mame-timers.json/log`, `native-timers.json/log`, `mame-psx-timing.json/log`,
+`native-psx-timing.json/log`, and regression logs. MAME executable hashes are
+recorded; installed 0.287 still has unverified correspondence to the pinned
+source commit. The new stage retains all 1440 peripheral comparisons, 64
+production RTC transfers, 32 vblank transition pairs, timed C352 tests in both
+engines, and the broad device/tool suite (108 Python tests). The Vita3K timeout
+messages in that suite come from mocked watchdog tests, not a new emulator run.
+The full target remains 491 registrations in ten families, with no family yet
+validated complete.
+
+```sh
+python3 tests/check_mame_h8_sync_timers.py --output mame-timers.json --log mame-timers.log
+make -f tests/Makefile.h8 sci-sync-timer-fixture
+python3 tests/check_h8_sync_timers.py --mame mame-timers.json --native build/h8-tests/h8-sync-timer-fixture --output native-timers.json
+python3 tests/check_mame_psx_instruction_timing.py --output mame-psx-timing.json --log mame-psx-timing.log
+python3 tests/check_system12_psx_instruction_timing.py --harness build/mac-system12-mailbox-20261005/pcsx-harness --mame mame-psx-timing.json --output native-psx-timing.json --log native-psx-timing.log
+```
+
+The last command deliberately exits nonzero while exact timing differs.

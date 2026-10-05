@@ -110,7 +110,12 @@ machine's assets does not imply that it boots.
   attotime phase is included. Production SCI1/RTC transfers add 64 exact
   address/value/cycle comparisons. The PSX/H8 mailbox fixture matches H8 bus
   cycles but exposes a main-CPU visibility mismatch against MAME's scheduler.
-  Standby, global timer/reset contexts and full RTC/JVS waveforms remain open. Native H8
+  SCI global timer armed/expiry/internal-deadline state adds 384 exact isolated
+  observations, including a pending callback after stopping the clock. Production
+  global timer arbitration, standby/reset contexts and full RTC/JVS waveforms
+  remain open. A PSX instruction probe exposes excess native MULT/DIV timing;
+  matching RTPS/branch intervals in that fixture do not establish complete CPU
+  timing. Native H8
   port-B vblank polling now matches actual MAME
   reads with zero cycle difference on interpreter/ARI64, both short/long blocks
   and block/vblank-only frontend cadence. Seven screen mode/reset captures also
