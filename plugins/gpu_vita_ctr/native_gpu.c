@@ -10,6 +10,7 @@
 #include "platform/native_renderer.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +59,7 @@ internal short GetTPageBase(int tpage)
 	const u16 page = (u16)tpage;
 
 	// NOTE(aalhendi): ctr-native local divergence for CTR retail emitters. The shader wants xPage + yPage * 16, not raw draw-mode bits.
-	return (s16)((page & 0xf) | ((page & 0x10) ? 0x10 : 0));
+	return (s16)((page & 0x1f) | ((VRAM_HEIGHT > 512) ? ((page >> 6) & 0x20) : 0));
 }
 
 internal s16 NativeGpu_SignExtend11(u32 value)
@@ -708,7 +709,7 @@ struct NativeGpuSnapshot
 	DISPENV dispEnv;
 	s32 gpuDisabledState;
 	s32 psxDrawMaskSet;
-	u16 vram[VRAM_WIDTH * VRAM_HEIGHT];
+	u16 vram[];
 };
 
 #ifdef __vita__
@@ -779,37 +780,33 @@ void ClearSplits(void)
 
 int NativeGpu_GetStateSize(void)
 {
-	return (int)sizeof(struct NativeGpuSnapshot);
+	return (int)offsetof(struct NativeGpuSnapshot, vram) + NativeRenderer_GetVRAMStateSize();
 }
 
 int NativeGpu_CaptureState(void *dst, int dstSize)
 {
 	struct NativeGpuSnapshot *snapshot = (struct NativeGpuSnapshot *)dst;
 
-	if ((dst == NULL) || (dstSize < (int)sizeof(*snapshot)))
-	{
-		return 0;
-	}
-	if (NativeRenderer_GetVRAMStateSize() != (int)sizeof(snapshot->vram))
+	if ((dst == NULL) || (dstSize < NativeGpu_GetStateSize()))
 	{
 		return 0;
 	}
 
-	memset(snapshot, 0, sizeof(*snapshot));
+	memset(snapshot, 0, NativeGpu_GetStateSize());
 	snapshot->magic = NATIVE_GPU_STATE_MAGIC;
 	snapshot->version = NATIVE_GPU_STATE_VERSION;
-	snapshot->size = sizeof(*snapshot);
+	snapshot->size = NativeGpu_GetStateSize();
 	snapshot->drawEnv = activeDrawEnv;
 	snapshot->dispEnv = activeDispEnv;
 	snapshot->gpuDisabledState = g_GPUDisabledState;
 	snapshot->psxDrawMaskSet = s_gpu.psxDrawMaskSet;
 
 #ifdef __vita__
-	NativeGpuBackendVRAMStateTask task = {snapshot->vram, sizeof(snapshot->vram), 0};
+	NativeGpuBackendVRAMStateTask task = {snapshot->vram, NativeRenderer_GetVRAMStateSize(), 0};
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendCaptureVRAMStateTask, &task);
 	return task.result;
 #else
-	return NativeRenderer_CaptureVRAMState(snapshot->vram, sizeof(snapshot->vram));
+	return NativeRenderer_CaptureVRAMState(snapshot->vram, NativeRenderer_GetVRAMStateSize());
 #endif
 }
 
@@ -817,11 +814,11 @@ int NativeGpu_RestoreState(const void *src, int srcSize)
 {
 	const struct NativeGpuSnapshot *snapshot = (const struct NativeGpuSnapshot *)src;
 
-	if ((src == NULL) || (srcSize < (int)sizeof(*snapshot)))
+	if ((src == NULL) || (srcSize < NativeGpu_GetStateSize()))
 	{
 		return 0;
 	}
-	if ((snapshot->magic != NATIVE_GPU_STATE_MAGIC) || (snapshot->version != NATIVE_GPU_STATE_VERSION) || (snapshot->size != sizeof(*snapshot)))
+	if ((snapshot->magic != NATIVE_GPU_STATE_MAGIC) || (snapshot->version != NATIVE_GPU_STATE_VERSION) || (snapshot->size != (u32)NativeGpu_GetStateSize()))
 	{
 		return 0;
 	}
@@ -829,19 +826,15 @@ int NativeGpu_RestoreState(const void *src, int srcSize)
 	{
 		return 0;
 	}
-	if (NativeRenderer_GetVRAMStateSize() != (int)sizeof(snapshot->vram))
-	{
-		return 0;
-	}
 #ifdef __vita__
-	NativeGpuBackendVRAMStateTask task = {(void *)snapshot->vram, sizeof(snapshot->vram), 0};
+	NativeGpuBackendVRAMStateTask task = {(void *)snapshot->vram, NativeRenderer_GetVRAMStateSize(), 0};
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendRestoreVRAMStateTask, &task);
 	if (!task.result)
 	{
 		return 0;
 	}
 #else
-	if (!NativeRenderer_RestoreVRAMState(snapshot->vram, sizeof(snapshot->vram)))
+	if (!NativeRenderer_RestoreVRAMState(snapshot->vram, NativeRenderer_GetVRAMStateSize()))
 	{
 		return 0;
 	}
@@ -1414,7 +1407,7 @@ internal bool NativeGpu_RectOverlaps(int ax, int ay, int aw, int ah, int bx, int
 internal bool NativeGpu_TPageOverlapsActiveDrawPage(int tpage)
 {
 	const int pageX = (tpage & 0xf) << 6;
-	const int pageY = (tpage & 0x10) ? 0x100 : 0;
+	const int pageY = (GetTPageBase(tpage) >> 4) * 256;
 	const int pageW = 0x100;
 	const int pageH = 0x100;
 
@@ -3282,7 +3275,7 @@ internal int ProcessDrawEnv(P_TAG *polyTag)
 		case 0x1:
 		{
 			// DR_TPAGE
-			activeDrawEnv.tpage = (code & 0x1FF);
+			activeDrawEnv.tpage = (code & 0x1FFF);
 			activeDrawEnv.dtd = (code >> 9) & 1;
 			// NOTE(aalhendi): Standalone DR_TPAGE packets use the same E1 word for blend changes; only full DRAWENV packets retarget native on-screen/offscreen rendering.
 			if (fullDrawEnvPacket)
@@ -3304,7 +3297,7 @@ internal int ProcessDrawEnv(P_TAG *polyTag)
 		{
 			// DR_AREA
 			activeDrawEnv.clip.x = code & 1023;
-			activeDrawEnv.clip.y = (code >> 10) & 511;
+			activeDrawEnv.clip.y = (code >> 10) & (VRAM_HEIGHT - 1);
 			fullDrawEnvPacket = true;
 			break;
 		}
@@ -3312,7 +3305,7 @@ internal int ProcessDrawEnv(P_TAG *polyTag)
 		{
 			// DR_AREA (second part)
 			activeDrawEnv.clip.w = code & 1023;
-			activeDrawEnv.clip.h = (code >> 10) & 511;
+			activeDrawEnv.clip.h = (code >> 10) & (VRAM_HEIGHT - 1);
 
 			activeDrawEnv.clip.w = activeDrawEnv.clip.w - activeDrawEnv.clip.x + 1;
 			activeDrawEnv.clip.h = activeDrawEnv.clip.h - activeDrawEnv.clip.y + 1;
@@ -3354,7 +3347,7 @@ internal void ProcessDrawEnvCommand(u32 code)
 	switch (primSubType)
 	{
 	case 0x1:
-		activeDrawEnv.tpage = (code & 0x1FF);
+		activeDrawEnv.tpage = (code & 0x1FFF);
 		activeDrawEnv.dtd = (code >> 9) & 1;
 		break;
 	case 0x2:
@@ -3365,11 +3358,11 @@ internal void ProcessDrawEnvCommand(u32 code)
 		break;
 	case 0x3:
 		activeDrawEnv.clip.x = code & 1023;
-		activeDrawEnv.clip.y = (code >> 10) & 511;
+		activeDrawEnv.clip.y = (code >> 10) & (VRAM_HEIGHT - 1);
 		break;
 	case 0x4:
 		activeDrawEnv.clip.w = code & 1023;
-		activeDrawEnv.clip.h = (code >> 10) & 511;
+		activeDrawEnv.clip.h = (code >> 10) & (VRAM_HEIGHT - 1);
 		activeDrawEnv.clip.w = activeDrawEnv.clip.w - activeDrawEnv.clip.x + 1;
 		activeDrawEnv.clip.h = activeDrawEnv.clip.h - activeDrawEnv.clip.y + 1;
 			VitaCtrNativeGpu_UpdateDrawTargetMode();
@@ -3474,10 +3467,10 @@ int ParsePrimitive(P_TAG *polyTag)
 			TILE *fill = (TILE *)polyTag;
 			RECT16 rect;
 
-			rect.x = fill->x0;
-			rect.y = fill->y0;
-			rect.w = fill->w;
-			rect.h = fill->h;
+			rect.x = (u16)fill->x0 & 0x3f0;
+			rect.y = (u16)fill->y0 & (VRAM_HEIGHT - 1);
+			rect.w = (((u16)fill->w & 0x3ff) + 15) & ~15;
+			rect.h = (u16)fill->h & (VRAM_HEIGHT - 1);
 
 #ifdef __vita__
                 if (!NativeGpu_AppendClearSplit(&rect, fill->r0, fill->g0, fill->b0))

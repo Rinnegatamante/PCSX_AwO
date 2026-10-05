@@ -30,6 +30,9 @@ int gNativeDitheringEnabled = 1;
 int g_dbg_emulatorPaused;
 int g_dbg_polygonSelected = -1;
 
+/* Set while the backend is stopped; shader/storage geometry stays fixed per context. */
+unsigned g_nativeVramHeight = GPU_VRAM_ROWS_CONSOLE;
+
 static int s_context_ready;
 static int s_frame_started;
 static uint16_t *s_guest_vram;
@@ -281,7 +284,7 @@ static void backend_renderer_init(void *arg)
         return;
 
     VitaCtrNativeRenderer_SetPresentationAspect(4, 3);
-    VitaCtrNativeRenderer_CopyGuestVRAM(s_guest_vram, 0, 0, 1024, 512);
+    VitaCtrNativeRenderer_CopyGuestVRAM(s_guest_vram, 0, 0, VRAM_WIDTH, VRAM_HEIGHT);
     NativeRenderer_UpdateVRAM();
     task->result = 1;
 }
@@ -307,6 +310,14 @@ static int init_context(void)
     if (s_context_ready)
         return 1;
     if (!s_guest_vram)
+        return 0;
+    if (gpu_get_model() != 2) {
+        SysPrintf("pcsx-vita: VitaGL rejects unimplemented GPU type 1\n");
+        return 0;
+    }
+    g_nativeVramHeight = gpu_get_vram_height();
+    if (g_nativeVramHeight != GPU_VRAM_ROWS_CONSOLE &&
+        g_nativeVramHeight != GPU_VRAM_ROWS_SYSTEM12)
         return 0;
 
     sceIoMkdir("ux0:data/pcsx-rearmed", 0777);
@@ -340,7 +351,8 @@ static int init_context(void)
     NativeGpu_BeginFrontendFrame();
     s_frame_started = 1;
     s_context_ready = 1;
-    SysPrintf("pcsx-vita: GPU = CTR High Octane native, 4:3 725x544 target\n");
+    SysPrintf("pcsx-vita: GPU = CTR High Octane native, VRAM=%ux%u, 4:3 725x544 target\n",
+        (unsigned)VRAM_WIDTH, g_nativeVramHeight);
     return 1;
 }
 
@@ -388,7 +400,7 @@ static void account_timing(const uint32_t *list, int cmd,
     switch (cmd) {
     case 0x02:
         w = ((LE16TOH(slist[4]) & 0x3ff) + 0xf) & ~0xf;
-        h = LE16TOH(slist[5]) & 0x1ff;
+        h = LE16TOH(slist[5]) & GPU_VRAM_Y_MASK;
         gput_sum(*cycle_sum, *cycle_last, gput_fill(w, h));
         break;
     case 0x20 ... 0x23: gput_sum(*cycle_sum, *cycle_last, gput_poly_base()); break;
@@ -405,12 +417,12 @@ static void account_timing(const uint32_t *list, int cmd,
         break;
     case 0x60 ... 0x63:
         w = LE16TOH(slist[4]) & 0x3ff;
-        h = LE16TOH(slist[5]) & 0x1ff;
+        h = LE16TOH(slist[5]) & GPU_VRAM_Y_MASK;
         gput_sum(*cycle_sum, *cycle_last, gput_sprite(w, h));
         break;
     case 0x64 ... 0x67:
         w = LE16TOH(slist[6]) & 0x3ff;
-        h = LE16TOH(slist[7]) & 0x1ff;
+        h = LE16TOH(slist[7]) & GPU_VRAM_Y_MASK;
         gput_sum(*cycle_sum, *cycle_last, gput_sprite(w, h));
         break;
     case 0x68 ... 0x6b:
@@ -450,8 +462,8 @@ int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
 
         if (cmd >= 0x24 && cmd <= 0x3f && (cmd & 4)) {
             const int tpage_index = 4 + ((cmd >> 4) & 1);
-            ex_regs[1] = (ex_regs[1] & ~0x1ffu) |
-                ((LE32TOH(packet[tpage_index]) >> 16) & 0x1ffu);
+            ex_regs[1] = (ex_regs[1] & ~0x1fffu) |
+                ((LE32TOH(packet[tpage_index]) >> 16) & 0x1fffu);
         }
         if (cmd >= 0xe0 && cmd <= 0xe7)
             ex_regs[cmd & 7] = LE32TOH(packet[0]);

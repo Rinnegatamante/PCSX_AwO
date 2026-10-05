@@ -2068,12 +2068,6 @@ static bool retro_load_system12_profile(const char *directory)
    int load_result;
    unsigned i;
 
-#if defined(VITA) && defined(GPU_VITA_CTR)
-   (void)directory;
-   LogErr("System12 profile rejected: the Vita GPU backend is fixed to 1024x512 VRAM\n");
-   return false;
-#endif
-
    if (plugins_opened)
    {
       ClosePlugins();

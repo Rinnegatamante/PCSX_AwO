@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Production 180-frame console pixel/signature probe and native PNGs showing the triangle/background; successful shutdown and paired native fault recovery | Extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Production 180-frame console pixel/signature probe and native PNGs showing the triangle/background; successful shutdown and paired native fault recovery | Actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -265,19 +265,39 @@ attaching LLDB, so both processes have independent ownership/deadlines.
 
 ## VitaGL GPU geometry limits
 
-The current VitaGL backend is fixed to the console GPU's 1024x512 VRAM. Its
-CPU mirror, transfer scratch space, dirty-tile tracking, GL texture and
-framebuffer, shader UV scale, GP0 draw-area Y fields, display conversion and
-save-state snapshot all use that geometry. Guest VRAM copies also initialize
-only 1024x512 pixels. The plugin does not consult the shared GPU model or VRAM
-height selector, so upper rows of a 2 MiB GPU profile are not represented.
+The VitaGL backend now selects 512 or 1024 VRAM rows before starting its
+render thread. CPU mirror/tile/palette capacities cover 1024 rows; texture/FBO
+storage, clipping, guest copies, transfers, readback and shader scales use the
+active height. Native snapshots retain their 1 MiB console payload and use
+2 MiB for 1024 rows. Arcade board savestates remain unavailable.
 
-Supporting 2 MiB VRAM requires runtime height through the renderer, cache,
-readback, guest-copy, display, and save-state paths. Type 1 additionally needs
-its distinct TPAGE field decoding, draw-area and offset semantics, and
-interleaved texture layout. The current VitaGL plugin only implements its
-console/type-2 command interpretation. A successful console VitaGL smoke test
-does not establish either arcade GPU model's support.
+For type 2, TPAGE bit 11 selects the upper texture bank. Cached P4 keys retain
+all six page bits; the vertex shader reconstructs unsigned CLUT IDs from its
+signed-short attribute. Nearest texture fetches floor interpolated coordinates
+before selecting a texel, avoiding the next empty texel for a 1×1 sprite.
+GP0 fills use aligned X/width and wrap their CPU mirror at the active row
+boundary. Generic A0/C0/move transfers remain serviced by GPULIB's wrapping
+path; private PsyQ CopyVRAM/ReadVRAM helpers are not used for those commands.
+
+The generated ari64 guest passes upper 4/8/odd-8/16-bit texture reads, row-800
+CLUTs, separate lower/upper cached P4 pages, and A0/C0/fill wrap from row 1023
+to zero. The retained production package is
+`build/vita-system12-vitagl/pcsx-rearmed-vita-vitagl.vpk`, SHA256
+`25a10718420c436022721ed3699dccdac233b0703558e258e77188605b11df48`.
+`runtime-vram-evidence.json` beside it binds the source delta/library/host
+hashes and logs. The final upper-VRAM log is
+`/tmp/pcsx-vitagl-system12-vram-final-20261005/vita3k.log`: eight paired faults,
+zero unresolved, shutdown PASS and Idle. The same arcade-enabled package
+passes the 180-frame console probe with ten paired faults and three post-draw
+native PNGs showing the triangle/background. Early shader-compilation PNGs
+are black and are not used as rendered-frame evidence.
+
+The RGB24 row decoder passes a scalar ASan/UBSan check for distinct upper rows
+and 512/1024 vertical wrap (`tests/vita_rgb24_fixture.c`); RGB24 native display
+is not yet validated. Type 1 is explicitly rejected: its distinct command
+fields and interleaved texture layout still need implementation. These checks
+establish the type-2 graphics fixture, not Soul Calibur compatibility or
+physical Vita operation.
 
 ## Opt-in libretro System 12
 
@@ -291,12 +311,10 @@ stream's source format to the core's advertised rate. A System 12 run confirmed
 `src=88200Hz dst=48000Hz device=48000Hz`; opening the device directly at 88.2 kHz
 previously failed with `SCE_AUDIO_OUT_ERROR_INVALID_SAMPLE_FREQ`. This checks
 stream initialization and conversion setup, not audible game sound quality.
-The current Vita `vita_ctr` renderer is fixed at 1024x512, so that renderer's
-build rejects System 12 profiles before changing core memory or opening
-plugins. NEON uses the C GPU path with runtime VRAM height. This opt-in path
-is integration work and does not claim System 12 game validation or Vita
-2 MiB GPU runtime validation. Arcade savestates are explicitly unavailable
-because the console state format does not preserve the board's devices.
+Both NEON and VitaGL use runtime VRAM geometry. VitaGL accepts the System 12
+type-2 path after the upper-VRAM fixture above; actual game validation remains
+a separate gate. Arcade savestates are explicitly unavailable because the
+console state format does not preserve the board's devices.
 
 Build the standalone opt-in with `make -f Makefile.vita VITA_GPU=neon
 ARCADE_SYSTEM12=1`. It uses a separate core archive and frontend object

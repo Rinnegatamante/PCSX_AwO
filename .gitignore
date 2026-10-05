@@ -182,3 +182,9 @@ __pycache__/
 /build/gnet-zoom-tests/
 /build/mac-harness-noboard/
 /build/mac-harness-gv/
+
+/build/vita-system12-vitagl/
+/build/vita-validation-preserve-target/
+
+/build/mac-harness-gnet-board0/
+/build/mac-harness-gnet-review/

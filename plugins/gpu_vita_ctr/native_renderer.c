@@ -120,7 +120,7 @@ global_variable TextureID s_presentLutTexture = (TextureID)-1;
 #define NATIVE_VRAM_DIRTY_RECT_CAP 128
 #define NATIVE_VRAM_TILE_SIZE      8
 #define NATIVE_VRAM_TILE_COLS      (VRAM_WIDTH / NATIVE_VRAM_TILE_SIZE)
-#define NATIVE_VRAM_TILE_ROWS      (VRAM_HEIGHT / NATIVE_VRAM_TILE_SIZE)
+#define NATIVE_VRAM_TILE_ROWS      (VRAM_MAX_HEIGHT / NATIVE_VRAM_TILE_SIZE)
 #define NATIVE_VRAM_TILE_COUNT     (NATIVE_VRAM_TILE_COLS * NATIVE_VRAM_TILE_ROWS)
 #define NATIVE_VRAM_TILE_WORDS     (NATIVE_VRAM_TILE_COUNT / 32)
 
@@ -128,7 +128,7 @@ global_variable TextureID s_presentLutTexture = (TextureID)-1;
 struct NativeVramState
 {
 	TextureID texture;
-	u16 cpuPixels[VRAM_WIDTH * VRAM_HEIGHT];
+	u16 cpuPixels[VRAM_WIDTH * VRAM_MAX_HEIGHT];
 	RECT16 cpuDirtyRects[NATIVE_VRAM_DIRTY_RECT_CAP];
 	u32 gpuNewerTiles[NATIVE_VRAM_TILE_WORDS];
 	s32 cpuDirtyRectCount;
@@ -137,7 +137,7 @@ struct NativeVramState
 global_variable struct NativeVramState s_vram;
 
 #ifdef __vita__
-#define NATIVE_VITA_VRAM_TRANSFER_BYTES (VRAM_WIDTH * VRAM_HEIGHT * 4u)
+#define NATIVE_VITA_VRAM_TRANSFER_BYTES (VRAM_WIDTH * VRAM_MAX_HEIGHT * 4u)
 global_variable u8 *s_vitaVramTransferPixels;
 
 #define NATIVE_P4_CACHE_CAPACITY 320
@@ -145,7 +145,7 @@ global_variable u8 *s_vitaVramTransferPixels;
 #define NATIVE_P4_PALETTE_BYTES  (16 * 4)
 #define NATIVE_P4_INDEX_BYTES    (TPAGE_WIDTH * TPAGE_HEIGHT / 2)
 #define NATIVE_P4_UPLOAD_BYTES   (NATIVE_P4_PALETTE_BYTES + NATIVE_P4_INDEX_BYTES)
-#define NATIVE_PALETTE_CLUT_COUNT (64 * VRAM_HEIGHT)
+#define NATIVE_PALETTE_CLUT_COUNT (64 * VRAM_MAX_HEIGHT)
 
 struct NativeP4CacheEntry
 {
@@ -178,7 +178,7 @@ struct NativeP4HashEntry
 };
 
 global_variable struct NativeP4HashEntry s_p4Hash[NATIVE_P4_HASH_CAPACITY];
-global_variable u32 s_paletteRowGeneration[VRAM_HEIGHT];
+global_variable u32 s_paletteRowGeneration[VRAM_MAX_HEIGHT];
 global_variable u32 s_paletteCacheGeneration[2][NATIVE_PALETTE_CLUT_COUNT];
 global_variable u8 s_paletteCacheProperties[2][NATIVE_PALETTE_CLUT_COUNT];
 
@@ -189,7 +189,7 @@ internal u32 NativeRenderer_P4HashSlot(u32 key)
 
 internal u32 NativeRenderer_P4Key(int page, int clut, int superTurboTint)
 {
-	return ((u32)(page & 0x1f) << 17) | ((u32)(superTurboTint != 0) << 16) | (u16)clut;
+	return ((u32)(page & 0x3f) << 17) | ((u32)(superTurboTint != 0) << 16) | (u16)clut;
 }
 
 internal void NativeRenderer_InsertP4Hash(u32 key, int cacheIndex)
@@ -1098,7 +1098,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #ifdef __vita__
 #define GPU_SAMPLE_TEXTURE_4BIT_FUNC                                                                                \
 	"\tvec2 samplePSX(vec2 tc) {\n"                                                                               \
-	"\t\tvec2 texel = floor(tc + vec2(0.5));\n"                                                             \
+	"\t\tvec2 texel = floor(tc);\n"                                                             \
 	"\t\tfloat texelX = texel.x;\n"                                                                            \
 	"\t\tfloat lanePhase = fract(texelX * 0.25);\n"                                                        \
 	"\t\tfloat highByte = step(0.5, lanePhase);\n"                                                        \
@@ -1130,8 +1130,8 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #ifdef __vita__
 #define GPU_SAMPLE_TEXTURE_8BIT_FUNC                                                                                \
 	"\tvec2 samplePSX(vec2 tc) {\n"                                                                               \
-	"\t\tfloat highByte = step(0.5, fract(tc.x * 0.5 + 0.25));\n"                                      \
-	"\t\tvec2 packedRg = VRAM((v_page_clut.xy + vec2(tc.x * 0.5 + 0.25, tc.y + 0.5)) * c_VRAMTexel);\n" \
+	"\t\tfloat highByte = step(0.5, fract(floor(tc.x) * 0.5 + 0.25));\n"                                      \
+	"\t\tvec2 packedRg = VRAM((v_page_clut.xy + vec2(floor(tc.x) * 0.5 + 0.25, floor(tc.y) + 0.5)) * c_VRAMTexel);\n" \
 	"\t\tfloat paletteIndex = floor(mix(packedRg.x, packedRg.y, highByte) * 255.0 + 0.5);\n"              \
 	"\t\treturn VRAM((v_page_clut.zw + vec2(paletteIndex + 0.5, 0.5)) * c_VRAMTexel);\n"              \
 	"\t}\n"
@@ -1152,7 +1152,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #ifdef __vita__
 #define GPU_SAMPLE_TEXTURE_16BIT_FUNC                                                       \
 	"	vec2 samplePSX(vec2 tc) {\n"                                                          \
-	"\t\treturn VRAM((v_page_clut.xy + tc + vec2(0.5)) * c_VRAMTexel);\n"             \
+	"\t\treturn VRAM((v_page_clut.xy + floor(tc) + vec2(0.5)) * c_VRAMTexel);\n"             \
 	"	}\n"
 #else
 #define GPU_SAMPLE_TEXTURE_16BIT_FUNC                    \
@@ -1163,7 +1163,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #endif
 
 #define GPU_FETCH_VRAM_FUNC                                        \
-	"	const vec2 c_VRAMTexel = vec2(1.0 / 1024.0, 1.0 / 512.0);\n" \
+	"	const vec2 c_VRAMTexel = vec2(1.0 / 1024.0, 1.0 / VRAM_HEIGHT);\n" \
 	"	uniform sampler2D s_texture;\n"                              \
 	"	vec2 VRAM(vec2 uv) { return texture2D(s_texture, uv).rg; }\n"
 
@@ -1333,7 +1333,7 @@ global_variable const char *gte_shader_cached_p4 =
     "\t\treturn false;\n"
     "\t}\n"
     "\tvec4 nearestTextureSample(vec2 P) {\n"
-    "\t\tvec2 texel = floor(P + vec2(0.5));\n"
+    "\t\tvec2 texel = floor(P);\n"
     "\t\tvec4 t = texture2D(s_texture, (texel + vec2(0.5)) * (1.0 / 256.0));\n"
     "\t\tfloat visible = step(0.25, t.a);\n"
     "\t\tsampledStp = step(0.75, t.a);\n"
@@ -1419,13 +1419,13 @@ const char *gte_shader_32_rgba = "	uniform sampler2D s_texture;\n"
 	"\t\tv_page_clut.x = fract(a_position.z / 16.0) * 1024.0;\n"                                           \
 	"\t\tv_page_clut.y = floor(a_position.z / 16.0) * 256.0;\n"                                            \
 	"\t\tv_page_clut.z = fract(a_position.w / 64.0) * 1024.0;\n"                                           \
-	"\t\tv_page_clut.w = floor(a_position.w / 64.0);\n"
+	"\t\tv_page_clut.w = floor(mod(a_position.w, 65536.0) / 64.0);\n"
 #else
 #define GTE_PAGE_CLUT_SETUP                                                                                     \
 	"\t\tv_page_clut.x = fract(a_position.z / 16.0) * 1024.0;\n"                                           \
 	"\t\tv_page_clut.y = floor(a_position.z / 16.0) * 256.0;\n"                                            \
 	"\t\tv_page_clut.z = fract(a_position.w / 64.0);\n"                                                    \
-	"\t\tv_page_clut.w = floor(a_position.w / 64.0) / 512.0;\n"                                            \
+	"\t\tv_page_clut.w = floor(mod(a_position.w, 65536.0) / 64.0) / VRAM_HEIGHT;\n"                                            \
 	"\t\tv_page_clut.xy += c_UVFudge;\n"                                                                   \
 	"\t\tv_page_clut.zw += c_UVFudge;\n"
 #endif
@@ -1542,11 +1542,15 @@ internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxSh
 
 	char extra_vs_defines[1024];
 	char extra_fs_defines[1024];
+	char vramHeightDefine[64];
 	extra_vs_defines[0] = 0;
 	extra_fs_defines[0] = 0;
+	SDL_snprintf(vramHeightDefine, sizeof(vramHeightDefine), "#define VRAM_HEIGHT %u.0\n", VRAM_HEIGHT);
 
 	strcat(extra_vs_defines, "#define VERTEX\n");
 	strcat(extra_fs_defines, "#define FRAGMENT\n");
+	strcat(extra_vs_defines, vramHeightDefine);
+	strcat(extra_fs_defines, vramHeightDefine);
 	if (fragmentDefines != NULL)
 	{
 		strcat(extra_fs_defines, fragmentDefines);
@@ -1852,7 +1856,7 @@ global_variable const char *ctr_present_vram_shader = "#ifdef VERTEX\n"
                                                       "void main() {\n"
                                                       "    vec2 screenUV = a_position * 0.5 + 0.5;\n"
                                                       "    vec2 sourcePixel = sourceRect.xy + vec2(screenUV.x, 1.0 - screenUV.y) * sourceRect.zw;\n"
-                                                      "    v_uv = sourcePixel / vec2(1024.0, 512.0);\n"
+                                                      "    v_uv = sourcePixel / vec2(1024.0, VRAM_HEIGHT);\n"
                                                       "    gl_Position = vec4(a_position, 0.0, 1.0);\n"
                                                       "}\n"
                                                       "#endif\n"
@@ -1896,7 +1900,7 @@ global_variable const char *ctr_present_vram_shader = "#ifdef VERTEX\n"
                                                       "void main() {\n"
                                                       "\tvec2 screenUV = a_position * 0.5 + 0.5;\n"
                                                       "\tvec2 sourcePixel = sourceRect.xy + vec2(screenUV.x, 1.0 - screenUV.y) * sourceRect.zw;\n"
-                                                      "\tv_uv = sourcePixel / vec2(1024.0, 512.0);\n"
+                                                      "\tv_uv = sourcePixel / vec2(1024.0, VRAM_HEIGHT);\n"
                                                       "\tgl_Position = vec4(a_position, 0.0, 1.0);\n"
                                                       "}\n"
                                                       "#endif\n"
@@ -2653,7 +2657,7 @@ internal void NativeRenderer_UpdateP4Buffer(struct NativeP4CacheEntry *entry, in
 TextureID NativeRenderer_GetCachedP4Texture(int page, int clut, int superTurboTint)
 {
 
-	if (page < 0 || page >= 32 || clut < 0)
+	if (page < 0 || page >= (int)(VRAM_HEIGHT / TPAGE_HEIGHT) * 16 || clut < 0)
 	{
 		return (0);
 	}
@@ -2943,33 +2947,26 @@ internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h)
 
 void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
 {
-	u16 *dst = s_vram.cpuPixels + x + y * VRAM_WIDTH;
-	const u16 color = NativeRenderer_PackRGB24ToPSX15(r, g, b);
-
-	if (x + w > VRAM_WIDTH)
-	{
-		w = VRAM_WIDTH - x;
-	}
-
-	if (y + h > VRAM_HEIGHT)
-	{
-		h = VRAM_HEIGHT - y;
-	}
-
-	// clear VRAM region with given color
-	for (int i = 0; i < h; i++)
-	{
-		u16 *tmp = dst;
-
-		for (int j = 0; j < w; j++)
-		{
-			*tmp++ = color;
-		}
-
-		dst += VRAM_WIDTH;
-	}
-
-	NativeRenderer_MarkVRAMDirty(x, y, w, h);
+    if (w <= 0 || h <= 0)
+        return;
+    x &= VRAM_WIDTH - 1;
+    y &= VRAM_HEIGHT - 1;
+    w = SDL_min(w, VRAM_WIDTH);
+    h = SDL_min(h, (int)VRAM_HEIGHT);
+    const u16 color = NativeRenderer_PackRGB24ToPSX15(r, g, b);
+    const int firstWidth = SDL_min(w, VRAM_WIDTH - x);
+    for (int row = 0; row < h; row++)
+    {
+        const int yy = (y + row) & (VRAM_HEIGHT - 1);
+        u16 *dst = s_vram.cpuPixels + yy * VRAM_WIDTH;
+        for (int col = 0; col < firstWidth; col++)
+            dst[x + col] = color;
+        for (int col = firstWidth; col < w; col++)
+            dst[col - firstWidth] = color;
+        NativeRenderer_MarkVRAMDirty(x, yy, firstWidth, 1);
+        if (firstWidth < w)
+            NativeRenderer_MarkVRAMDirty(0, yy, w - firstWidth, 1);
+    }
 }
 
 void NativeRenderer_Clear(int x, int y, int w, int h, u8 r, u8 g, u8 b)
@@ -3443,32 +3440,34 @@ void NativeRenderer_ReadVRAM(u16 *dst, int x, int y, int dst_w, int dst_h)
 
 int NativeRenderer_GetVRAMStateSize(void)
 {
-	return (int)sizeof(s_vram.cpuPixels);
+	return (int)(VRAM_WIDTH * VRAM_HEIGHT * sizeof(u16));
 }
 
 int NativeRenderer_CaptureVRAMState(void *dst, int dstSize)
 {
-	if ((dst == NULL) || (dstSize < (int)sizeof(s_vram.cpuPixels)))
+	const size_t activeVramBytes = (size_t)VRAM_WIDTH * VRAM_HEIGHT * sizeof(u16);
+	if ((dst == NULL) || (dstSize < (int)activeVramBytes))
 	{
 		return 0;
 	}
 
 	// NOTE(aalhendi): Save-states own the CPU-side PSX VRAM mirror, not GL textures. Pull pending GPU-authored VRAM into the mirror first.
 	NativeRenderer_SyncGpuVRAMToCPU(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
-	SDL_memcpy(dst, s_vram.cpuPixels, sizeof(s_vram.cpuPixels));
+	SDL_memcpy(dst, s_vram.cpuPixels, activeVramBytes);
 	return 1;
 }
 
 int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 {
 	local_persist const RECT16 zeroRect = {0, 0, 0, 0};
+	const size_t activeVramBytes = (size_t)VRAM_WIDTH * VRAM_HEIGHT * sizeof(u16);
 
-	if ((src == NULL) || (srcSize < (int)sizeof(s_vram.cpuPixels)))
+	if ((src == NULL) || (srcSize < (int)activeVramBytes))
 	{
 		return 0;
 	}
 
-	SDL_memcpy(s_vram.cpuPixels, src, sizeof(s_vram.cpuPixels));
+	SDL_memcpy(s_vram.cpuPixels, src, activeVramBytes);
 	// NOTE(aalhendi): Restored VRAM is authoritative PSX state. Host GL caches are rebuildable, so mark all of VRAM dirty and drop stale bindings.
 	s_vram.cpuDirtyRectCount = 0;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
@@ -4034,7 +4033,7 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 	if (width <= 0 || width > VRAM_WIDTH || height <= 0 || height > VRAM_HEIGHT)
 		return;
 	const int x = display->disp.x & 1023;
-	const int y = display->disp.y & 511;
+	const int y = display->disp.y & (VRAM_HEIGHT - 1);
 	const int packedWidth = SDL_min((width * 3 + 1) / 2, VRAM_WIDTH - x);
 	const int firstHeight = SDL_min(height, VRAM_HEIGHT - y);
 	NativeRenderer_SyncGpuVRAMToCPU(x, y, packedWidth, firstHeight);
@@ -4048,7 +4047,7 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 		textureHeight = height;
 	}
 	for (int row = 0; row < height; ++row)
-		psx_vita_rgb24_row(s_vram.cpuPixels, x, y, row, width,
+		psx_vita_rgb24_row(s_vram.cpuPixels, x, y, row, width, VRAM_HEIGHT,
 		                   s_vitaVramTransferPixels + (size_t)row * width * 4u);
 	NativeRenderer_UpdateStreamingTexture(texture, width, height, s_vitaVramTransferPixels);
 	NativeRenderer_PresentStreamingTexture(texture, height, height);

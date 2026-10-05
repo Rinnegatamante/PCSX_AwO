@@ -5,9 +5,9 @@
 
 static inline void psx_vita_rgb24_row(const uint16_t *vram, uint32_t display_x,
                                     uint32_t display_y, uint32_t row,
-                                    uint32_t width, uint8_t *rgba) {
+                                    uint32_t width, uint32_t vram_height, uint8_t *rgba) {
     const uint32_t byte_x = (display_x & 1023u) * 2u;
-    const uint32_t physical_y = (display_y + row) & 511u;
+    const uint32_t physical_y = (display_y + row) & (vram_height - 1u);
     const uint32_t available = (2048u - byte_x) / 3u;
     const uint32_t pixels = width < available ? width : available;
     const uint8_t *source = (const uint8_t *)(vram + physical_y * 1024u) + byte_x;
