@@ -83,28 +83,26 @@ static u32 hsync_steps = 0;
 #define FPS_FRACTIONAL_PAL  (53203425/314./3406) // ~49.75
 #define FPS_FRACTIONAL_NTSC (53693175/263./3413) // ~59.81
 
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-static inline double system12SourceFps(void)
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+static inline double arcadeSourceFps(void)
 {
-    u32 status = SWAP32(HW_GPU_STATUS);
-    if (status & (1u << 20)) return 50.0;
-    return status & (1u << 19) ? 59.9400523286 : 59.8260978565;
+    return psxGpuSourceRefreshHz(SWAP32(HW_GPU_STATUS));
 }
 #endif
 
 static inline u32 hsyncTotal(void)
 {
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-    if (system12_active()) return HSyncTotal[!!(SWAP32(HW_GPU_STATUS) & (1u << 20))];
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+    if (psxArcadeSourceTimingActive()) return HSyncTotal[!!(SWAP32(HW_GPU_STATUS) & (1u << 20))];
 #endif
     return HSyncTotal[Config.PsxType];
 }
 
 static inline u32 vblankStart(void)
 {
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-    if (system12_active()) {
-        double blank_lines = hsyncTotal() * system12SourceFps() / 400.0;
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+    if (psxArcadeSourceTimingActive()) {
+        double blank_lines = hsyncTotal() * arcadeSourceFps() / 400.0;
         return hsyncTotal() - (u32)(blank_lines + 0.999999);
     }
 #endif
@@ -114,8 +112,8 @@ static inline u32 vblankStart(void)
 static inline
 u32 frameCycles(void)
 {
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-    if (system12_active()) return (u32)(PSXCLK / system12SourceFps());
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+    if (psxArcadeSourceTimingActive()) return (u32)(PSXCLK / arcadeSourceFps());
 #endif
     int ff = Config.FractionalFramerate >= 0
         ? Config.FractionalFramerate : Config.hacks.fractional_Framerate;
@@ -132,8 +130,8 @@ u32 frameCycles(void)
 // used to inform the frontend about the exact framerate
 double psxGetFps()
 {
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-    if (system12_active()) return system12SourceFps();
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+    if (psxArcadeSourceTimingActive()) return arcadeSourceFps();
 #endif
     int ff = Config.FractionalFramerate >= 0
         ? Config.FractionalFramerate : Config.hacks.fractional_Framerate;
@@ -147,8 +145,8 @@ double psxGetFps()
 static inline
 u32 lineCycles(void)
 {
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-    if (system12_active()) return frameCycles() / hsyncTotal();
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+    if (psxArcadeSourceTimingActive()) return frameCycles() / hsyncTotal();
 #endif
     // should be more like above, but our timing is already poor anyway
     if (Config.PsxType)
@@ -383,8 +381,8 @@ static void scheduleRcntBase(void)
     {
         // clk / 50 / 314 ~= 2157.25
         // clk / 60 / 263 ~= 2146.31
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-        if (system12_active())
+#if defined(PCSX_SYSTEM12_SOURCE_TIMING) || defined(PCSX_ARCADE_SOURCE_TIMING)
+        if (psxArcadeSourceTimingActive())
             rcnts[3].cycle = frameCycles() - PSXCLK / 400;
         else
 #endif

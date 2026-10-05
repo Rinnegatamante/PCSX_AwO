@@ -58,6 +58,7 @@ psxRegisters psxRegs;
 int psxInit() {
 	assert(PSXINT_COUNT <= ARRAY_SIZE(psxRegs.intCycle));
 	assert(ARRAY_SIZE(psxRegs.intCycle) == ARRAY_SIZE(psxRegs.event_cycles));
+	psxTimingRefresh();
 
 #ifndef DRC_DISABLE
 	if (Config.Cpu == CPU_INTERPRETER) {
@@ -76,6 +77,7 @@ int psxInit() {
 void psxReset() {
 	boolean introBypassed = FALSE;
 	boolean oldhle = Config.HLE;
+	psxTimingRefresh();
 
 	psxMemReset();
 

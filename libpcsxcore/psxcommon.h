@@ -169,12 +169,14 @@ extern struct PcsxSaveFuncs SaveFuncs;
 	if (Mode == 0) SaveFuncs.read(f, ptr, size); \
 }
 
-#ifdef PCSX_SYSTEM12_SOURCE_TIMING
-int system12_active(void);
-#define PSXCLK (system12_active() ? 50000000u : 33868800u)
-#else
-#define PSXCLK	33868800	/* 33.8688 MHz */
-#endif
+/* PSX cycle-domain clock, refreshed at psxInit/psxReset. Arcade source
+ * timing keeps this as cached data so PSXCLK users do not poll board state. */
+extern u32 psxCycleClockHz;
+void psxTimingRefresh(void);
+int psxArcadeSourceTimingActive(void);
+u32 psxArcadeSourceInputClockHz(void);
+double psxGpuSourceRefreshHz(u32 gpu_status);
+#define PSXCLK psxCycleClockHz
 
 enum {
 	PSX_TYPE_NTSC = 0,
