@@ -559,7 +559,10 @@ fill command `02704808 00360000 00a60200` at frames 3,597 and 3,599. Its
 RGB `(8,72,112)` quantizes to BGR555 `0x3921`, matching those pixels and the
 captured blue color. Frame and VRAM hashes remain byte-identical to the
 control replay. Evidence is retained in
-`/tmp/pcsx-gp0-roi-trace-replay-fullpack-20261005`. This identifies a matching
+`/tmp/pcsx-gp0-roi-trace-replay-fullpack-20261005`. The fill-bounds correction
+in `dd3fcf5e` ignores E5, aligns X and uses the active VRAM height mask;
+its parity replay in `/tmp/pcsx-gp0-roi-fill-bounds-replay-20261005` retains
+the same candidate and hashes. This identifies a matching
 game-issued fill candidate; it does not establish a complete GP0 replay,
 cover MoveImage source coordinates, or prove equivalence with NEON/MAME.
 Attributing that region to a remaining renderer defect is therefore unproven.
@@ -574,5 +577,16 @@ The same package passes the twenty-four baseline/E2 reads in
 `/tmp/pcsx-vitagl-span-fixed-e2-native-20261005/evidence.json`. Both hosts
 reach shutdown PASS and Idle and close automatically. The frozen private
 source delta and build identities are in
-`build/vita-system12-vitagl-teardown/span-fixed-evidence.json`; authentic
-gameplay and graphics validation of this exact package remain pending.
+`build/vita-system12-vitagl-teardown/span-fixed-evidence.json`.
+
+The exact package's extended 12,000-frame/177-input replay then fails to
+complete within its 900-second budget. The owned process closes
+automatically, preserving 24 native PNGs and logs in
+`/tmp/pcsx-vita-system12-vitagl-span-fixed-replay-20261005`. All 7,639
+forwarded host faults have matching recoveries, but there is no final board
+report or shutdown PASS. Capture 19 shows a multicolored noisy strip above
+the arena; capture 24 shows repeated/clipped ranking lettering over the
+scene. The review is retained in `graphics-review.json`. This is an extended
+replay failure with observed artifacts, not complete graphics validation.
+The timeout does not distinguish slow progress from a synchronization stall,
+and the artifacts' origin remains unisolated. Physical Vita is still untested.
