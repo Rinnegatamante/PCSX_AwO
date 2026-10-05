@@ -2,6 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../plugins/gpulib/gpu.h"
+#ifdef GPU_VITA_CTR
+#include "../plugins/gpu_vita_ctr/include/platform/mac_vita_compat.h"
+static int capture_gl_requested;
+static int capture_gl_done;
+static unsigned int capture_gl_target_frame;
+#endif
 
 static unsigned char *presented_rgb;
 static int presented_w, presented_h, presented_valid;
@@ -256,6 +262,16 @@ int harness_gpu_type1_selftest(void)
 
 int harness_write_ppm(const char *path, int w, int h)
 {
+#ifdef GPU_VITA_CTR
+  if (capture_gl_requested) {
+    int result = PCSXMacVitaGL_WriteCapturePpm(path);
+    if (result <= 0) {
+      fprintf(stderr, "OpenGL capture requested but no frame was captured\n");
+      return -1;
+    }
+    return 0;
+  }
+#endif
   FILE *fp = fopen(path, "wb");
   int x, y, src_x, src_y, rgb24;
   if (!fp) { perror(path); return -1; }
@@ -301,4 +317,30 @@ int harness_write_ppm(const char *path, int w, int h)
     if (fwrite(rgb, 1, 3, fp) != 3) { fclose(fp); return -1; }
   }
   return fclose(fp);
+}
+
+int harness_configure_gl_capture(int enabled, unsigned int target_frame)
+{
+#ifdef GPU_VITA_CTR
+  capture_gl_requested = enabled;
+  capture_gl_done = 0;
+  capture_gl_target_frame = target_frame;
+  return 0;
+#else
+  (void)target_frame;
+  return enabled ? -1 : 0;
+#endif
+}
+
+void harness_capture_gl_frame(unsigned int frame)
+{
+#ifdef GPU_VITA_CTR
+  if (capture_gl_requested && !capture_gl_done && frame >= capture_gl_target_frame) {
+    capture_gl_done = 1;
+    if (!PCSXMacVitaGL_CaptureCurrentFrame())
+      fprintf(stderr, "OpenGL capture failed at emulated frame %u\n", frame);
+  }
+#else
+  (void)frame;
+#endif
 }

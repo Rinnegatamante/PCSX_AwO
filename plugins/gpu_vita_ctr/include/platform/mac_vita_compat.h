@@ -21,6 +21,8 @@ void vglSwapBuffers(GLboolean wait_vblank);
 int vglShutdown(void);
 
 int PCSXMacVitaGL_IsCurrent(void);
+int PCSXMacVitaGL_CaptureCurrentFrame(void);
+int PCSXMacVitaGL_WriteCapturePpm(const char *path);
 void PCSXMacVitaGL_UploadP4Texture(GLsizei width, GLsizei height,
                                    const void *vita_palette4_rgba8_payload);
 

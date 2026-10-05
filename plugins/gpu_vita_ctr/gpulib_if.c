@@ -141,6 +141,11 @@ void Platform_EndScene(void)
         /* Scanout reads DISPENV, independently of the final GP0 draw page. */
         NativeRenderer_PresentVRAMRect(display->disp.x, display->disp.y, display->disp.w, display->disp.h);
     }
+#if defined(PCSX_NATIVE_VITA_PATH) && !defined(__vita__)
+    extern void harness_capture_gl_frame(unsigned int frame);
+    if (pl_rearmed_cbs.gpu_frame_count != NULL)
+        harness_capture_gl_frame(*pl_rearmed_cbs.gpu_frame_count);
+#endif
     NativeRenderer_SwapWindow();
 }
 

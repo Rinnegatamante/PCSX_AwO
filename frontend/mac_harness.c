@@ -169,6 +169,7 @@ int in_mouse[8][2];
 struct rearmed_cbs pl_rearmed_cbs;
 void GPUrearmedCallbacks(const struct rearmed_cbs *cbs);
 int harness_write_ppm(const char *path, int w, int h);
+int harness_configure_gl_capture(int enabled, unsigned int target_frame);
 unsigned short harness_vram_pixel(int x, int y);
 void harness_capture_mode(int w, int h);
 void harness_capture_flip(const void *vram, int offset, int rgb24,
@@ -224,7 +225,7 @@ void SysRunGui(void) { interrupted = 1; }
 static void usage(const char *name)
 {
   fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR | --system-gv REGION-DIR | --system-gnet REGION-DIR | --system-gnet-fixture) "
-    "[--frames N] [--output FRAME.ppm] [--board-test] [--verify-smoke] "
+    "[--frames N] [--output FRAME.ppm] [--capture-gl] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
@@ -407,6 +408,7 @@ int main(int argc, char **argv)
   int board_family = 12;
   int icache = 0;
   int use_drc = 0;
+  int capture_gl = 0;
   struct timespec begin, end;
   /* These fixture selectors are parsed for a clear BOARD=0 diagnostic too. */
   (void)gnet_fixture;
@@ -434,6 +436,7 @@ int main(int argc, char **argv)
       board = argv[++i];
     }
     else if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
+    else if (!strcmp(argv[i], "--capture-gl")) capture_gl = 1;
     else if (!strcmp(argv[i], "--inputs") && i + 1 < argc) inputs_path = argv[++i];
     else if (!strcmp(argv[i], "--audio") && i + 1 < argc) audio_path = argv[++i];
     else if (!strcmp(argv[i], "--nvram") && i + 1 < argc) nvram_path = argv[++i];
@@ -503,6 +506,12 @@ int main(int argc, char **argv)
       (audio_test_fixture && (!board_test || !audio_path || board_family != 12))) {
     usage(argv[0]); return 2;
   }
+#if !defined(GPU_VITA_CTR)
+  if (capture_gl) {
+    fprintf(stderr, "--capture-gl requires GPU=vitagl-like\n");
+    return 2;
+  }
+#endif
   if (gv_fixture && (!board || board_family != 102 || !board_test || exe ||
       inputs_path || audio_path || nvram_path || snapshot_path || bus_trace_path ||
       trace_path || verify || gpu_type1_test)) {
@@ -730,6 +739,10 @@ int main(int argc, char **argv)
   if (!result && exe && Load(exe)) result = 1;
   signal(SIGINT, on_signal); signal(SIGTERM, on_signal);
   start_frame = frame_counter; prev_cycle = psxRegs.cycle;
+  if (harness_configure_gl_capture(capture_gl, start_frame + frames - 1)) {
+    fprintf(stderr, "failed to configure GL capture\n");
+    result = 1;
+  }
 #ifdef PCSX_SYSTEM12
   if (board && audio_test_fixture) system12_audio_test_fixture();
   if (board && audio_path && selected_board->open_audio(audio_path)) {

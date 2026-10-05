@@ -224,6 +224,14 @@ GPU readback and rasterization, while the harness PPM may still come from its
 CPU VRAM fallback when no frontend presentation occurs. Treat it as a
 readback comparison, not a captured GL presentation or whole-game result.
 
+Add `--capture-gl` to capture the final emulated frame from OpenGL's default
+back buffer immediately before swap. It is accepted only by the
+`GPU=vitagl-like` build and fails if that frame is never presented. A 3,600
+frame Soul Calibur capture using the scheduled gameplay inputs is recorded in
+`/tmp/pcsx-mac-vitagl-like-soul-3600-capture-20261005`; its log confirms
+`source=OpenGL-back-buffer-before-swap` and the PPM is 1920×1088. This captures
+the Mac renderer output and is not a Vita hardware screenshot.
+
 Add `--texture-window` for six further reads after setting GP0 E2 mask/offset
 and resetting E2. Mac NEON passes this 24-pixel probe in
 `/tmp/pcsx-mac-framebuffer-e2-neon-20261005`; Vita NEON also passes its native
