@@ -53,10 +53,14 @@ struct PcCardProbe {
     uint16_t write_memory_data = 0;
     uint16_t write_memory_mask = 0;
     uint32_t read_reg_offset = 0;
+    uint32_t previous_read_reg_offset = 0;
     uint16_t read_reg_mask = 0;
+    unsigned read_reg_count = 0;
     uint32_t write_reg_offset = 0;
+    uint32_t previous_write_reg_offset = 0;
     uint16_t write_reg_data = 0;
     uint16_t write_reg_mask = 0;
+    unsigned write_reg_count = 0;
     unsigned reset_count = 0;
     gnet_zoom_board *board = nullptr;
     bool destroy_from_read = false;
@@ -87,8 +91,10 @@ void pc_write_memory(void *opaque, uint32_t offset, uint16_t data,
 uint16_t pc_read_reg(void *opaque, uint32_t offset, uint16_t mask)
 {
     auto *probe = static_cast<PcCardProbe *>(opaque);
+    probe->previous_read_reg_offset = probe->read_reg_offset;
     probe->read_reg_offset = offset;
     probe->read_reg_mask = mask;
+    ++probe->read_reg_count;
     return uint16_t(0xa000 | (offset & 0x0fff));
 }
 
@@ -96,9 +102,11 @@ void pc_write_reg(void *opaque, uint32_t offset, uint16_t data,
                   uint16_t mask)
 {
     auto *probe = static_cast<PcCardProbe *>(opaque);
+    probe->previous_write_reg_offset = probe->write_reg_offset;
     probe->write_reg_offset = offset;
     probe->write_reg_data = data;
     probe->write_reg_mask = mask;
+    ++probe->write_reg_count;
 }
 
 void pc_reset(void *opaque)
@@ -436,6 +444,53 @@ void test_rf5c296_controller_and_optional_pc_card_windows()
     assert(probe.write_reg_offset == 2 && probe.write_reg_data == 0x7654 &&
            probe.write_reg_mask == 0xffff);
 
+    /* The amap16 window preserves byte masks and splits dword accesses into
+     * little-endian x16 words. mem_r/mem_w receive word offsets unchanged. */
+    assert(gnet_zoom_bus_read(board, 0x1f200040, 1, &value) == GNET_ZOOM_OK &&
+           value == 0x20);
+    assert(probe.read_reg_offset == 0x20 && probe.read_reg_mask == 0x00ff);
+    assert(gnet_zoom_bus_read(board, 0x1f200041, 1, &value) == GNET_ZOOM_OK &&
+           value == 0xa0);
+    assert(probe.read_reg_offset == 0x20 && probe.read_reg_mask == 0xff00);
+    assert(gnet_zoom_bus_write(board, 0x1f200040, 1, 0x5a) == GNET_ZOOM_OK);
+    assert(probe.write_reg_offset == 0x20 && probe.write_reg_data == 0x005a &&
+           probe.write_reg_mask == 0x00ff);
+    assert(gnet_zoom_bus_write(board, 0x1f200041, 1, 0x6b) == GNET_ZOOM_OK);
+    assert(probe.write_reg_offset == 0x20 && probe.write_reg_data == 0x6b00 &&
+           probe.write_reg_mask == 0xff00);
+    unsigned read_calls = probe.read_reg_count;
+    assert(gnet_zoom_bus_read(board, 0x1f200080, 4, &value) == GNET_ZOOM_OK &&
+           value == 0xa041a040);
+    assert(probe.read_reg_count == read_calls + 2 &&
+           probe.previous_read_reg_offset == 0x40 &&
+           probe.read_reg_offset == 0x41 && probe.read_reg_mask == 0xffff);
+    unsigned write_calls = probe.write_reg_count;
+    assert(gnet_zoom_bus_write(board, 0x1f200088, 4, 0x55667788) ==
+           GNET_ZOOM_OK);
+    assert(probe.write_reg_count == write_calls + 2 &&
+           probe.previous_write_reg_offset == 0x44 &&
+           probe.write_reg_offset == 0x45 &&
+           probe.write_reg_data == 0x5566 &&
+           probe.write_reg_mask == 0xffff);
+
+    /* The last aligned dword fits exactly. The following flash region and a
+     * nonzero bank stay outside the PC Card callback path. */
+    read_calls = probe.read_reg_count;
+    assert(gnet_zoom_bus_read(board, 0x1f2ffffc, 4, &value) == GNET_ZOOM_OK &&
+           value == 0xafffaffe);
+    assert(probe.read_reg_count == read_calls + 2 &&
+           probe.previous_read_reg_offset == 0x7fffe &&
+           probe.read_reg_offset == 0x7ffff);
+    read_calls = probe.read_reg_count;
+    assert(gnet_zoom_bus_read(board, 0x1f300000, 4, &value) ==
+           GNET_ZOOM_UNSUPPORTED);
+    assert(probe.read_reg_count == read_calls);
+    assert(gnet_zoom_control_write(board, 0x04) == GNET_ZOOM_OK);
+    assert(gnet_zoom_bus_read(board, 0x1f200000, 4, &value) ==
+           GNET_ZOOM_UNSUPPORTED);
+    assert(probe.read_reg_count == read_calls);
+    assert(gnet_zoom_control_write(board, 0x00) == GNET_ZOOM_OK);
+
     /* RF5C296 I/O passes the ATA task-file aperture through to the card.
      * Byte high-lane accesses increment the card byte address and shift data. */
     assert(gnet_zoom_bus_read(board, 0x1fb00008, 2, &value) == GNET_ZOOM_OK &&
@@ -478,11 +533,17 @@ void test_rf5c296_controller_and_optional_pc_card_windows()
     assert(gnet_zoom_create(&config, &board) == GNET_ZOOM_OK && board);
     assert(gnet_zoom_bus_read(board, 0x1f200000, 2, &value) ==
            GNET_ZOOM_UNSUPPORTED);
+    assert(gnet_zoom_bus_read(board, 0x1f200000, 4, &value) ==
+           GNET_ZOOM_UNSUPPORTED);
     assert(gnet_zoom_bus_write(board, 0x1f200000, 2, 0) ==
            GNET_ZOOM_UNSUPPORTED);
     assert(gnet_zoom_bus_read(board, 0x1fb00000, 1, &value) ==
            GNET_ZOOM_UNSUPPORTED);
     assert(gnet_zoom_bus_write(board, 0x1fb00000, 1, 0) ==
+           GNET_ZOOM_UNSUPPORTED);
+    assert(gnet_zoom_bus_read(board, 0x1f000000, 1, &value) ==
+           GNET_ZOOM_UNSUPPORTED);
+    assert(gnet_zoom_bus_read(board, 0x1f000000, 4, &value) ==
            GNET_ZOOM_UNSUPPORTED);
     assert(gnet_zoom_try_destroy(board) == GNET_ZOOM_OK);
 }

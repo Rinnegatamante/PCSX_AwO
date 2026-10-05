@@ -98,6 +98,9 @@ static bool valid_pc_card(const rf5c296_card_ops_t *card)
         card->read_reg && card->write_reg && card->reset);
 }
 
+static uint64_t main_effective_address(const gnet_zoom_board *b,
+                                       uint32_t address);
+
 struct PcCardCallbackGuard {
     explicit PcCardCallbackGuard(gnet_zoom_board *board_) : board(board_)
     {
@@ -191,6 +194,63 @@ static int pc_io_write(gnet_zoom_board *b, uint32_t address, unsigned width,
         }
         data = uint16_t(value >> (i * 8));
         rf5c296_io_write(b->rf5c296, word_offset, data, 0xffff);
+    }
+    return GNET_ZOOM_OK;
+}
+
+static bool pc_main_window_contains(gnet_zoom_board *b, uint32_t address,
+                                    unsigned width)
+{
+    if (!b->rf5c296 || b->bank != 0) return false;
+    uint32_t aligned = address & ~1u;
+    uint64_t effective = main_effective_address(b, aligned) + (address & 1u);
+    return effective >= PCMCIA_BEGIN && effective < PCMCIA_END &&
+           width <= PCMCIA_END - effective;
+}
+
+static int pc_main_read(gnet_zoom_board *b, uint32_t address,
+                        unsigned width, uint32_t *value)
+{
+    uint32_t result = 0;
+    if (width == 1) {
+        uint64_t effective = main_effective_address(b, address & ~1u);
+        uint32_t offset = uint32_t((effective - PCMCIA_BEGIN) >> 1);
+        bool upper = (address & 1u) != 0;
+        uint16_t data = rf5c296_mem_read(b->rf5c296, offset,
+                                         upper ? 0xff00 : 0x00ff);
+        *value = upper ? (data >> 8) : (data & 0xff);
+        return GNET_ZOOM_OK;
+    }
+
+    for (unsigned i = 0; i < width; i += 2) {
+        uint64_t effective = main_effective_address(b, address + i);
+        uint32_t offset = uint32_t((effective - PCMCIA_BEGIN) >> 1);
+        uint16_t data = rf5c296_mem_read(b->rf5c296, offset, 0xffff);
+        result |= uint32_t(data) << (i * 8);
+    }
+    *value = result;
+    return GNET_ZOOM_OK;
+}
+
+static int pc_main_write(gnet_zoom_board *b, uint32_t address,
+                         unsigned width, uint32_t value)
+{
+    if (width == 1) {
+        uint64_t effective = main_effective_address(b, address & ~1u);
+        uint32_t offset = uint32_t((effective - PCMCIA_BEGIN) >> 1);
+        bool upper = (address & 1u) != 0;
+        uint16_t data = upper ? uint16_t((value & 0xff) << 8)
+                              : uint16_t(value & 0xff);
+        rf5c296_mem_write(b->rf5c296, offset, data,
+                          upper ? 0xff00 : 0x00ff);
+        return GNET_ZOOM_OK;
+    }
+
+    for (unsigned i = 0; i < width; i += 2) {
+        uint64_t effective = main_effective_address(b, address + i);
+        uint32_t offset = uint32_t((effective - PCMCIA_BEGIN) >> 1);
+        rf5c296_mem_write(b->rf5c296, offset,
+                          uint16_t(value >> (i * 8)), 0xffff);
     }
     return GNET_ZOOM_OK;
 }
@@ -568,7 +628,11 @@ extern "C" int gnet_zoom_bus_read(gnet_zoom_board *b, uint32_t address,
     *value = UINT32_MAX;
 
     if (address >= MAIN_BASE && address < MAIN_END) {
-        if (width != 2) return GNET_ZOOM_UNSUPPORTED;
+        if (width != 2) {
+            if (pc_main_window_contains(b, address, width))
+                return pc_main_read(b, address, width, value);
+            return GNET_ZOOM_UNSUPPORTED;
+        }
         uint16_t word = 0xffff;
         const int r = gnet_zoom_main_read16(b, address, &word);
         *value = word;
@@ -622,7 +686,11 @@ extern "C" int gnet_zoom_bus_write(gnet_zoom_board *b, uint32_t address,
         (address & (width - 1))) return GNET_ZOOM_ARGUMENT;
 
     if (address >= MAIN_BASE && address < MAIN_END) {
-        if (width != 2) return GNET_ZOOM_UNSUPPORTED;
+        if (width != 2) {
+            if (pc_main_window_contains(b, address, width))
+                return pc_main_write(b, address, width, value);
+            return GNET_ZOOM_UNSUPPORTED;
+        }
         return gnet_zoom_main_write16(b, address, uint16_t(value), 0xffff);
     }
     if (address == 0x1fa30000u) {
