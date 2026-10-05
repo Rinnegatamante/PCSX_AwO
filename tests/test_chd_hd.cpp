@@ -28,6 +28,103 @@ static void write_bytes(const std::string &path, const std::vector<uint8_t> &dat
   std::ofstream f(path, std::ios::binary | std::ios::trunc);
   assert(f); f.write(reinterpret_cast<const char *>(data.data()), data.size()); assert(f);
 }
+static uint64_t be64(const uint8_t *p) {
+  uint64_t value = 0;
+  for (unsigned i = 0; i < 8; ++i) value = (value << 8) | p[i];
+  return value;
+}
+static arcade_chd_hd_metadata_status_t read_metadata(
+    arcade_chd_hd_t *disk, arcade_chd_hd_metadata_kind_t kind,
+    uint8_t *out, size_t capacity, size_t *bytes) {
+  return arcade_chd_hd_read_metadata(disk, kind, out, capacity, bytes);
+}
+static void test_gnet_metadata(const std::string &dir) {
+  char error[256]{};
+  const std::string absent_path = dir + "/disk.chd";
+  auto *absent = arcade_chd_hd_open(absent_path.c_str(), nullptr, error, sizeof(error));
+  assert(absent);
+  std::array<uint8_t, 8> untouched{}; untouched.fill(0xa5);
+  size_t bytes = 0x1234;
+  assert(read_metadata(absent, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       untouched.data(), untouched.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_MISSING);
+  assert(bytes == 0x1234 && untouched.front() == 0xa5 && untouched.back() == 0xa5);
+  assert(read_metadata(nullptr, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       untouched.data(), untouched.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_ARGUMENT);
+  arcade_chd_hd_close(absent);
+
+  const std::string custom_path = dir + "/custom.chd";
+  auto *custom = arcade_chd_hd_open(custom_path.c_str(), nullptr, error, sizeof(error));
+  assert(custom);
+  std::array<uint8_t, 4> cis{}; bytes = 0;
+  assert(read_metadata(custom, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       cis.data(), cis.size(), &bytes) == ARCADE_CHD_HD_METADATA_OK);
+  const std::array<uint8_t, 4> expected_cis{{1,2,0xfe,0xff}};
+  assert(bytes == cis.size() && cis == expected_cis);
+  std::array<uint8_t, 5> key{}; bytes = 0;
+  assert(read_metadata(custom, ARCADE_CHD_HD_METADATA_GNET_KEY,
+                       key.data(), key.size(), &bytes) == ARCADE_CHD_HD_METADATA_OK);
+  const std::array<uint8_t, 5> expected_key{{0x10,0x20,0x30,0x40,0x50}};
+  assert(bytes == 5 && key == expected_key);
+  std::array<uint8_t, 512> identify{}; bytes = 0;
+  assert(read_metadata(custom, ARCADE_CHD_HD_METADATA_ATA_IDENTIFY,
+                       identify.data(), identify.size(), &bytes) == ARCADE_CHD_HD_METADATA_OK);
+  assert(bytes == identify.size());
+  for (unsigned i = 0; i < identify.size(); ++i)
+    assert(identify[i] == uint8_t(i * 29 + 7));
+  arcade_chd_hd_info_t info{}; arcade_chd_hd_get_info(custom, &info);
+  assert(info.inquiry_bytes == 48);
+  assert(std::memcmp(info.inquiry, identify.data(), sizeof(info.inquiry)) == 0);
+
+  std::array<uint8_t, 2> small{{0xa5, 0xa5}}; bytes = 0;
+  assert(read_metadata(custom, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       small.data(), small.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_BUFFER_TOO_SMALL);
+  assert(bytes == 4 && small[0] == 0xa5 && small[1] == 0xa5);
+  arcade_chd_hd_close(custom);
+
+  const std::string empty_path = dir + "/empty.chd";
+  auto *empty = arcade_chd_hd_open(empty_path.c_str(), nullptr, error, sizeof(error));
+  assert(empty);
+  bytes = 0x55;
+  assert(read_metadata(empty, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       nullptr, 0, &bytes) == ARCADE_CHD_HD_METADATA_OK);
+  assert(bytes == 0);
+  arcade_chd_hd_close(empty);
+
+  const std::string wrong_path = dir + "/wronglen.chd";
+  auto *wrong = arcade_chd_hd_open(wrong_path.c_str(), nullptr, error, sizeof(error));
+  assert(wrong);
+  std::array<uint8_t, 8> wrong_out{}; bytes = 0;
+  assert(read_metadata(wrong, ARCADE_CHD_HD_METADATA_GNET_KEY,
+                       wrong_out.data(), wrong_out.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_OK);
+  assert(bytes == 4 && wrong_out[0] == 1 && wrong_out[3] == 4);
+  std::array<uint8_t, 512> wrong_identify{}; bytes = 0;
+  assert(read_metadata(wrong, ARCADE_CHD_HD_METADATA_ATA_IDENTIFY,
+                       wrong_identify.data(), wrong_identify.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_OK);
+  assert(bytes == 511);
+  arcade_chd_hd_close(wrong);
+
+  const std::string error_path = dir + "/metadata-error.chd";
+  const auto original = file_bytes(error_path);
+  auto *broken = arcade_chd_hd_open(error_path.c_str(), nullptr, error, sizeof(error));
+  assert(broken);
+  uint64_t offset = be64(original.data() + 48);
+  while (offset && std::memcmp(original.data() + offset, "CIS ", 4))
+    offset = be64(original.data() + offset + 8);
+  assert(offset && truncate(error_path.c_str(), static_cast<off_t>(offset + 16)) == 0);
+  std::array<uint8_t, 16> preserved{}; preserved.fill(0x6c); bytes = 0x9876;
+  assert(read_metadata(broken, ARCADE_CHD_HD_METADATA_GNET_CIS,
+                       preserved.data(), preserved.size(), &bytes) ==
+         ARCADE_CHD_HD_METADATA_ERROR);
+  assert(bytes == 0x9876);
+  for (uint8_t value : preserved) assert(value == 0x6c);
+  write_bytes(error_path, original);
+  arcade_chd_hd_close(broken);
+}
 int main(int argc, char **argv) {
   const uint8_t bits[] = {0x92, 0xff, 0x80, 0x03, 0xee};
   auto *stream = create_bitstream(bits, sizeof(bits)); assert(stream);
@@ -39,6 +136,7 @@ int main(int argc, char **argv) {
   std::free(stream);
   assert(argc == 2);
   std::string dir = argv[1], image = dir + "/disk.chd", overlay = dir + "/disk.overlay";
+  test_gnet_metadata(dir);
   char error[256];
   auto *disk = arcade_chd_hd_open(image.c_str(), nullptr, error, sizeof(error));
   assert(disk && !*error);

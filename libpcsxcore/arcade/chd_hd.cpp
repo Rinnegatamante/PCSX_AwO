@@ -168,6 +168,51 @@ extern "C" void arcade_chd_hd_close(arcade_chd_hd_t *d) { delete d; }
 extern "C" void arcade_chd_hd_get_info(const arcade_chd_hd_t *d, arcade_chd_hd_info_t *info) {
   if (info) *info = d ? d->info : arcade_chd_hd_info_t{};
 }
+extern "C" arcade_chd_hd_metadata_status_t arcade_chd_hd_read_metadata(
+    const arcade_chd_hd_t *d, arcade_chd_hd_metadata_kind_t kind,
+    uint8_t *output, size_t capacity, size_t *metadata_bytes) {
+  if (!d || !metadata_bytes || (!output && capacity) ||
+      kind < ARCADE_CHD_HD_METADATA_GNET_CIS ||
+      kind > ARCADE_CHD_HD_METADATA_ATA_IDENTIFY)
+    return ARCADE_CHD_HD_METADATA_ARGUMENT;
+
+  uint32_t tag = 0;
+  switch (kind) {
+    case ARCADE_CHD_HD_METADATA_GNET_CIS: tag = CHD_MAKE_TAG('C','I','S',' '); break;
+    case ARCADE_CHD_HD_METADATA_GNET_KEY: tag = CHD_MAKE_TAG('K','E','Y',' '); break;
+    case ARCADE_CHD_HD_METADATA_ATA_IDENTIFY: tag = CHD_MAKE_TAG('I','D','N','T'); break;
+    default: return ARCADE_CHD_HD_METADATA_ARGUMENT;
+  }
+
+  uint32_t required = 0;
+  chd_error error = chd_get_metadata(d->image, tag, 0, nullptr, 0,
+                                     &required, nullptr, nullptr);
+  if (error == CHDERR_METADATA_NOT_FOUND)
+    return ARCADE_CHD_HD_METADATA_MISSING;
+  if (error != CHDERR_NONE)
+    return ARCADE_CHD_HD_METADATA_ERROR;
+  if (capacity < required) {
+    *metadata_bytes = required;
+    return ARCADE_CHD_HD_METADATA_BUFFER_TOO_SMALL;
+  }
+
+  try {
+    std::vector<uint8_t> data(required);
+    uint32_t actual = 0;
+    error = chd_get_metadata(d->image, tag, 0,
+                             required ? data.data() : nullptr, required,
+                             &actual, nullptr, nullptr);
+    if (error == CHDERR_METADATA_NOT_FOUND)
+      return ARCADE_CHD_HD_METADATA_MISSING;
+    if (error != CHDERR_NONE || actual != required)
+      return ARCADE_CHD_HD_METADATA_ERROR;
+    if (required) std::memcpy(output, data.data(), required);
+    *metadata_bytes = required;
+    return ARCADE_CHD_HD_METADATA_OK;
+  } catch (...) {
+    return ARCADE_CHD_HD_METADATA_ERROR;
+  }
+}
 extern "C" int arcade_chd_hd_read(void *opaque, uint32_t lba, uint8_t *data, size_t bytes) {
   auto *d = static_cast<arcade_chd_hd *>(opaque);
   if (!d) return -1;

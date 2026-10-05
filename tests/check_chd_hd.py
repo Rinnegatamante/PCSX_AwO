@@ -12,6 +12,36 @@ def run(*args):
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL)
 
 
+def create_metadata_chd(chdman, root, name, payload, metadata):
+    raw = root / f"{name}.raw"
+    image = root / f"{name}.chd"
+    raw.write_bytes(payload)
+    run(chdman, "createhd", "-i", str(raw), "-o", str(image), "-chs",
+        "2,2,5", "-ss", "512", "-hs", "1536", "-c", "none")
+    for tag, value in metadata.items():
+        value_path = root / f"{name}-{tag.strip()}.meta"
+        value_path.write_bytes(value)
+        run(chdman, "addmeta", "-i", str(image), "-t", tag, "-vf",
+            str(value_path))
+    return image
+
+
+def set_metadata_empty(image, tag):
+    """Set one CHD metadata record's payload length to zero for an empty-value fixture."""
+    data = bytearray(image.read_bytes())
+    offset = int.from_bytes(data[48:56], "big")  # CHD v5 metaoffset.
+    while offset:
+        current = bytes(data[offset:offset + 4]).decode("ascii")
+        length_word = int.from_bytes(data[offset + 4:offset + 8], "big")
+        following = int.from_bytes(data[offset + 8:offset + 16], "big")
+        if current == tag:
+            data[offset + 4:offset + 8] = (length_word & 0xff000000).to_bytes(4, "big")
+            image.write_bytes(data)
+            return
+        offset = following
+    raise AssertionError(f"metadata tag {tag!r} not found in {image}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--test", required=True, type=Path)
@@ -37,6 +67,21 @@ def main():
         run(chdman, "addmeta", "-i", str(root / "duplicate.chd"), "-t", "GDDD",
             "-ix", "1", "-vt", "CYLS:2,HEADS:2,SECS:5,BPS:512")
         (root / "truncated.chd").write_bytes((root / "disk.chd").read_bytes()[:124])
+        create_metadata_chd(chdman, root, "custom", data, {
+            "CIS ": bytes((0x01, 0x02, 0xfe, 0xff)),
+            "KEY ": bytes((0x10, 0x20, 0x30, 0x40, 0x50)),
+            "IDNT": bytes((index * 29 + 7) & 0xff for index in range(512)),
+        })
+        empty = create_metadata_chd(chdman, root, "empty", data,
+                                    {"CIS ": b"x"})
+        set_metadata_empty(empty, "CIS ")
+        create_metadata_chd(chdman, root, "wronglen", data, {
+            "KEY ": bytes((1, 2, 3, 4)),
+            "IDNT": bytes((index * 3) & 0xff for index in range(511)),
+        })
+        create_metadata_chd(chdman, root, "metadata-error", data, {
+            "CIS ": bytes(range(1, 17)),
+        })
         before = {p: hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in root.glob("*.chd")}
         subprocess.run([str(args.test.resolve()), str(root)], check=True)
