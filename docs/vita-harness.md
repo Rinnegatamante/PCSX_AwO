@@ -533,3 +533,20 @@ the old vertical background streaks and broad bottom horizontal bands absent.
 The package is recorded as `PARTIAL_GRAPHICS_VALIDATION`, with review details
 in `graphics-review.json`: the screenshots are not frame-matched references,
 the Mac water defect remains open, and physical Vita is still untested.
+
+The Mac-only `--coord-span-cull` probe isolates the X extent limit: a span of
+1,024 pixels must be rejected while 1,023 remains valid. It also checks the
+surviving half of F4/FT4/G4 quads and TPAGE propagation from a fully rejected
+FT3 to the following sprite. The old GL bridge fails three of the fourteen
+reads while NEON passes. Commit `326f36ef` applies the X limit per triangle,
+rebuilding only a surviving quad half while retaining colors, UV, CLUT and
+TPAGE. The fixture (`387f0f57`), baseline eighteen reads and E2 control all
+pass on corrected Mac GL. Native packaging/validation of this later culling
+change remains pending; the frozen `a7d6ccd...` VPK above does not include it.
+
+A subsequent 3,600-frame ARM64 DRC replay with corrected culling completes
+in 31.575 seconds and has byte-identical captured pixels and VRAM to the
+prior coordinate-corrected Mac replay. Evidence is retained in
+`/tmp/pcsx-mac-vitagl-like-cull-fixed-replay-20261005/evidence.json`, binding
+source commit `326f36ef`, binary, input file and output hashes. The known
+water region therefore remains unexplained by this culling correction.
