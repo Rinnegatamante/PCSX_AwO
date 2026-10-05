@@ -550,3 +550,16 @@ prior coordinate-corrected Mac replay. Evidence is retained in
 `/tmp/pcsx-mac-vitagl-like-cull-fixed-replay-20261005/evidence.json`, binding
 source commit `326f36ef`, binary, input file and output hashes. The known
 water region therefore remains unexplained by this culling correction.
+
+The later private native VPK SHA256
+`e92b4c4e6f4b85c6ad5f4151c558f210424e5400bc750ae713632cb77686de11`
+includes that culling change and the fourteen-sample verifier. All fourteen
+samples pass with ari64 in
+`/tmp/pcsx-vitagl-span-fixed-native-20261005/evidence.json`, including the
+valid F4/FT4 half, the G4 color and TPAGE retained from a rejected FT3.
+The same package passes the twenty-four baseline/E2 reads in
+`/tmp/pcsx-vitagl-span-fixed-e2-native-20261005/evidence.json`. Both hosts
+reach shutdown PASS and Idle and close automatically. The frozen private
+source delta and build identities are in
+`build/vita-system12-vitagl-teardown/span-fixed-evidence.json`; authentic
+gameplay and graphics validation of this exact package remain pending.
