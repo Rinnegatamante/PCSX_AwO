@@ -3,6 +3,7 @@
 #define PCSX_ARCADE_GNET_ZOOM_H
 
 #include "zoom_board.h"
+#include "rf5c296.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,10 @@ typedef struct gnet_zoom_config {
     gnet_zoom_soft_reset_fn request_soft_reset;
     void *audio_opaque;
     zoom_audio_frame_fn audio_frame;
+    /* Optional borrowed PC Card interface. When absent, both source RF5C296
+     * windows keep returning GNET_ZOOM_UNSUPPORTED. This is only the
+     * controller/card boundary; it does not provide ATA or card security. */
+    const rf5c296_card_ops_t *pc_card;
 } gnet_zoom_config_t;
 
 int gnet_zoom_create(const gnet_zoom_config_t *config, gnet_zoom_board **out);
@@ -60,7 +65,8 @@ int gnet_zoom_control_write(gnet_zoom_board *board, uint8_t data);
 unsigned gnet_zoom_selected_bank(const gnet_zoom_board *board);
 
 /* 16-bit accesses in the G-Net flashbank window 1f000000-1f7fffff.
- * Returns UNMAPPED for unconnected space and UNSUPPORTED for the PCMCIA map. */
+ * Returns UNMAPPED for unconnected space and UNSUPPORTED for the PCMCIA map
+ * when no optional PC Card callbacks were supplied. */
 int gnet_zoom_main_read16(gnet_zoom_board *board, uint32_t address,
                           uint16_t *value);
 int gnet_zoom_main_write16(gnet_zoom_board *board, uint32_t address,

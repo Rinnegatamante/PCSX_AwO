@@ -69,7 +69,8 @@ SOURCES += libpcsxcore/system12.c libpcsxcore/system11.c libpcsxcore/system10.c 
   libpcsxcore/arcade/eeprom93c46.c
 CFLAGS += -DPCSX_SYSTEM_GNET -I$(BUILD)/gnet-generated -Ilibpcsxcore/arcade/tms57002
 SOURCES += libpcsxcore/arcade/zsg2.c
-CXXSOURCES := libpcsxcore/arcade/gnet_zoom.cpp libpcsxcore/arcade/zoom_board.cpp \
+CXXSOURCES := libpcsxcore/arcade/gnet_zoom.cpp libpcsxcore/arcade/rf5c296.cpp \
+  libpcsxcore/arcade/zoom_board.cpp \
   libpcsxcore/arcade/mn10200.cpp libpcsxcore/arcade/tms57002.cpp \
   libpcsxcore/arcade/tms57002/tms57002_core.cpp libpcsxcore/arcade/tms57002/tms57kdec.cpp \
   libpcsxcore/arcade/tms57002/tmsops.cpp \

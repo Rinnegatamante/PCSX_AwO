@@ -18,6 +18,7 @@ struct gnet_zoom_board {
     std::array<size_t, 5> size{};
     std::array<std::vector<uint8_t>, 5> engine_image{};
     zoom_board *zoom = nullptr;
+    rf5c296_device_t *rf5c296 = nullptr;
     uint64_t last_cycle = 0;
     uint64_t fractional_25ths = 0;
     uint64_t watchdog_time_us = 0;
@@ -87,6 +88,61 @@ static int result_from_zoom(int result)
     case ZOOM_BOARD_UNSUPPORTED: return GNET_ZOOM_UNSUPPORTED;
     default: return GNET_ZOOM_DEVICE;
     }
+}
+
+static bool valid_pc_card(const rf5c296_card_ops_t *card)
+{
+    return !card || (card->read_memory && card->write_memory &&
+        card->read_reg && card->write_reg && card->reset);
+}
+
+static int pc_io_read(gnet_zoom_board *b, uint32_t address, unsigned width,
+                      uint32_t *value)
+{
+    if (!b->rf5c296) return GNET_ZOOM_UNSUPPORTED;
+    uint32_t result = 0;
+    for (unsigned i = 0; i < width; i += 2) {
+        uint32_t byte_address = address + i;
+        uint32_t word_offset = (byte_address - 0x1fb00000u) >> 1;
+        uint16_t data;
+        if (width == 1) {
+            uint16_t mask = (byte_address & 1) ? 0xff00 : 0x00ff;
+            data = rf5c296_io_read(b->rf5c296, word_offset, mask);
+            if (byte_address & 1) data >>= 8;
+            result = data & 0xff;
+            break;
+        }
+        data = rf5c296_io_read(b->rf5c296, word_offset, 0xffff);
+        result |= uint32_t(data) << (i * 8);
+    }
+    *value = result;
+    return GNET_ZOOM_OK;
+}
+
+static int pc_io_write(gnet_zoom_board *b, uint32_t address, unsigned width,
+                       uint32_t value)
+{
+    if (!b->rf5c296) return GNET_ZOOM_UNSUPPORTED;
+    for (unsigned i = 0; i < width; i += 2) {
+        uint32_t byte_address = address + i;
+        uint32_t word_offset = (byte_address - 0x1fb00000u) >> 1;
+        uint16_t data;
+        uint16_t mask;
+        if (width == 1) {
+            if (byte_address & 1) {
+                data = uint16_t((value & 0xff) << 8);
+                mask = 0xff00;
+            } else {
+                data = uint16_t(value & 0xff);
+                mask = 0x00ff;
+            }
+            rf5c296_io_write(b->rf5c296, word_offset, data, mask);
+            break;
+        }
+        data = uint16_t(value >> (i * 8));
+        rf5c296_io_write(b->rf5c296, word_offset, data, 0xffff);
+    }
+    return GNET_ZOOM_OK;
 }
 
 static int flash_read(gnet_zoom_board *b, unsigned chip, uint32_t word,
@@ -248,7 +304,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
 {
     if (!out) return GNET_ZOOM_ARGUMENT;
     *out = nullptr;
-    if (!config || config->jp1 > 1 ||
+    if (!config || config->jp1 > 1 || !valid_pc_card(config->pc_card) ||
         !config->firm_flash || config->firm_flash_size != GNET_FIRM_FLASH_BYTES ||
         !config->zoom_program_flash ||
         config->zoom_program_flash_size != GNET_ZOOM_PROGRAM_FLASH_BYTES ||
@@ -262,10 +318,18 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     auto *b = new (std::nothrow) gnet_zoom_board;
     if (!b) return GNET_ZOOM_NOMEM;
     b->config = *config;
+    if (config->pc_card) {
+        b->rf5c296 = rf5c296_create(config->pc_card);
+        if (!b->rf5c296) {
+            delete b;
+            return GNET_ZOOM_NOMEM;
+        }
+    }
     MB3773Config watchdog_config{};
     watchdog_config.opaque = b;
     watchdog_config.request_soft_reset = watchdog_soft_reset;
     if (mb3773_create(&watchdog_config, &b->watchdog) != MB3773_OK) {
+        rf5c296_destroy(b->rf5c296);
         delete b;
         return GNET_ZOOM_NOMEM;
     }
@@ -305,6 +369,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
         if (!flash) {
             for (nor_flash_t *made : b->flash) nor_flash_destroy(made);
             mb3773_destroy(b->watchdog);
+            rf5c296_destroy(b->rf5c296);
             delete b;
             return GNET_ZOOM_NOMEM;
         }
@@ -327,6 +392,7 @@ extern "C" int gnet_zoom_create(const gnet_zoom_config_t *config,
     if (zoom_board_create(&zoom_config, &b->zoom) != ZOOM_BOARD_OK) {
         for (nor_flash_t *flash : b->flash) nor_flash_destroy(flash);
         mb3773_destroy(b->watchdog);
+        rf5c296_destroy(b->rf5c296);
         delete b;
         return GNET_ZOOM_DEVICE;
     }
@@ -344,6 +410,7 @@ extern "C" int gnet_zoom_try_destroy(gnet_zoom_board *b)
     zoom_board_destroy(b->zoom);
     for (nor_flash_t *flash : b->flash) nor_flash_destroy(flash);
     mb3773_destroy(b->watchdog);
+    rf5c296_destroy(b->rf5c296);
     delete b;
     return GNET_ZOOM_OK;
 }
@@ -389,6 +456,15 @@ extern "C" int gnet_zoom_main_read16(gnet_zoom_board *b, uint32_t address,
     if (!b || !value) return GNET_ZOOM_ARGUMENT;
     FlashMap map{};
     int decoded = decode_main_flash(b, address, &map);
+    if (decoded == GNET_ZOOM_UNSUPPORTED && b->rf5c296) {
+        uint64_t effective = main_effective_address(b, address);
+        if (b->bank == 0 && effective >= PCMCIA_BEGIN &&
+            effective < PCMCIA_END) {
+            *value = rf5c296_mem_read(b->rf5c296,
+                uint32_t((effective - PCMCIA_BEGIN) >> 1), 0xffff);
+            return GNET_ZOOM_OK;
+        }
+    }
     if (decoded == GNET_ZOOM_READ_ONLY) {
         uint32_t offset = uint32_t(main_effective_address(b, address) - EPROM_BEGIN);
         *value = uint16_t(b->config.eprom[offset]) |
@@ -409,6 +485,15 @@ extern "C" int gnet_zoom_main_write16(gnet_zoom_board *b, uint32_t address,
     if (clock_result != GNET_ZOOM_OK) return clock_result;
     FlashMap map{};
     int decoded = decode_main_flash(b, address, &map);
+    if (decoded == GNET_ZOOM_UNSUPPORTED && b->rf5c296) {
+        uint64_t effective = main_effective_address(b, address);
+        if (b->bank == 0 && effective >= PCMCIA_BEGIN &&
+            effective < PCMCIA_END) {
+            rf5c296_mem_write(b->rf5c296,
+                uint32_t((effective - PCMCIA_BEGIN) >> 1), data, mem_mask);
+            return GNET_ZOOM_OK;
+        }
+    }
     if (decoded == GNET_ZOOM_READ_ONLY) return GNET_ZOOM_READ_ONLY;
     if (decoded != GNET_ZOOM_OK) return decoded;
     if (mem_mask != 0xffff) return GNET_ZOOM_UNSUPPORTED;
@@ -466,7 +551,7 @@ extern "C" int gnet_zoom_bus_read(gnet_zoom_board *b, uint32_t address,
         (address >= 0x1fba0000u && address <= 0x1fba0001u))
         return GNET_ZOOM_UNMAPPED; // source map has no read handler here
     if (address >= 0x1fb00000u && address <= 0x1fb0ffffu)
-        return GNET_ZOOM_UNSUPPORTED; // RF5C296 / PCMCIA is not ported
+        return pc_io_read(b, address, width, value);
     return GNET_ZOOM_UNMAPPED;
 }
 
@@ -527,7 +612,7 @@ extern "C" int gnet_zoom_bus_write(gnet_zoom_board *b, uint32_t address,
         (address >= 0x1fba0000u && address <= 0x1fba0001u))
         return GNET_ZOOM_UNSUPPORTED;
     if (address >= 0x1fb00000u && address <= 0x1fb0ffffu)
-        return GNET_ZOOM_UNSUPPORTED; // RF5C296 / PCMCIA is not ported
+        return pc_io_write(b, address, width, value);
     return GNET_ZOOM_UNMAPPED;
 }
 

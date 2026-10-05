@@ -6,14 +6,14 @@ GEN := $(BUILD)/generated
 ARCADE := libpcsxcore/arcade
 TMS := $(ARCADE)/tms57002
 INCLUDES := -I$(GEN) -I$(ARCADE) -I$(TMS)
-CPP_SOURCES := $(ARCADE)/gnet_zoom.cpp $(ARCADE)/zoom_board.cpp \
+CPP_SOURCES := $(ARCADE)/gnet_zoom.cpp $(ARCADE)/rf5c296.cpp $(ARCADE)/zoom_board.cpp \
                $(ARCADE)/mn10200.cpp $(ARCADE)/tms57002.cpp \
                $(TMS)/tms57002_core.cpp $(TMS)/tms57kdec.cpp \
                $(TMS)/tmsops.cpp tests/gnet_zoom_standalone.cpp
 COMMON := -std=c++20 -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable $(INCLUDES)
 TARGET := $(BUILD)/test-gnet-zoom
 SAN_TARGET := $(BUILD)/test-gnet-zoom-sanitize
-HEADERS := $(ARCADE)/gnet_zoom.h $(ARCADE)/zoom_board.h $(ARCADE)/mb3773.h \
+HEADERS := $(ARCADE)/gnet_zoom.h $(ARCADE)/rf5c296.h $(ARCADE)/zoom_board.h $(ARCADE)/mb3773.h \
            $(ARCADE)/mn10200.h $(ARCADE)/mn10200_engine.inc $(ARCADE)/nor_flash.h \
            $(ARCADE)/zsg2.h $(ARCADE)/tms57002.h $(wildcard $(TMS)/*.h)
 

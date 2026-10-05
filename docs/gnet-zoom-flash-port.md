@@ -4,7 +4,8 @@
 sound board with the source G-Net main-CPU flash bank and Intel x16 NOR engines.
 The source reference is MAME commit
 `deb2f54fe7300e7a192690318beb860159bfd52a`, primarily
-`src/mame/sony/taitogn.cpp` and `src/mame/sony/taito_zm.cpp`.
+`src/mame/sony/taitogn.cpp`, `src/mame/sony/taito_zm.cpp`, and
+`src/devices/machine/rf5c296.cpp/.h`.
 `taitogn.cpp` declares the flash and EPROM regions `ROM_REGION16_LE`; source
 ROM bytes are therefore retained in little-endian word order at this API.
 
@@ -30,9 +31,10 @@ Reset release applies the Zoom device reset and sends `0xff` to its program and
 three sample flashes, matching MAME. Bank 0 maps firmware, the PCMCIA memory
 window, and Zoom program flash. Bank 1 and bank 3 map the three sample flashes,
 with the source `0x10000000` mirror. Bank 2 maps the read-only EPROM, mirrored
-Zoom program flash, and firmware. The PCMCIA window is explicitly unsupported
-because its RF5C296/card implementation is outside this adapter. Unmapped and
-unaligned accesses return explicit result codes.
+Zoom program flash, and firmware. Bank 0's PCMCIA memory window delegates to
+the optional RF5C296 PC Card callbacks when supplied; without callbacks it
+continues to return `GNET_ZOOM_UNSUPPORTED`. Unmapped and unaligned accesses
+return explicit result codes.
 
 `gnet_zoom_bus_read/write` routes the rest of the common `taitogn_state` PSX
 map: byte controls at `1fa30000` and `1fb40000`, write-only control2 at
@@ -42,13 +44,22 @@ RAM honors MAME's `.umask32(0x00ff00ff)`, including open-bus bytes at lanes 1
 and 3. Flash accesses remain aligned 16-bit operations. The router takes
 physical addresses and does not advance time itself; the host synchronizes the
 common MN10200 cycle domain before each transaction. Unsupported register
-widths and the RF5C296 window fail explicitly.
+widths fail explicitly.
+
+`rf5c296.cpp/.h` ports the pinned MAME controller's offset doubling, selected
+low/high-byte register pair (`1fb003e0/1fb003e1`), zero-valued selected-register
+reads, and register-3 bit-6 card-reset behavior. Its optional callbacks mirror
+MAME's PC Card `read_memory/write_memory`, `read_reg/write_reg`, and `reset` calls.
+The synthetic fixture verifies both PSX windows, byte-lane forwarding, selected
+register behavior, and reset. No ATA task-file engine, CIS/card implementation,
+Taito unlock/security, mounted media, or real game boot is included; the native
+G-Net adapter still supplies no card callbacks.
 
 This is a reusable G-Net sub-board and common-map component, not yet a PSX
 system adapter. The Sony ZN base board, CAT702 keys, per-game/profile loader,
 inputs, executable bank mapping, and core dispatch are still required before
-any game can be launched. The standalone tests cover synthetic register and
-flash transactions only.
+any game can be launched. The standalone tests cover synthetic register,
+flash, and callback-backed PC Card transactions only.
 
 The sound CPU continues to see the Zoom program flash as read-only:
 `taito_zm.cpp` maps `0x080000–0x0fffff` through the flash device's read handler
@@ -72,7 +83,7 @@ fixture leaves the MN10200 executing a loop from its program flash while the
 main-bus test reads the firmware NOR's busy/ready status across the erase
 deadline. An audio-frame callback independently observes the busy-to-ready
 transition, compared between one large time slice and twenty subdivisions.
-Partial x16 lane writes and PCMCIA are not implemented. `gnet_zoom_try_destroy`
+Partial x16 lane writes and ATA/card media are not implemented. `gnet_zoom_try_destroy`
 returns `GNET_ZOOM_BUSY` if called reentrantly from an audio callback or while
 the Zoom child is synchronizing; retry destruction after the callback returns.
 The adapter does not include the PSX core, CAT702, full G-Net board, or real
