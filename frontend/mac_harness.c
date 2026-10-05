@@ -169,6 +169,7 @@ int in_mouse[8][2];
 struct rearmed_cbs pl_rearmed_cbs;
 void GPUrearmedCallbacks(const struct rearmed_cbs *cbs);
 int harness_write_ppm(const char *path, int w, int h);
+int harness_write_vram(const char *path);
 int harness_configure_gl_capture(int enabled, unsigned int target_frame);
 unsigned short harness_vram_pixel(int x, int y);
 void harness_capture_mode(int w, int h);
@@ -225,7 +226,7 @@ void SysRunGui(void) { interrupted = 1; }
 static void usage(const char *name)
 {
   fprintf(stderr, "usage: %s (--exe PS-X-EXE | --system12 REGION-DIR | --system11 REGION-DIR | --system10 REGION-DIR | --capcom-zn REGION-DIR | --taito-fx1 REGION-DIR | --system-gv REGION-DIR | --system-gnet REGION-DIR | --system-gnet-fixture) "
-    "[--frames N] [--output FRAME.ppm] [--capture-gl] [--board-test] [--verify-smoke] "
+    "[--frames N] [--output FRAME.ppm] [--capture-gl] [--dump-vram FILE] [--board-test] [--verify-smoke] "
     "[--inputs FILE.csv] [--audio FILE.wav] [--nvram FILE] "
     "[--audio-test-fixture] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
@@ -409,6 +410,7 @@ int main(int argc, char **argv)
   int icache = 0;
   int use_drc = 0;
   int capture_gl = 0;
+  const char *vram_path = NULL;
   struct timespec begin, end;
   /* These fixture selectors are parsed for a clear BOARD=0 diagnostic too. */
   (void)gnet_fixture;
@@ -437,6 +439,7 @@ int main(int argc, char **argv)
     }
     else if (!strcmp(argv[i], "--output") && i + 1 < argc) output = argv[++i];
     else if (!strcmp(argv[i], "--capture-gl")) capture_gl = 1;
+    else if (!strcmp(argv[i], "--dump-vram") && i + 1 < argc) vram_path = argv[++i];
     else if (!strcmp(argv[i], "--inputs") && i + 1 < argc) inputs_path = argv[++i];
     else if (!strcmp(argv[i], "--audio") && i + 1 < argc) audio_path = argv[++i];
     else if (!strcmp(argv[i], "--nvram") && i + 1 < argc) nvram_path = argv[++i];
@@ -481,6 +484,16 @@ int main(int argc, char **argv)
     else { usage(argv[0]); return 2; }
   }
   next_snapshot = snapshot_start ? snapshot_start : snapshot_interval;
+  if (vram_path) {
+    const char *paths[] = {exe, output, inputs_path, audio_path, nvram_path,
+                          trace_path, snapshot_path, bus_trace_path};
+    for (i = 0; i < (int)(sizeof(paths) / sizeof(paths[0])); i++) {
+      if (paths[i] && !strcmp(vram_path, paths[i])) {
+        fprintf(stderr, "--dump-vram must use a separate output path\n");
+        return 2;
+      }
+    }
+  }
   if ((!exe && !board && !gpu_type1_test) || (exe && board) ||
       (gpu_type1_test && (exe || board || verify || trace_path)) || (board_test && !board) ||
       ((inputs_path || audio_path || audio_test_fixture || nvram_path) && !board) ||
@@ -862,6 +875,7 @@ int main(int argc, char **argv)
   }
 #endif
   if (harness_write_ppm(output, 0, 0)) result = 1;
+  if (vram_path && harness_write_vram(vram_path)) result = 1;
   if (verify) {
     unsigned short center = harness_vram_pixel(160, 100);
     unsigned short corner = harness_vram_pixel(10, 10);

@@ -232,6 +232,16 @@ frame Soul Calibur capture using the scheduled gameplay inputs is recorded in
 `source=OpenGL-back-buffer-before-swap` and the PPM is 1920×1088. This captures
 the Mac renderer output and is not a Vita hardware screenshot.
 
+`--dump-vram FILE` exports the complete synchronized VRAM after CPU execution
+ends. The binary begins with eight bytes `PSXVRAM1`, then little-endian 32-bit
+width and height, followed by row-major little-endian 16-bit PSX pixels.
+Width is 1024; height follows the selected GPU profile. The native GL path
+resolves pending targets and GPU-newer tiles before reading its CPU mirror;
+NEON flushes its rasterizer. The dump retains the mask/STP bit. It is an
+end-of-execution diagnostic snapshot, which may include drawing after the
+last displayed frame; it is not the same capture as `--capture-gl` or the
+NEON last-rendered flip. Use a separate path from other inputs and outputs.
+
 Add `--texture-window` for six further reads after setting GP0 E2 mask/offset
 and resetting E2. Mac NEON passes this 24-pixel probe in
 `/tmp/pcsx-mac-framebuffer-e2-neon-20261005`; Vita NEON also passes its native

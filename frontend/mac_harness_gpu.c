@@ -260,6 +260,41 @@ int harness_gpu_type1_selftest(void)
   return pass ? 0 : 2;
 }
 
+int harness_write_vram(const char *path)
+{
+  unsigned char header[16] = {'P', 'S', 'X', 'V', 'R', 'A', 'M', '1', 0, 4, 0, 0};
+  unsigned char row[2048];
+  unsigned x, y;
+  FILE *file;
+  if (gpu.vram == NULL) return -1;
+  GPUreadStatus();
+#ifdef GPU_VITA_CTR
+  renderer_sync_vram_to_cpu(0, 0, 1024, gpu_vram_height);
+#else
+  renderer_flush_queues();
+#endif
+  header[12] = gpu_vram_height & 255;
+  header[13] = (gpu_vram_height >> 8) & 255;
+  file = fopen(path, "wb");
+  if (!file) { perror(path); return -1; }
+  if (fwrite(header, 1, sizeof(header), file) != sizeof(header)) {
+    fclose(file); return -1;
+  }
+  for (y = 0; y < gpu_vram_height; y++) {
+    for (x = 0; x < 1024; x++) {
+      unsigned short p = gpu.vram[y * 1024 + x];
+      row[x * 2] = p & 255;
+      row[x * 2 + 1] = p >> 8;
+    }
+    if (fwrite(row, 1, sizeof(row), file) != sizeof(row)) {
+      fclose(file); return -1;
+    }
+  }
+  fprintf(stderr, "VRAM dump=%ux%u format=LE16 source=end-of-execution-synchronized\n",
+    1024u, gpu_vram_height);
+  return fclose(file);
+}
+
 int harness_write_ppm(const char *path, int w, int h)
 {
 #ifdef GPU_VITA_CTR
