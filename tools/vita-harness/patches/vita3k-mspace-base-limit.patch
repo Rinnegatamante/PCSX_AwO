@@ -1,0 +1,26 @@
+--- a/vita3k/modules/SceLibKernel/SceLibKernel.cpp
++++ b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+@@ -25,6 +25,8 @@
+ 
+ #include <cpu/functions.h>
+ #include <dlmalloc.h>
++
++size_t mspace_set_footprint_limit(mspace space, size_t bytes);
+ #include <io/functions.h>
+ #include <kernel/state.h>
+ #include <kernel/sync_primitives.h>
+@@ -299,6 +301,14 @@
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+     mspace space = create_mspace_with_base(base.get(emuenv.mem), capacity, 0);
++    if (space) {
++        const size_t granularity = mspace_set_footprint_limit(space, 1);
++        const size_t footprint = mspace_footprint(space);
++        const size_t bounded_limit = footprint >= granularity
++            ? footprint - footprint % granularity
++            : granularity;
++        mspace_set_footprint_limit(space, bounded_limit);
++    }
+     if (space) {
+         const size_t baseline = mspace_mallinfo(space).uordblks;
+         mspace_stats_records[space] = { capacity, baseline, 0 };

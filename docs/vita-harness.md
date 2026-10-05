@@ -704,3 +704,26 @@ stopped after recording the events and screenshots, requiring SIGKILL after
 SIGTERM. The exact logs, package identities, raw events marked as invalid
 statistics, and stop reason are retained in
 `/tmp/pcsx-vitagl-allocator-trace-native-12000-20261005/allocator-review.json`.
+
+### Private Vita3K mspace diagnostics
+
+`rebuild_vita3k_fixed.py` has opt-in `--fix-mspace-stats` and
+`--fix-mspace-base-limit` flags for isolated macOS hosts. The first implements
+`sceClibMspaceMallocStats` and its fast variant using the public 16-byte Vita
+structure, guarded guest-memory writes, and dlmalloc accounting. The host-side
+current and peak values subtract dlmalloc's fixed mspace metadata; they are
+useful for allocator diagnostics but have not been validated as bit-exact with
+Sony's implementation. Peak sampling currently calls `mspace_mallinfo` after
+successful allocations, which may cost more as the heap becomes fragmented.
+Only integer-width overflow is saturated; usage is never clamped to capacity,
+so an out-of-arena growth problem remains visible in the reported value.
+
+`--fix-mspace-base-limit` requires `--fix-mspace-stats`. It queries dlmalloc's
+footprint granularity and sets the footprint limit to the initial base-backed
+extent, rounded down to that granularity. Allocations can exhaust the supplied
+guest arena but cannot grow the host mspace into unrelated host memory. The
+regressions are `tests/vita3k_mspace_stats_test.cpp` (real host dlmalloc,
+exhaustion, pointer bounds, sentinels, and reuse) and the optional Vita guest
+ABI replay prepared by `tools/vita-harness/check_mspace_guest.py`. A compiled
+host or passing guest API test does not establish that the reported peak matches
+physical Vita hardware.

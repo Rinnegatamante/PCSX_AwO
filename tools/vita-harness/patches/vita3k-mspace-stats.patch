@@ -1,0 +1,176 @@
+--- a/vita3k/modules/SceLibKernel/SceLibKernel.cpp
++++ b/vita3k/modules/SceLibKernel/SceLibKernel.cpp
+@@ -39,8 +39,12 @@
+ #include <util/log.h>
+ #include <util/tracy.h>
+ 
++#include <bit>
+ #include <cmath>
+ #include <cstdlib>
++#include <cstring>
++#include <limits>
++#include <unordered_map>
+ 
+ enum class TimerFlags : uint32_t {
+     FIFO_THREAD = 0x00000000,
+@@ -55,6 +59,71 @@
+ 
+ TRACY_MODULE_NAME(SceLibKernel);
+ 
++namespace {
++struct MspaceStatsRecord {
++    uint32_t capacity;
++    // Exclude dlmalloc's own fixed mspace state from the guest's usage.
++    size_t baseline_in_use;
++    uint32_t peak_in_use;
++};
++
++std::unordered_map<mspace, MspaceStatsRecord> mspace_stats_records;
++
++struct GuestMspaceStats {
++    uint32_t capacity;
++    uint32_t unk;
++    uint32_t peak_in_use;
++    uint32_t current_in_use;
++};
++static_assert(sizeof(GuestMspaceStats) == 0x10);
++
++static uint32_t guest_mspace_size(uint64_t value) {
++    if constexpr (std::endian::native == std::endian::little)
++        return static_cast<uint32_t>(value);
++    else
++        return static_cast<uint32_t>(std::byteswap(static_cast<uint32_t>(value)));
++}
++
++static uint32_t current_mspace_in_use(mspace space, const MspaceStatsRecord &record) {
++    const size_t allocated = mspace_mallinfo(space).uordblks;
++    const size_t in_use = allocated > record.baseline_in_use ? allocated - record.baseline_in_use : 0;
++    return static_cast<uint32_t>(in_use > std::numeric_limits<uint32_t>::max()
++        ? std::numeric_limits<uint32_t>::max()
++        : in_use);
++}
++
++static void update_mspace_peak(mspace space) {
++    const auto it = mspace_stats_records.find(space);
++    if (it == mspace_stats_records.end())
++        return;
++    const uint32_t current = current_mspace_in_use(space, it->second);
++    if (current > it->second.peak_in_use)
++        it->second.peak_in_use = current;
++}
++
++static void write_mspace_stats(mspace space, Ptr<uint32_t> output, const MemState &mem) {
++    constexpr Address stats_size = sizeof(GuestMspaceStats);
++    const Address start = output.address();
++    if (!output || start > std::numeric_limits<Address>::max() - stats_size ||
++        !is_valid_addr_range(mem, start, start + stats_size))
++        return;
++
++    GuestMspaceStats stats {};
++    const auto it = mspace_stats_records.find(space);
++    if (it != mspace_stats_records.end()) {
++        stats.capacity = it->second.capacity;
++        stats.unk = it->second.capacity;
++        stats.peak_in_use = it->second.peak_in_use;
++        stats.current_in_use = current_mspace_in_use(space, it->second);
++    }
++    uint32_t guest_fields[4] = {
++        guest_mspace_size(stats.capacity), guest_mspace_size(stats.unk),
++        guest_mspace_size(stats.peak_in_use), guest_mspace_size(stats.current_in_use),
++    };
++    std::memcpy(output.get(mem), guest_fields, sizeof(guest_fields));
++}
++} // namespace
++
+ inline static uint64_t get_current_time() {
+     return std::chrono::duration_cast<std::chrono::microseconds>(
+         std::chrono::high_resolution_clock::now().time_since_epoch())
+@@ -218,7 +287,10 @@
+     TRACY_FUNC(sceClibMspaceCalloc, space, elements, size);
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+-    void *address = mspace_calloc(space.get(emuenv.mem), elements, size);
++    mspace native_space = space.get(emuenv.mem);
++    void *address = mspace_calloc(native_space, elements, size);
++    if (address)
++        update_mspace_peak(native_space);
+     return Ptr<void>(address, emuenv.mem);
+ }
+ 
+@@ -227,6 +299,10 @@
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+     mspace space = create_mspace_with_base(base.get(emuenv.mem), capacity, 0);
++    if (space) {
++        const size_t baseline = mspace_mallinfo(space).uordblks;
++        mspace_stats_records[space] = { capacity, baseline, 0 };
++    }
+     return Ptr<void>(space, emuenv.mem);
+ }
+ 
+@@ -234,7 +310,9 @@
+     TRACY_FUNC(sceClibMspaceDestroy, space);
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+-    return static_cast<uint32_t>(destroy_mspace(space.get(emuenv.mem)));
++    mspace native_space = space.get(emuenv.mem);
++    mspace_stats_records.erase(native_space);
++    return static_cast<uint32_t>(destroy_mspace(native_space));
+ }
+ 
+ EXPORT(void, sceClibMspaceFree, Ptr<void> space, Ptr<void> address) {
+@@ -253,18 +331,23 @@
+     TRACY_FUNC(sceClibMspaceMalloc, space, size);
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+-    void *address = mspace_malloc(space.get(emuenv.mem), size);
++    mspace native_space = space.get(emuenv.mem);
++    void *address = mspace_malloc(native_space, size);
++    if (address)
++        update_mspace_peak(native_space);
+     return Ptr<void>(address, emuenv.mem);
+ }
+ 
+-EXPORT(int, sceClibMspaceMallocStats) {
+-    TRACY_FUNC(sceClibMspaceMallocStats);
+-    return UNIMPLEMENTED();
++EXPORT(void, sceClibMspaceMallocStats, Ptr<void> space, Ptr<uint32_t> stats) {
++    TRACY_FUNC(sceClibMspaceMallocStats, space, stats);
++    const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
++    write_mspace_stats(space.get(emuenv.mem), stats, emuenv.mem);
+ }
+ 
+-EXPORT(int, sceClibMspaceMallocStatsFast) {
+-    TRACY_FUNC(sceClibMspaceMallocStatsFast);
+-    return UNIMPLEMENTED();
++EXPORT(void, sceClibMspaceMallocStatsFast, Ptr<void> space, Ptr<uint32_t> stats) {
++    TRACY_FUNC(sceClibMspaceMallocStatsFast, space, stats);
++    const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
++    write_mspace_stats(space.get(emuenv.mem), stats, emuenv.mem);
+ }
+ 
+ EXPORT(int, sceClibMspaceMallocUsableSize) {
+@@ -276,7 +359,10 @@
+     TRACY_FUNC(sceClibMspaceMemalign, space, alignment, size);
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+-    void *address = mspace_memalign(space.get(emuenv.mem), alignment, size);
++    mspace native_space = space.get(emuenv.mem);
++    void *address = mspace_memalign(native_space, alignment, size);
++    if (address)
++        update_mspace_peak(native_space);
+     return Ptr<void>(address, emuenv.mem);
+ }
+ 
+@@ -284,7 +370,10 @@
+     TRACY_FUNC(sceClibMspaceRealloc, space, address, size);
+     const std::lock_guard<std::mutex> guard(emuenv.kernel.mutex);
+ 
+-    void *new_address = mspace_realloc(space.get(emuenv.mem), address.get(emuenv.mem), size);
++    mspace native_space = space.get(emuenv.mem);
++    void *new_address = mspace_realloc(native_space, address.get(emuenv.mem), size);
++    if (new_address)
++        update_mspace_peak(native_space);
+     return Ptr<void>(new_address, emuenv.mem);
+ }
+ 

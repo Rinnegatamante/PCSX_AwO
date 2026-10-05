@@ -37,6 +37,10 @@ parser.add_argument('--trace-lwcond-waits', action='store_true',
                     help='Trace bounded light-weight condition wait/signal activity for two named guest threads')
 parser.add_argument('--trace-long-renderer-delays', action='store_true',
                     help='Log up to 32 long sceKernelDelayThread calls from CTR Renderer')
+parser.add_argument('--fix-mspace-stats', action='store_true',
+                    help='Implement Vita-compatible SceClib mspace allocation statistics')
+parser.add_argument('--fix-mspace-base-limit', action='store_true',
+                    help='Prevent a base-backed Vita mspace from growing outside its guest arena')
 parser.add_argument('--fix-unmapped-readback', action='store_true',
                     help='Synchronize Vulkan color surfaces through CPU staging when mapping is disabled')
 parser.add_argument('--trace-display-presentation', action='store_true',
@@ -51,6 +55,8 @@ if options.dynarmic_archive and not options.dynarmic_archive.is_file():
     parser.error('Dynarmic archive must exist')
 if options.trace_protection_recovery and not options.dynarmic_archive:
     parser.error('--trace-protection-recovery requires a tested --dynarmic-archive')
+if options.fix_mspace_base_limit and not options.fix_mspace_stats:
+    parser.error('--fix-mspace-base-limit requires --fix-mspace-stats')
 if OUT.exists():
     parser.error('output already exists; use a fresh directory')
 if OUT == ORIG or ORIG in OUT.parents or OUT == BUILD or BUILD in OUT.parents:
@@ -70,6 +76,8 @@ STALE_FAULT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-stale-prot
 PROTECTION_MISS_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-protection-miss-trace.patch'
 LWCOND_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-lwcond-wait-trace.patch'
 LONG_RENDERER_DELAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-long-renderer-delay-trace.patch'
+MSPACE_STATS_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-mspace-stats.patch'
+MSPACE_BASE_LIMIT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-mspace-base-limit.patch'
 FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
 READBACK_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-unmapped-readback.patch'
 DISPLAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-display-presentation-trace.patch'
@@ -98,6 +106,9 @@ if options.trace_lwcond_waits:
 if options.trace_long_renderer_delays:
     SOURCES.append(('modules', 'SceKernelThreadMgr/SceThreadmgr.cpp',
                     'vita3k/modules/SceKernelThreadMgr/SceThreadmgr.cpp', 'SceThreadmgr.cpp.o'))
+if options.fix_mspace_stats or options.fix_mspace_base_limit:
+    SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
+                    'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
@@ -162,6 +173,12 @@ if options.trace_lwcond_waits:
 if options.trace_long_renderer_delays:
     subprocess.run(['git', 'apply', '--check', str(LONG_RENDERER_DELAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(LONG_RENDERER_DELAY_TRACE_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.fix_mspace_stats:
+    subprocess.run(['git', 'apply', '--check', str(MSPACE_STATS_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(MSPACE_STATS_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.fix_mspace_base_limit:
+    subprocess.run(['git', 'apply', '--check', str(MSPACE_BASE_LIMIT_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(MSPACE_BASE_LIMIT_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -322,6 +339,10 @@ manifest = {
                                   if options.trace_lwcond_waits else None),
     'long_renderer_delay_trace_patch_sha256': (hashlib.sha256(LONG_RENDERER_DELAY_TRACE_PATCH.read_bytes()).hexdigest()
                                                if options.trace_long_renderer_delays else None),
+    'mspace_stats_patch_sha256': (hashlib.sha256(MSPACE_STATS_PATCH.read_bytes()).hexdigest()
+                                  if options.fix_mspace_stats else None),
+    'mspace_base_limit_patch_sha256': (hashlib.sha256(MSPACE_BASE_LIMIT_PATCH.read_bytes()).hexdigest()
+                                       if options.fix_mspace_base_limit else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),
