@@ -51,8 +51,19 @@ to CPU cycles through its internal divide-by-two.
 
 Build the standalone Vita core archive with
 `make -f Makefile.libretro platform=vita ARCADE_SYSTEM12=1 ARCADE_SYSTEM_GNET=1 USE_LIBRETRO_VFS=0 USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0`.
-This enables the G-Net adapter in the archive; Vita frontend profile loading,
-input routing, and lifecycle handling are still pending.
+With that opt-in build, the libretro frontend accepts a prepared profile
+directory as game content when it contains `board.ini`. It configures the
+board's memory and VRAM sizes before initializing the core, keeps the selected
+CPU backend, routes the adapter's listed digital controls, resets and unloads
+the board through its adapter lifecycle, and disables savestates while the
+board is active because the current generic state format omits G-Net devices.
+Normal console game loading remains available in the same build.
+
+The current frontend routes generic PSX SPU audio. The G-Net API does not
+expose its Zoom sound-frame callback to the libretro frontend yet, and its
+EEPROM API is not connected to frontend save storage. G-Net card/PCMCIA media,
+game-specific input variations, and other game-specific device extensions
+remain unsupported.
 
 The general PSX core still advances in its existing PSX cycle domain; this
 adapter does not yet reproduce the source 67.7376/100 MHz main-CPU execution

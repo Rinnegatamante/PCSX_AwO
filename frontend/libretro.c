@@ -42,6 +42,11 @@
 #include "../libpcsxcore/system12.h"
 #include <sys/stat.h>
 #endif
+#ifdef PCSX_SYSTEM_GNET
+#include "../libpcsxcore/psxmem.h"
+#include "../libpcsxcore/systemgnet.h"
+#include <sys/stat.h>
+#endif
 #include "../libpcsxcore/sio.h"
 #include "../libpcsxcore/database.h"
 #include "../plugins/dfsound/out.h"
@@ -102,7 +107,6 @@ static bool reset_pending = false;
 #ifdef ARCADE_SYSTEM12
 static int retro_system12_saved_cycle_multiplier = CYCLE_MULT_DEFAULT;
 #endif
-
 static retro_video_refresh_t video_cb;
 static retro_input_poll_t input_poll_cb;
 static retro_input_state_t input_state_cb;
@@ -226,8 +230,14 @@ bool retro_load_game_special(unsigned game_type, const struct retro_game_info *i
 #ifdef ARCADE_SYSTEM12
 static void retro_system12_restore_console(void);
 #endif
+#ifdef PCSX_SYSTEM_GNET
+static void retro_systemgnet_restore_console(void);
+#endif
 void retro_unload_game(void)
 {
+#ifdef PCSX_SYSTEM_GNET
+   retro_systemgnet_restore_console();
+#endif
 #ifdef ARCADE_SYSTEM12
    retro_system12_restore_console();
 #endif
@@ -1288,6 +1298,10 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 /* savestates */
 size_t retro_serialize_size(void)
 {
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+      return 0;
+#endif
 #ifdef ARCADE_SYSTEM12
    /* The generic state format hard-codes console RAM/ROM and does not freeze
     * the System12 H8, C352, EEPROM, RTC, or board registers. */
@@ -1387,6 +1401,10 @@ struct PcsxSaveFuncs SaveFuncs = {
 bool retro_serialize(void *data, size_t size)
 {
    int ret;
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+      return false;
+#endif
 #ifdef ARCADE_SYSTEM12
    if (system12_active())
       return false;
@@ -1404,6 +1422,10 @@ static bool disk_set_image_index(unsigned int index);
 bool retro_unserialize(const void *data, size_t size)
 {
    int ret;
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+      return false;
+#endif
 #ifdef ARCADE_SYSTEM12
    if (system12_active())
       return false;
@@ -1845,6 +1867,7 @@ strcasestr(const char *s, const char *find)
 static void set_retro_memmap(void)
 {
    uint64_t flags_ram = RETRO_MEMDESC_SYSTEM_RAM;
+   bool board_profile = false;
    struct retro_memory_map retromap = { 0 };
    struct retro_memory_descriptor descs[] = {
       { flags_ram, psxRegs.ptrs.psxM, 0, 0x00000000, 0x5fe00000, 0, 0x200000 },
@@ -1853,24 +1876,34 @@ static void set_retro_memmap(void)
       { flags_ram, psxRegs.ptrs.psxR, 0, 0x1fc00000, 0x5ff80000, 0, 0x080000 },
    };
 
+#if defined(ARCADE_SYSTEM12) || defined(PCSX_SYSTEM_GNET)
 #ifdef ARCADE_SYSTEM12
    if (system12_active())
    {
+      board_profile = true;
       descs[0].len = PSX_RAM_SIZE;
       descs[0].select = UINT64_C(0x5fffffff) & ~(PSX_RAM_SIZE - 1);
       descs[2].len = PSX_ROM_SIZE;
       descs[2].select = UINT64_C(0x5fffffff) & ~(PSX_ROM_SIZE - 1);
    }
 #endif
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+   {
+      board_profile = true;
+      descs[0].len = PSX_RAM_SIZE;
+      descs[0].select = UINT64_C(0x5fffffff) & ~(PSX_RAM_SIZE - 1);
+      descs[2].len = PSX_ROM_SIZE;
+      descs[2].select = UINT64_C(0x5fffffff) & ~(PSX_ROM_SIZE - 1);
+   }
+#endif
+#endif
 
    retromap.descriptors = descs;
    retromap.num_descriptors = sizeof(descs) / sizeof(descs[0]);
-#ifdef ARCADE_SYSTEM12
-   if (system12_active())
+   if (board_profile)
       retromap.num_descriptors = sizeof(descs) / sizeof(descs[0]);
-   else
-#endif
-   if (Config.HLE)
+   else if (Config.HLE)
       retromap.num_descriptors--;
 
    environ_cb(RETRO_ENVIRONMENT_SET_MEMORY_MAPS, &retromap);
@@ -2068,6 +2101,10 @@ static bool retro_load_system12_profile(const char *directory)
    int load_result;
    unsigned i;
 
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+      retro_systemgnet_restore_console();
+#endif
    if (plugins_opened)
    {
       ClosePlugins();
@@ -2117,6 +2154,103 @@ static bool retro_load_system12_profile(const char *directory)
       ClosePlugins();
       plugins_opened = 0;
       retro_system12_restore_console();
+      return false;
+   }
+
+   for (i = 0; i < PORTS_NUMBER; i++)
+      in_type[i] = PSE_PAD_TYPE_STANDARD;
+   is_pal_mode = false;
+   plugin_call_rearmed_cbs();
+   SysReset();
+   set_retro_memmap();
+   retro_set_audio_buff_status_cb();
+   retro_update_system_av_info();
+   return true;
+}
+#endif
+
+#ifdef PCSX_SYSTEM_GNET
+static bool retro_path_is_systemgnet_profile(const char *path)
+{
+   struct stat st;
+   char config_path[PATH_MAX];
+   if (!path || stat(path, &st) != 0 || !S_ISDIR(st.st_mode))
+      return false;
+   if (snprintf(config_path, sizeof(config_path), "%s/board.ini", path) >=
+       (int)sizeof(config_path))
+      return false;
+   return stat(config_path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+static void retro_systemgnet_restore_console(void)
+{
+   if (!systemgnet_active())
+      return;
+   if (plugins_opened)
+   {
+      ClosePlugins();
+      plugins_opened = 0;
+   }
+   psxShutdown();
+   systemgnet_unload();
+   if (psxInit() == -1)
+      LogErr("failed to restore console PSX memory after G-Net\n");
+   retro_update_system_av_info();
+}
+
+static bool retro_load_systemgnet_profile(const char *directory)
+{
+   int load_result;
+   unsigned i;
+
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+      retro_system12_restore_console();
+#endif
+   if (systemgnet_active())
+      retro_systemgnet_restore_console();
+   if (plugins_opened)
+   {
+      ClosePlugins();
+      plugins_opened = 0;
+   }
+
+   disk_init();
+   set_cd_image(NULL);
+   psxShutdown();
+   load_result = systemgnet_load(directory);
+   if (load_result != 0)
+   {
+      LogErr("could not load G-Net profile directory: %s (%d)\n",
+            directory, load_result);
+      if (psxInit() == -1)
+         LogErr("failed to restore console PSX memory after rejected G-Net profile\n");
+      return false;
+   }
+
+   /* The G-Net adapter changes RAM and VRAM geometry before core/plugin init;
+    * core options, including the selected CPU backend, remain untouched. */
+   if (psxInit() == -1)
+   {
+      psxShutdown();
+      systemgnet_unload();
+      psxInit();
+      return false;
+   }
+
+   if (LoadPlugins() == -1)
+   {
+      LogErr("could not open graphics/audio plugins for G-Net\n");
+      retro_systemgnet_restore_console();
+      return false;
+   }
+   plugins_opened = 1;
+   if (OpenPlugins(0) == -1)
+   {
+      LogErr("could not open graphics/audio plugins for G-Net\n");
+      ClosePlugins();
+      plugins_opened = 0;
+      retro_systemgnet_restore_console();
       return false;
    }
 
@@ -2200,6 +2334,12 @@ bool retro_load_game(const struct retro_game_info *info)
 
    update_variables(false);
 
+#ifdef PCSX_SYSTEM_GNET
+   if (retro_path_is_systemgnet_profile(info->path))
+      return retro_load_systemgnet_profile(info->path);
+   if (systemgnet_active())
+      retro_systemgnet_restore_console();
+#endif
 #ifdef ARCADE_SYSTEM12
    if (retro_path_is_system12_profile(info->path))
       return retro_load_system12_profile(info->path);
@@ -2431,6 +2571,10 @@ size_t retro_get_memory_size(unsigned id)
    case RETRO_MEMORY_SYSTEM_RAM:
 #ifdef ARCADE_SYSTEM12
       if (system12_active())
+         return PSX_RAM_SIZE;
+#endif
+#ifdef PCSX_SYSTEM_GNET
+      if (systemgnet_active())
          return PSX_RAM_SIZE;
 #endif
       return 0x200000;
@@ -3711,6 +3855,13 @@ void retro_run(void)
       }
       else
 #endif
+#ifdef PCSX_SYSTEM_GNET
+      if (systemgnet_active())
+      {
+         SysReset();
+      }
+      else
+#endif
       {
       prepare_bios(get_bios_config_hle());
       SysReset();
@@ -3801,6 +3952,35 @@ void retro_run(void)
 #undef SYSTEM12_PAD_INPUT
    }
 #endif
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+   {
+#define GNET_PAD_INPUT(name, port, id) \
+      systemgnet_set_input(name, input_state_cb(port, RETRO_DEVICE_JOYPAD, 0, id) != 0)
+      GNET_PAD_INPUT("p1_up", 0, RETRO_DEVICE_ID_JOYPAD_UP);
+      GNET_PAD_INPUT("p1_down", 0, RETRO_DEVICE_ID_JOYPAD_DOWN);
+      GNET_PAD_INPUT("p1_left", 0, RETRO_DEVICE_ID_JOYPAD_LEFT);
+      GNET_PAD_INPUT("p1_right", 0, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+      GNET_PAD_INPUT("p1_button1", 0, RETRO_DEVICE_ID_JOYPAD_B);
+      GNET_PAD_INPUT("p1_button2", 0, RETRO_DEVICE_ID_JOYPAD_A);
+      GNET_PAD_INPUT("p1_button3", 0, RETRO_DEVICE_ID_JOYPAD_Y);
+      GNET_PAD_INPUT("p2_up", 1, RETRO_DEVICE_ID_JOYPAD_UP);
+      GNET_PAD_INPUT("p2_down", 1, RETRO_DEVICE_ID_JOYPAD_DOWN);
+      GNET_PAD_INPUT("p2_left", 1, RETRO_DEVICE_ID_JOYPAD_LEFT);
+      GNET_PAD_INPUT("p2_right", 1, RETRO_DEVICE_ID_JOYPAD_RIGHT);
+      GNET_PAD_INPUT("p2_button1", 1, RETRO_DEVICE_ID_JOYPAD_B);
+      GNET_PAD_INPUT("p2_button2", 1, RETRO_DEVICE_ID_JOYPAD_A);
+      GNET_PAD_INPUT("p2_button3", 1, RETRO_DEVICE_ID_JOYPAD_Y);
+      GNET_PAD_INPUT("p1_start", 0, RETRO_DEVICE_ID_JOYPAD_START);
+      GNET_PAD_INPUT("p2_start", 1, RETRO_DEVICE_ID_JOYPAD_START);
+      GNET_PAD_INPUT("coin1", 0, RETRO_DEVICE_ID_JOYPAD_L3);
+      GNET_PAD_INPUT("coin2", 1, RETRO_DEVICE_ID_JOYPAD_L3);
+      GNET_PAD_INPUT("service", 0, RETRO_DEVICE_ID_JOYPAD_SELECT);
+      GNET_PAD_INPUT("test", 1, RETRO_DEVICE_ID_JOYPAD_SELECT);
+      GNET_PAD_INPUT("tilt", 0, RETRO_DEVICE_ID_JOYPAD_R3);
+#undef GNET_PAD_INPUT
+   }
+#endif
 
    bool updated = false;
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
@@ -3808,6 +3988,10 @@ void retro_run(void)
 
    psxRegs.stop = 0;
    psxCpu->Execute(&psxRegs);
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active() && systemgnet_sync(psxRegs.cycle) < 0)
+      LogErr("G-Net device clock reported a board fault\n");
+#endif
 
    if (pl_rearmed_cbs.fskip_dirty) {
       if (frameskip_counter >= frameskip_interval || !pl_rearmed_cbs.fskip_force)
@@ -4258,6 +4442,10 @@ void retro_deinit(void)
       plugins_opened = 0;
    }
    SysClose();
+#ifdef PCSX_SYSTEM_GNET
+   if (systemgnet_active())
+      systemgnet_unload();
+#endif
 #ifdef ARCADE_SYSTEM12
    if (system12_active())
    {
