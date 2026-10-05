@@ -16,6 +16,12 @@ it cannot be combined with an input replay, GL capture, or board fixture.
 Interactive sessions disable the default execution-block budget so they stay
 open until closed. An explicit `--max-blocks` remains available for bounded
 diagnostic sessions.
+The first interactive session after the Apple x18 fix reached 22,374 frames
+in 372.905 seconds (approximately 60 paced frames/s) before hitting the old
+one-billion-block budget. It logged renderer shutdown PASS rather than a new
+crash. This was attract-mode observation, not sustained controlled gameplay.
+Its launch identity and review are retained in
+`/tmp/pcsx-mac-interactive-x18-fixed-20261005/session-review.json`.
 This window exercises the Mac OpenGL implementation, not VitaGL/GXM scheduling.
 
 `tests/check_system12_gameplay.py` runs the local Soul Calibur Asia SOC14/VER.C
