@@ -734,7 +734,7 @@ OBJS += libpcsxcore/system12.o libpcsxcore/system11.o libpcsxcore/system10.o \
 	libpcsxcore/arcade/psx_sio.o libpcsxcore/arcade/capcom_zn.o \
 	libpcsxcore/arcade/taito_fx1.o libpcsxcore/arcade/taito_sound_comm.o \
 	libpcsxcore/arcade/mb3773.o \
-	libpcsxcore/arcade/h8.o libpcsxcore/arcade/m37710.o \
+	libpcsxcore/arcade/h8.o libpcsxcore/arcade/h8_adc.o libpcsxcore/arcade/h8_sci.o libpcsxcore/arcade/h8_timer16.o libpcsxcore/arcade/m37710.o \
 	libpcsxcore/arcade/namcos10_crypto.o libpcsxcore/arcade/namcos10_board.o \
 	libpcsxcore/arcade/z80.o libpcsxcore/arcade/qsound_hle.o \
 	libpcsxcore/arcade/ym2610.o libpcsxcore/arcade/ymfm/ymfm_opn.o \

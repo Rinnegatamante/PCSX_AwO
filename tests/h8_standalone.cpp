@@ -25,7 +25,7 @@ static void write_word(void*p,uint32_t a,uint16_t v){auto &b=*static_cast<Bus*>(
 static void word(Bus &b,unsigned a,unsigned v){b.memory[a]=v>>8;b.memory[a+1]=v;}
 static void longword(Bus &b,unsigned a,uint32_t v){word(b,a,v>>16);word(b,a+2,v);}
 static void code(Bus &b,unsigned a,std::initializer_list<uint16_t> w){for(auto v:w){word(b,a,v);a+=2;}}
-static H8CPU *create(Bus &b,bool atomic=false){H8Config cfg={&b,read_bus,write_bus,read_port,nullptr,serial_tx,atomic?read_word:nullptr,atomic?write_word:nullptr,read_adc};return h8_create(&cfg);}
+static H8CPU *create(Bus &b,bool atomic=false){H8Config cfg{};cfg.opaque=&b;cfg.read8=read_bus;cfg.write8=write_bus;cfg.port_read=read_port;cfg.serial_tx=serial_tx;cfg.read16=atomic?read_word:nullptr;cfg.write16=atomic?write_word:nullptr;cfg.adc_read=read_adc;return h8_create(&cfg);}
 static H8Status status(H8CPU *c){H8Status s;h8_get_status(c,&s);return s;}
 static void synthetic_tests() {
     {
@@ -72,10 +72,10 @@ static void synthetic_tests() {
         h8_write_byte(c,0xffff6a,0);h8_write_byte(c,0xffff6b,9);h8_write_byte(c,0xffff60,1);
         h8_run_cycles(c,80);assert(h8_read_byte(c,0xffff67)&1);
         assert(h8_read_byte(c,0xffff68)==0&&h8_read_byte(c,0xffff69)<9);
-        // Asynchronous SCI channel 0 byte transmission completes after 320 cycles at BRR=0.
+        // Source SCI transfers TDR immediately (TDRE), then completes the wire frame.
         h8_write_byte(c,0xffffb1,0);h8_write_byte(c,0xffffb2,0x30);
         h8_write_byte(c,0xffffb3,0x42);h8_read_byte(c,0xffffb4);h8_write_byte(c,0xffffb4,4);
-        assert(!(h8_read_byte(c,0xffffb4)&0x80));h8_run_cycles(c,400);
+        assert((h8_read_byte(c,0xffffb4)&0x84)==0x80);h8_run_cycles(c,400);
         assert(b.tx_count==1&&b.last_tx==0x42);assert((h8_read_byte(c,0xffffb4)&0x84)==0x84);
         h8_serial_receive(c,0,0x33);assert(h8_read_byte(c,0xffffb5)==0x33);assert(h8_read_byte(c,0xffffb4)&0x40);
         h8_write_byte(c,0xffffb4,0x84);assert(!(h8_read_byte(c,0xffffb4)&0x40));

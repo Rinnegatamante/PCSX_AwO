@@ -104,11 +104,11 @@ static void peripheral_timeline() {
     program(b,{0xf831,0x6a88,0xffe8,0x0180});create(b);
     h8_write_byte(b.cpu,0xffffb1,0);h8_write_byte(b.cpu,0xffffb2,0x30);
     h8_write_byte(b.cpu,0xffffb3,0x42);h8_read_byte(b.cpu,0xffffb4);
-    h8_write_byte(b.cpu,0xffffb4,4); // SCI deadline is 320 committed cycles.
+    h8_write_byte(b.cpu,0xffffb4,4); // Source clock has first edge at cycle 2 and final tick at 322.
     h8_run_cycles(b.cpu,400);
     std::vector<Access> events;
     for(auto a:b.accesses)if(a.kind=='s'||a.kind=='a')events.push_back(a);
-    assert((events==std::vector<Access>{{'a',0,14,8},{'s',0,336,336},{'a',1,336,336}}));
+    assert((events==std::vector<Access>{{'a',0,14,8},{'a',1,336,336},{'s',0,336,336}}));
     assert(h8_current_cycle(b.cpu)==400&&status(b.cpu).cycles==400);
     // Debug ADC start also samples at committed time, with no stale state cost.
     h8_write_byte(b.cpu,0xffffe8,0);h8_write_byte(b.cpu,0xffffe8,0x20);
@@ -116,6 +116,45 @@ static void peripheral_timeline() {
     h8_reset(b.cpu);assert(h8_current_cycle(b.cpu)==0);
     h8_write_byte(b.cpu,0xffffe8,0x20);
     assert((b.accesses.back()==Access{'a',0,0,0}));h8_destroy(b.cpu);
+}
+static void source_peripheral_deadlines() {
+    Bus b;
+    program(b,{0xf831,0x6a88,0xffe8,0x0180});create(b);
+    h8_write_byte(b.cpu,0xffffb1,0);h8_write_byte(b.cpu,0xffffb2,0x30);
+    h8_write_byte(b.cpu,0xffffb3,0x42);h8_read_byte(b.cpu,0xffffb4);
+    h8_write_byte(b.cpu,0xffffb4,4);
+    assert(h8_run_until(b.cpu,400)==0);
+    std::vector<Access> events;
+    for(auto a:b.accesses)if(a.kind=='s'||a.kind=='a')events.push_back(a);
+    // MAME ADC samples at the charged MOV.B write (14), then 266 cycles
+    // later. SCI's divider follows the absolute oscillator: 2..322.
+    assert((events==std::vector<Access>{{'a',0,14,12},{'a',1,280,280},{'s',0,322,322}}));
+    h8_destroy(b.cpu);
+}
+static void source_peripheral_reset_epoch() {
+    Bus b;
+    program(b,{0xf831,0x6a88,0xffe8,0x0180});create(b);
+    assert(h8_run_until(b.cpu,400)==0);
+    const uint64_t epoch=(UINT64_C(1)<<40)+123;
+    assert(h8_soft_reset(b.cpu,epoch)==0);b.accesses.clear();
+    h8_write_byte(b.cpu,0xffffb1,0);h8_write_byte(b.cpu,0xffffb2,0x30);
+    h8_write_byte(b.cpu,0xffffb3,0x42);h8_read_byte(b.cpu,0xffffb4);
+    h8_write_byte(b.cpu,0xffffb4,4);
+    assert(h8_run_until(b.cpu,epoch+400)==0);
+    std::vector<Access> events;
+    for(auto a:b.accesses)if(a.kind=='s'||a.kind=='a')events.push_back(a);
+    // Source total_cycles restarts on reset, while external callbacks retain
+    // the board's absolute timeline. An odd epoch must not shift the divider.
+    assert((events==std::vector<Access>{{'a',0,epoch+14,12},
+        {'a',1,epoch+280,280},{'s',0,epoch+322,322}}));
+    program(b,{0x0180});assert(h8_soft_reset(b.cpu,epoch)==0);
+    assert(h8_run_until(b.cpu,epoch+8)==0);
+    h8_write_byte(b.cpu,0xffff64,3);h8_write_byte(b.cpu,0xffff60,1);
+    assert(h8_run_until(b.cpu,epoch+15)==0);
+    assert(h8_read_byte(b.cpu,0xffff69)==0);
+    assert(h8_run_until(b.cpu,epoch+16)==0);
+    assert(h8_read_byte(b.cpu,0xffff69)==1);
+    h8_destroy(b.cpu);
 }
 static void internal_cost_timeline() {
     Bus b;
@@ -131,6 +170,6 @@ static void internal_cost_timeline() {
     assert(h8_current_cycle(b.cpu)==32);h8_destroy(b.cpu);
 }
 int main() {
-    assert(h8_current_cycle(nullptr)==0);access_timeline();peripheral_timeline();internal_cost_timeline();
+    assert(h8_current_cycle(nullptr)==0);access_timeline();peripheral_timeline();source_peripheral_deadlines();source_peripheral_reset_epoch();internal_cost_timeline();
     std::puts("H8 access timestamp, prefix/debt, reset/debug and SCI/ADC tests passed");
 }

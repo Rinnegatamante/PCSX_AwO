@@ -22,6 +22,12 @@ typedef struct H8Config {
     void (*write16)(void *opaque, uint32_t address, uint16_t value);
     /* Raw 10-bit analog input, channels 0..7. Unconnected defaults to zero. */
     uint16_t (*adc_read)(void *opaque, unsigned channel);
+    /* SCI pins are delivered at each source clock edge. Byte callbacks above
+     * are a compatibility fallback when neither pin callback is installed. */
+    void (*serial_tx_pin)(void *opaque, unsigned channel, int level);
+    void (*serial_clk_pin)(void *opaque, unsigned channel, int level);
+    /* Optional fixed external clock period, in integer attoseconds. */
+    uint64_t serial_external_period_as[2];
 } H8Config;
 typedef struct H8Status {
     uint32_t pc, er[8];
@@ -61,6 +67,9 @@ uint64_t h8_current_cycle(const H8CPU *cpu);
 /* IRQ0..IRQ5 are 0..5; NMI is -1. Level is 0/1 (asserted). */
 void h8_set_irq(H8CPU *cpu, int line, int level);
 void h8_serial_receive(H8CPU *cpu, unsigned channel, uint8_t value);
+/* Physical receive/clock inputs; board devices should use these pin APIs. */
+void h8_serial_rx_pin(H8CPU *cpu, unsigned channel, int level);
+void h8_serial_clock_pin(H8CPU *cpu, unsigned channel, int level);
 /* Physical ADTRG pin level; falling edge triggers when ADCR bit7 is set. */
 void h8_adc_trigger(H8CPU *cpu, int level);
 void h8_get_status(const H8CPU *cpu, H8Status *status);

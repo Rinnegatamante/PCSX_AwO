@@ -123,7 +123,7 @@ static void retention_and_deadlines() {
     auto first=b.adc.back();assert(first.absolute==epoch+1000&&first.diagnostic==1000);
     h8_run_cycles(b.cpu,400);
     assert(b.serial.size()==1&&b.adc.size()==3);
-    assert(b.serial[0].absolute==epoch+1320&&b.serial[0].diagnostic==1320);
+    assert(b.serial[0].absolute==epoch+1384&&b.serial[0].diagnostic==1384);
     assert(b.adc.back().absolute==epoch+1320&&b.adc.back().diagnostic==1320);
     assert(b.reset_rejections>=5); // Bus callbacks and tick SCI/ADC reject reset.
     b.try_reset=false;

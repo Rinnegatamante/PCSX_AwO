@@ -2,6 +2,9 @@
 // copyright-holders:Olivier Galibert
 // Standalone H8/300H ISA adapter and H8/3002 internal peripheral implementation.
 #include "h8.h"
+#include "h8_adc.h"
+#include "h8_sci.h"
+#include "h8_timer16.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -20,19 +23,19 @@ struct H8CPU {
     int m_inst_state=STATE_RESET,m_inst_substate=0,m_icount=0,m_bcount=0,m_irq_vector=0,m_taken_irq_vector=0;
     int64_t budget=0;
     bool executing_state=false,in_run=false,deadline_run=false;
-    bool m_sleeping=false,halted=false,nmi_level=false,adc_level=true;
+    bool m_sleeping=false,halted=false,nmi_level=false;
     u64 cycles=0,cycle_epoch=0,instructions=0,pending=0,cycle_ahead=0;
     u32 illegal_pc=0,unsupported=0;
     u16 illegal_opcode=0;
-    u8 ram[0x200]={},io[0x100]={},irq_lines=0,ssr_read[2]={};
-    u64 timer_phase[5]={},serial_deadline[2]={},adc_deadline=0;
-    unsigned adc_channel=0;
-    u16 adc_sample=0;
-    void adc_start() {
-        adc_channel=(io[0xe8]&0x10)?(io[0xe8]&4):(io[0xe8]&7);
-        adc_sample=config.adc_read?config.adc_read(config.opaque,adc_channel)&0x3ff:0;
-        adc_deadline=cycles+((io[0xe8]&8)?134:266);
-    }
+    u8 ram[0x200]={},io[0x100]={},irq_lines=0;
+    u64 run_deadline=0;
+    arcade::H8Adc3337 adc;
+    arcade::H8Sci sci[2];
+    arcade::H8Timer16 timers;
+    void bind_peripherals();
+    void refresh_bcount();
+    void internal_update_at(u64 when);
+    u64 next_internal_event() const;
     explicit H8CPU(const H8Config &c):config(c) {}
     u8 bus_read(u32 a);
     void bus_write(u32 a,u8 v);
@@ -58,12 +61,14 @@ struct H8CPU {
     u16 read16(u32 a) {
         m_icount-=2;a&=0xfffffe;
         if(a<0xfffd10&&config.read16)return config.read16(config.opaque,a);
+        if(a>=0xffff60&&a<=0xffff9e)return timers.readWord(a&255,h8_current_cycle(this)-cycle_epoch);
         return (u16(bus_read(a))<<8)|bus_read(a+1);
     }
     u16 read16i(u32 a) {return read16(a);}
     void write16(u32 a,u16 v) {
         m_icount-=2;a&=0xfffffe;
         if(a<0xfffd10&&config.write16){config.write16(config.opaque,a,v);return;}
+        if(a>=0xffff60&&a<=0xffff9e){timers.writeWord(a&255,v,0xffff,h8_current_cycle(this)-cycle_epoch);return;}
         bus_write(a,v>>8);bus_write(a+1,v);
     }
     void internal(int n) {m_icount-=n+1;}
@@ -83,7 +88,73 @@ struct H8CPU {
 #include "h8_arithmetic_declarations.inc"
 };
 
-static const unsigned timer_base[5]={0x64,0x6e,0x78,0x82,0x92};
+static uint16_t adc_input(void *opaque,unsigned channel) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    return c->config.adc_read?c->config.adc_read(c->config.opaque,channel):0;
+}
+static void adc_irq(void *opaque) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);c->pending|=u64(1)<<60;
+    c->update_irq_filter();
+}
+static void peripheral_irq(void *opaque,unsigned vector) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);c->pending|=u64(1)<<vector;
+    c->update_irq_filter();
+}
+static void peripheral_reschedule(void *opaque) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    c->internal_update_at(h8_current_cycle(c));
+}
+static uint64_t peripheral_now(void *opaque) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    return h8_current_cycle(c)-c->cycle_epoch;
+}
+template<unsigned Channel> static void serial_tx_pin(void *opaque,int level) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    c->config.serial_tx_pin(c->config.opaque,Channel,level);
+}
+template<unsigned Channel> static void serial_clk_pin(void *opaque,int level) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    c->config.serial_clk_pin(c->config.opaque,Channel,level);
+}
+static void serial_frame(void *opaque,unsigned channel,u8 byte) {
+    H8CPU *c=static_cast<H8CPU*>(opaque);
+    if(c->config.serial_tx)c->config.serial_tx(c->config.opaque,channel,byte);
+}
+void H8CPU::bind_peripherals() {
+    adc.setCallbacks(this,adc_input,adc_irq,peripheral_reschedule);
+    timers.setCallbacks(this,peripheral_irq,peripheral_reschedule);
+    sci[0].setCallbacks(this,peripheral_now,
+        config.serial_tx_pin?serial_tx_pin<0>:nullptr,
+        config.serial_clk_pin?serial_clk_pin<0>:nullptr,
+        peripheral_irq,52,0,serial_frame,peripheral_reschedule);
+    sci[1].setCallbacks(this,peripheral_now,
+        config.serial_tx_pin?serial_tx_pin<1>:nullptr,
+        config.serial_clk_pin?serial_clk_pin<1>:nullptr,
+        peripheral_irq,56,1,serial_frame,peripheral_reschedule);
+    for(unsigned ch=0;ch<2;ch++)
+        sci[ch].setExternalClockPeriodAS(config.serial_external_period_as[ch],16934400);
+}
+u64 H8CPU::next_internal_event() const {
+    u64 next=adc.next_event();
+    next=std::min(next?next:UINT64_MAX,timers.nextDeadline());
+    for(unsigned ch=0;ch<2;ch++)
+        if(sci[ch].next_event())next=std::min(next,sci[ch].next_event());
+    return next==UINT64_MAX?next:cycle_epoch+next;
+}
+void H8CPU::refresh_bcount() {
+    if(!deadline_run)return;
+    u64 bound=std::min(run_deadline,next_internal_event());
+    u64 span=bound>cycles?bound-cycles:0;
+    m_bcount=-int(std::min<u64>(span,0x7fffffff));
+}
+void H8CPU::internal_update_at(u64 when) {
+    when-=cycle_epoch;
+    adc.update(when);
+    sci[0].update(when);
+    sci[1].update(when);
+    timers.update(when);
+    refresh_bcount();
+}
 static const int vector_slot[64]={
  -1,-1,-1,-1,-1,-1,-1,-1, -1,-1,-1,-1,0,1,2,2,
  3,3,3,3,4,4,4,4, 5,5,5,5,6,6,6,6,
@@ -133,6 +204,10 @@ u8 H8CPU::bus_read(u32 a) {
     if(a>=0xfffd10&&a<=0xffff0f)return ram[a-0xfffd10];
     if(a<0xffff20)return config.read8?config.read8(config.opaque,a):0xff;
     unsigned r=a&255;
+    if(r>=0xe0&&r<=0xe9)return adc.read(r-0xe0);
+    if(r>=0x60&&r<=0x9f)return timers.readByte(r,h8_current_cycle(this)-cycle_epoch);
+    if((r>=0xb0&&r<=0xb5)||(r>=0xb8&&r<=0xbd))
+        return sci[(r-0xb0)/8].read((r-0xb0)%8);
     unsigned p=port_number(r);
     if(p) {
         u8 input=config.port_read?config.port_read(config.opaque,p):0xff;
@@ -145,9 +220,6 @@ u8 H8CPU::bus_read(u32 a) {
     if(r>=0x20&&r<=0x3f)unsupported|=1;
     if(r>=0xa8&&r<=0xab)unsupported|=2;
     if(r==0xad)return io[r]|0x80;
-    if(r==0x61||r==0x62||r==0x63||r==0x90||r==0x91)return 0;
-    for(unsigned i=0;i<5;i++)if(r==timer_base[i]+1)return 0;
-    if(r==0xb4||r==0xbc)ssr_read[(r-0xb4)/8]=io[r];
     return io[r];
 }
 void H8CPU::bus_write(u32 a,u8 v) {
@@ -155,28 +227,20 @@ void H8CPU::bus_write(u32 a,u8 v) {
     if(a>=0xfffd10&&a<=0xffff0f){ram[a-0xfffd10]=v;return;}
     if(a<0xffff20){if(config.write8)config.write8(config.opaque,a,v);return;}
     unsigned r=a&255;
+    if(r>=0xe0&&r<=0xe9) {
+        adc.write(r-0xe0,v,h8_current_cycle(this)-cycle_epoch);return;
+    }
+    if(r>=0x60&&r<=0x9f) {
+        timers.writeByte(r,v,h8_current_cycle(this)-cycle_epoch);return;
+    }
+    if((r>=0xb0&&r<=0xb5)||(r>=0xb8&&r<=0xbd)) {
+        sci[(r-0xb0)/8].write((r-0xb0)%8,v);return;
+    }
     if(r>=0x20&&r<=0x3f)unsupported|=1;
     if(r>=0xa8&&r<=0xab)unsupported|=2;
-    u8 old=io[r];
     // Status bits are write-zero-to-clear. Hardware-set reserved bits are retained.
     if(r==0xf6)io[r]&=v;
-    else if(r==0xb4||r==0xbc) {
-        unsigned ch=(r-0xb4)/8,b=0xb0+ch*8;
-        bool start=(io[b+2]&0x20)&&(old&ssr_read[ch]&0x80)&&!(v&0x80);
-        u8 next=start?old&~0x84:old;
-        io[r]=(next&(~ssr_read[ch]|v|0x86)&~1)|(v&1);
-        ssr_read[ch]&=io[r];
-        if(start&&!serial_deadline[ch]) {
-            unsigned divider=(io[b]&0x80)?4:32;
-            unsigned bits=(io[b]&0x80)?8:((io[b]&0x40)?9:10)+((io[b]&0x20)?1:0)+((io[b]&8)?1:0);
-            serial_deadline[ch]=cycles+u64(divider)*(io[b+1]+1)*(1u<<(2*(io[b]&3)))*bits;
-        }
-    } else if(r==0xe8)io[r]=(v&0x7f)|(old&v&0x80);
-    else {
-        bool status=false;
-        for(unsigned i=0;i<5;i++)if(r==timer_base[i]+3)status=true;
-        io[r]=status ? ((old&v&7)|0xf8) : v;
-    }
+    else io[r]=v;
     unsigned p=port_number(r),d=port_ddr(r);
     if(!p) {
         for(unsigned candidate:{0xc7u,0xcbu,0xcfu,0xd2u,0xd3u,0xd6u})
@@ -188,60 +252,12 @@ void H8CPU::bus_write(u32 a,u8 v) {
     }
     r=a&255;
     if(r==0xf2||r==0xf4||r==0xf5||r==0xf6||r==0xf8||r==0xf9)update_irq_filter();
-    if(r==0xe8&&(v&0x20)&&!(old&0x20))adc_start();
-    // Enabling TIE while TDRE is already set generates TXI.
-    if(r==0xb2||r==0xba) {
-        unsigned ch=(r-0xb2)/8;
-        if((v&~old&0x80)&&(io[r+2]&0x80))pending|=u64(1)<<(54+ch*4);
-        if((v&~old&4)&&(io[r+2]&4))pending|=u64(1)<<(55+ch*4);
-        if((v&~old&0x40)&&(io[r+2]&0x40))pending|=u64(1)<<(53+ch*4);
-        if((v&~old&0x40)&&(io[r+2]&0x38))pending|=u64(1)<<(52+ch*4);
-    }
 }
 
 void H8CPU::tick(unsigned elapsed) {
     cycles+=elapsed;
-    for(unsigned ch=0;ch<5;ch++)if(io[0x60]&(1<<ch)) {
-        unsigned b=timer_base[ch],tcr=io[b],clock=tcr&7;
-        if(clock>3)continue; // External clocks require board wiring.
-        unsigned shift=clock;
-        if(clock>1&&(tcr&0x10))shift--;
-        u64 phase=timer_phase[ch]+elapsed,ticks=phase>>shift;
-        timer_phase[ch]=phase&((1u<<shift)-1);
-        u32 count=(u32(io[b+4])<<8)|io[b+5];
-        u32 ca=(u32(io[b+6])<<8)|io[b+7],cb=(u32(io[b+8])<<8)|io[b+9];
-        while(ticks--) {
-            unsigned events=(count==ca?1:0)|(count==cb?2:0)|(count==65535?4:0);
-            count=(count+1)&65535;
-            io[b+3]|=events;
-            for(unsigned event=0;event<3;event++)if(events&io[b+2]&(1<<event))pending|=u64(1)<<(24+ch*4+event);
-            unsigned clear=(tcr>>5)&3;
-            if((clear==1&&(events&1))||(clear==2&&(events&2)))count=0;
-        }
-        io[b+4]=count>>8;io[b+5]=count;
-    }
-    for(unsigned ch=0;ch<2;ch++)if(serial_deadline[ch]&&cycles>=serial_deadline[ch]) {
-        unsigned b=0xb0+ch*8;
-        serial_deadline[ch]=0;io[b+4]|=0x84;
-        if(config.serial_tx)config.serial_tx(config.opaque,ch,io[b+3]);
-        if(io[b+2]&0x80)pending|=u64(1)<<(54+ch*4);
-        if(io[b+2]&4)pending|=u64(1)<<(55+ch*4);
-    }
-    if(adc_deadline&&cycles>=adc_deadline) {
-        unsigned r=0xe0+((adc_channel&3)*2);
-        io[r]=adc_sample>>2;io[r+1]=adc_sample<<6;
-        bool scan=(io[0xe8]&0x10)!=0;
-        bool last=!scan||adc_channel==(io[0xe8]&7);
-        if(last) {
-            io[0xe8]|=0x80;
-            if(io[0xe8]&0x40)pending|=u64(1)<<60;
-        }
-        if(scan) {
-            adc_channel=last?(io[0xe8]&4):((adc_channel+1)&7);
-            adc_sample=config.adc_read?config.adc_read(config.opaque,adc_channel)&0x3ff:0;
-            adc_deadline=cycles+((io[0xe8]&8)?128:256);
-        } else {adc_deadline=0;io[0xe8]&=~0x20;}
-    }
+    while(next_internal_event()<=cycles)
+        internal_update_at(next_internal_event());
     update_irq_filter();
 }
 
@@ -260,17 +276,10 @@ void h8_reset(H8CPU *c) {
     if(!c)return;
     H8Config config=c->config;
     *c=H8CPU(config);
+    c->bind_peripherals();
     c->io[0xf2]=0x09;
-    c->io[0x60]=0xe0;c->io[0x61]=0xe0;c->io[0x62]=0x80;c->io[0x63]=0xe0;
-    c->io[0x90]=0xff;c->io[0x91]=0xff;
     c->io[0xc9]=0x80;c->io[0xcd]=0xf0;
-    for(unsigned i=0;i<5;i++) {
-        unsigned b=timer_base[i];c->io[b+2]=0xf8;c->io[b+3]=0xf8;
-        c->io[b+6]=c->io[b+7]=c->io[b+8]=c->io[b+9]=0xff;
-    }
-    for(unsigned i=0;i<2;i++) {
-        unsigned b=0xb0+i*8;c->io[b+1]=0xff;c->io[b+3]=0xff;c->io[b+4]=0x84;
-    }
+    for(unsigned ch=0;ch<2;ch++)c->sci[ch].reset();
 }
 int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     if(!c)return -1;
@@ -284,12 +293,24 @@ int h8_soft_reset(H8CPU *c,uint64_t absolute_cycle) {
     std::memcpy(registers,c->m_R,sizeof(registers));
     std::memcpy(memory,c->ram,sizeof(memory));
     for(unsigned i=0;i<13;i++)gpio[i]=c->io[gpio_regs[i]];
-    h8_reset(c);
+    // Device reset retains SCI's status-read latch and physical RX level.
+    arcade::H8Sci serial[2]={c->sci[0],c->sci[1]};
+    for(unsigned ch=0;ch<2;ch++) {
+        serial[ch].setCallbacks(nullptr,nullptr,nullptr,nullptr,nullptr,0);
+        serial[ch].reset();
+    }
+    H8Config config=c->config;
+    *c=H8CPU(config);
+    for(unsigned ch=0;ch<2;ch++)c->sci[ch]=serial[ch];
+    c->bind_peripherals();
+    c->io[0xf2]=0x09;
     std::memcpy(c->m_R,registers,sizeof(registers));
     std::memcpy(c->ram,memory,sizeof(memory));
     for(unsigned i=0;i<13;i++)c->io[gpio_regs[i]]=gpio[i];
     c->m_CCR=ccr;
     c->cycles=c->cycle_epoch=absolute_cycle;
+    c->timers.reset();
+    for(unsigned ch=0;ch<2;ch++)c->sci[ch].reset();
     return 0;
 }
 void h8_run_cycles(H8CPU *c,unsigned requested) {
@@ -327,7 +348,7 @@ int h8_run_until(H8CPU *c,uint64_t target) {
     if(!c)return -1;
     if(c->in_run)return -2;
     if(target<c->cycles)return -1;
-    c->in_run=true;c->deadline_run=true;
+    c->in_run=true;c->deadline_run=true;c->run_deadline=target;
     while(c->cycles<target&&!c->halted) {
         // An access can consume one bus operation past the requested deadline.
         // Commit that source-generated debt only as host time advances beyond it.
@@ -337,7 +358,7 @@ int h8_run_until(H8CPU *c,uint64_t target) {
             if(c->cycles==target)break;
         }
         u64 span=std::min<u64>(target-c->cycles,0x7fffffff);
-        c->m_icount=0;c->m_bcount=-int(span);
+        c->m_icount=0;c->refresh_bcount();
         c->update_irq_filter();
         if(c->m_sleeping) {
             if(c->m_irq_vector) {
@@ -345,6 +366,8 @@ int h8_run_until(H8CPU *c,uint64_t target) {
                 c->m_taken_irq_vector=c->m_irq_vector;
             } else {
                 unsigned n=unsigned(std::min<u64>(span,64));
+                if(c->next_internal_event()>c->cycles)
+                    n=unsigned(std::min<u64>(n,c->next_internal_event()-c->cycles));
                 c->tick(n);continue;
             }
         }
@@ -393,19 +416,17 @@ uint64_t h8_current_cycle(const H8CPU *c) {
 }
 void h8_adc_trigger(H8CPU *c,int level) {
     if(!c)return;
-    bool next=level!=0;
-    if(c->adc_level&&!next&&(c->io[0xe9]&0x80)&&!(c->io[0xe8]&0x20)) {
-        c->io[0xe8]|=0x20;c->adc_start();
-    }
-    c->adc_level=next;
+    c->adc.trigger(level!=0,h8_current_cycle(c)-c->cycle_epoch);
 }
 void h8_serial_receive(H8CPU *c,unsigned ch,uint8_t v) {
     if(!c||ch>1)return;
-    unsigned b=0xb0+ch*8;
-    if(!(c->io[b+2]&0x10))return;
-    if(c->io[b+4]&0x40){c->io[b+4]|=0x20;if(c->io[b+2]&0x40)c->pending|=u64(1)<<(52+ch*4);}
-    else {c->io[b+5]=v;c->io[b+4]|=0x40;if(c->io[b+2]&0x40)c->pending|=u64(1)<<(53+ch*4);}
-    c->update_irq_filter();
+    c->sci[ch].receiveByte(v);
+}
+void h8_serial_rx_pin(H8CPU *c,unsigned ch,int level) {
+    if(c&&ch<2)c->sci[ch].rx_w(level);
+}
+void h8_serial_clock_pin(H8CPU *c,unsigned ch,int level) {
+    if(c&&ch<2)c->sci[ch].clk_w(level);
 }
 void h8_get_status(const H8CPU *c,H8Status *s) {
     if(!c||!s)return;

@@ -82,7 +82,7 @@ CXXSOURCES := libpcsxcore/arcade/gnet_zoom.cpp libpcsxcore/arcade/rf5c296.cpp \
   libpcsxcore/arcade/mn10200.cpp libpcsxcore/arcade/tms57002.cpp \
   libpcsxcore/arcade/tms57002/tms57002_core.cpp libpcsxcore/arcade/tms57002/tms57kdec.cpp \
   libpcsxcore/arcade/tms57002/tmsops.cpp \
-  libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/m37710.cpp \
+  libpcsxcore/arcade/h8.cpp libpcsxcore/arcade/h8_adc.cpp libpcsxcore/arcade/h8_sci.cpp libpcsxcore/arcade/h8_timer16.cpp libpcsxcore/arcade/m37710.cpp \
   libpcsxcore/arcade/namcos10_crypto.cpp libpcsxcore/arcade/namcos10_board.cpp \
   libpcsxcore/arcade/z80.cpp libpcsxcore/arcade/qsound_hle.cpp \
   libpcsxcore/arcade/ym2610.cpp libpcsxcore/arcade/ymfm/ymfm_opn.cpp \
