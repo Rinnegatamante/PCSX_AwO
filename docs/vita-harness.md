@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Patched library/package build; strict startup/shutdown probe passes with local compiler and paired native fault recovery | Black native capture/triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Patched library/package build; production 180-frame console pixel/signature and startup/shutdown probe passes with local compiler and paired native fault recovery | Black native presentation, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a
@@ -321,7 +321,8 @@ equivalence and physical Vita validation remain pending.
 
 For the direct-memory M1 host protection correction and its real fault
 regression, see [host-page-protection.md](../tools/vita-harness/host-page-protection.md).
-The subsequent mapped-buffer/tight-destination diagnostic still fails: both
-pixels are `0000` instead of triangle `03ff` and background `2082`.
-See [VitaGL readback validation](vitagl-readback.md) for the latest evidence
-and the optional host synchronization correction.
+The production console probe now passes with triangle `03ff`, background
+`2082` and the expected sentinel after correcting host synchronization and
+the VRAM row address. Native presentation remains black.
+See [VitaGL readback validation](vitagl-readback.md) for the evidence and the
+optional host synchronization correction.

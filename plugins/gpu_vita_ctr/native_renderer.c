@@ -3158,7 +3158,10 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	glFinish();
 	/* Use GXM transfer readback so render-target data is resolved before
 	 * reading it. The CPU fast path can see stale render-surface storage. */
-	if (!vglReadPixelsChecked(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
+	/* The pack viewport stores guest Y directly in this FBO. With VitaGL's
+	 * default flipped FBOs, GPU transfer readback also addresses those rows
+	 * directly; converting Y again selects the opposite VRAM window. */
+	if (!vglReadPixelsChecked(readRect.x, readRect.y,
 	                          readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels))
 	{
 		SysPrintf("pcsx-vita: vitaGL readback FAIL VRAM x=%d y=%d w=%d h=%d\n", readRect.x, readRect.y, readRect.w, readRect.h);

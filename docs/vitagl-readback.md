@@ -79,3 +79,24 @@ whole presentation surface instead of its bars did not resolve that failure.
 The existing NEON System 12 package also passes its three-frame console
 pixel/signature regression on this host after explicit installation:
 `/tmp/pcsx-vita-neon-readback-host-regression2-20261005.log`.
+
+## Production pixel probe
+
+The build with `VITA_CTR_GPU_TRACE=0` also passes 180 frames, with all original
+presentation code and MSAA 4x restored. The ELF contains no GPU-trace marker;
+both GPU source files match the repository versions by SHA256. The same
+pixel/sentinel/ari64 results pass, all 11 forwarded faults match recoveries,
+shutdown passes and the guest reaches Idle. Its VPK SHA256 is
+`3ea9dcb7c06f6458726a0ab17506369e8e9bffde8933c184fd39c06cdec11d43`,
+linked against VitaGL archive
+`a829b08a11f27653957e06f2b2ff28cbf8a733d238a807deccc1f3de74fe8fbe`.
+The retained package is
+`build/vita-validation-readback2/pcsx-rearmed-vita-vitagl-production.vpk`.
+See `/tmp/pcsx-vitagl-readback-production-20261005.log` and its runner log.
+
+Three native PNGs at `033300`, `033301` and `033302` on 2026-10-05 were saved
+under the isolated profile. Their RGB extrema are all `(0,0)` and alpha is
+255 throughout: they are genuinely black, rather than a transparency artifact.
+The console GPU pixel probe is validated; native presentation is not. Turning
+off MSAA in a separate diagnostic copy did not fix presentation and was not
+retained. No physical Vita validation is claimed.
