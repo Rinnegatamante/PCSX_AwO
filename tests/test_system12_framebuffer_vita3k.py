@@ -164,6 +164,13 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                 (vram_edge_region / "main.bin").read_bytes()).hexdigest(),
                 FIXTURE.VRAM_X_WRAP_MAIN_SHA256)
 
+            coord_alias_region = region / "coord-alias"
+            coord_alias_region.mkdir()
+            FIXTURE.make_regions(coord_alias_region, coord_alias=True)
+            self.assertEqual(hashlib.sha256(
+                (coord_alias_region / "main.bin").read_bytes()).hexdigest(),
+                FIXTURE.COORD_ALIAS_MAIN_SHA256)
+
     def test_optional_texture_window_probe_sets_and_resets_e2(self):
         _code, commands = FIXTURE.make_guest_code(texture_window=True)
         self.assertEqual(commands.count(0xc0000000), 24)
@@ -333,6 +340,67 @@ class System12FramebufferFixtureTests(unittest.TestCase):
                           0x001f, 0x03e0, 0x001f, 0x03e0))
         with self.assertRaises(ValueError):
             FIXTURE.make_guest_code(sprite_uv_wrap=True, vram_x_wrap=True)
+
+    def test_optional_coordinate_aliases_cover_ft3_ft4_and_sprite(self):
+        _code, commands = FIXTURE.make_guest_code(coord_alias=True)
+        self.assertEqual(commands.count(0xc0000000), 27)
+        gp0_sha256 = hashlib.sha256(b"".join(word.to_bytes(4, "little")
+                                               for word in commands)).hexdigest()
+        self.assertEqual(gp0_sha256, FIXTURE.COORD_ALIAS_GP0_SHA256)
+
+        ft3_packets = []
+        ft4_packets = []
+        sprites = []
+        reads = []
+        cursor = 0
+        while cursor < len(commands):
+            word = commands[cursor]
+            opcode = word >> 24
+            if opcode == 0xa0:
+                pixels = ((commands[cursor + 2] & 0xffff) *
+                          (commands[cursor + 2] >> 16))
+                cursor += 3 + (pixels + 1) // 2
+            elif opcode == 0x24:
+                ft3_packets.append(tuple(commands[cursor + offset]
+                                         for offset in (1, 3, 5)))
+                cursor += 7
+            elif opcode == 0x2c:
+                ft4_packets.append(tuple(commands[cursor + offset]
+                                         for offset in (1, 3, 5, 7)))
+                cursor += 9
+            elif opcode == 0x64:
+                sprites.append(commands[cursor + 1])
+                cursor += 4
+            elif opcode == 0xc0:
+                xy = commands[cursor + 1]
+                reads.append((xy & 0xffff, xy >> 16))
+                cursor += 3
+            elif opcode == 0x80:
+                cursor += 4
+            elif opcode == 0x70:
+                cursor += 2
+            else:
+                cursor += 1
+
+        self.assertEqual(ft3_packets[-3:], [
+            (0x00200020, 0x00200060, 0x00600020),
+            (0x80204020, 0x80204060, 0x80604020),
+            (0x07ff07ff, 0x07ff003f, 0x003f07ff),
+        ])
+        self.assertEqual(ft4_packets[-3:], [
+            (0x00200080, 0x002000c0, 0x00600080, 0x006000c0),
+            (0x80204080, 0x802040c0, 0x80604080, 0x806040c0),
+            (0x07ff07ff, 0x07ff003f, 0x003f07ff, 0x003f003f),
+        ])
+        self.assertEqual(sprites, [0x00780020, 0x80784020, 0x07ff07ff])
+        self.assertEqual(reads[-9:], [(48, 40)] * 3 + [(144, 40)] * 3 +
+                         [(34, 122)] * 3)
+        self.assertEqual(FIXTURE.EXPECTED_COORD_ALIAS_PIXELS,
+                         (0x001f, 0x03e0, 0x03e0,
+                          0x001f, 0x03e0, 0x03e0,
+                          0x001f, 0x03e0, 0x03e0))
+        with self.assertRaises(ValueError):
+            FIXTURE.make_guest_code(vram_x_wrap=True, coord_alias=True)
 
 
 if __name__ == "__main__":

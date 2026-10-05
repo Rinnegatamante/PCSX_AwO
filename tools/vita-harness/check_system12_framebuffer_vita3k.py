@@ -33,6 +33,11 @@ SPRITE_UV_WRAP_MAIN_SHA256 = "bfe0204a0b50d8c24b0f199476d8e9d0fa3c72e72b27f68119
 SPRITE_UV_WRAP_GP0_SHA256 = "b5604049f2cbca0498a9fc53923fa79eec342a530eb872bf2530f07a3bfa631e"
 VRAM_X_WRAP_MAIN_SHA256 = "2a1768d5f960371b5560dc6a54209a5e5b7b1e3b9c2d1d0cda306b7d4131bea6"
 VRAM_X_WRAP_GP0_SHA256 = "d019567552e3affa46513cc566098454f1cb9b9f21d372707684e2ddfbca2946"
+COORD_ALIAS_MAIN_SHA256 = "826e4e5de3ddddc135dc7ee2a4e1fd0d41bf44921b2f88c02c232df9071e6802"
+COORD_ALIAS_GP0_SHA256 = "185afe4f88d9594e7deafb7417d4cc2d4400b0b50894eff20a9b816c342f6306"
+EXPECTED_COORD_ALIAS_PIXELS = (0x001f, 0x03e0, 0x03e0,
+                               0x001f, 0x03e0, 0x03e0,
+                               0x001f, 0x03e0, 0x03e0)
 EXPECTED_VRAM_X_WRAP_PIXELS = (0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
                                0x001f, 0x03e0, 0x001f, 0x03e0)
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
@@ -57,10 +62,11 @@ def module(name, path):
     return result
 
 
-def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
+def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
+                    coord_alias=False):
     """Generate an ari64 MIPS guest that exercises main-target/VRAM ordering."""
-    if sum((texture_window, sprite_uv_wrap, vram_x_wrap)) > 1:
-        raise ValueError("texture-window, sprite-UV-wrap, and VRAM-X-wrap probes are separate modes")
+    if sum((texture_window, sprite_uv_wrap, vram_x_wrap, coord_alias)) > 1:
+        raise ValueError("texture-window, sprite-UV-wrap, VRAM-X-wrap, and coordinate-alias probes are separate modes")
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     code = []
     commands = []
@@ -175,6 +181,30 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
                 word |= tpage << 16
             gp0(word)
 
+    def ft3_raw(position_words, uv_points, tpage, clut, color=0x808080):
+        assert len(position_words) == len(uv_points) == 3
+        gp0(0x24000000 | color)
+        for index, (position, (u, v)) in enumerate(zip(position_words, uv_points)):
+            gp0(position)
+            word = u | (v << 8)
+            if index == 0:
+                word |= clut << 16
+            elif index == 1:
+                word |= tpage << 16
+            gp0(word)
+
+    def ft4_raw(position_words, uv_points, tpage, clut, color=0x808080):
+        assert len(position_words) == len(uv_points) == 4
+        gp0(0x2c000000 | color)
+        for index, (position, (u, v)) in enumerate(zip(position_words, uv_points)):
+            gp0(position)
+            word = u | (v << 8)
+            if index == 0:
+                word |= clut << 16
+            elif index == 1:
+                word |= tpage << 16
+            gp0(word)
+
     def upload_constant_words(x, y, width, height, value):
         upload_rect(x, y, width, height, [value] * (width * height))
 
@@ -191,6 +221,13 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
         gp0(0xe1000000 | tpage)
         gp0(0x64000000 | 0x808080)
         gp0(x | (y << 16))
+        gp0(u | (v << 8) | (clut << 16))
+        gp0(width | (height << 16))
+
+    def emit_variable_sprite_raw(xy, u, v, width, height, tpage, clut):
+        gp0(0xe1000000 | tpage)
+        gp0(0x64000000 | 0x808080)
+        gp0(xy)
         gp0(u | (v << 8) | (clut << 16))
         gp0(width | (height << 16))
 
@@ -351,6 +388,68 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
         for x, index in ((134, 26), (138, 27)):
             c0_pixel(x, 128, index)
 
+    if coord_alias:
+        # Canonical x=32/y=32 primitives establish red control pixels.
+        # Reissue the same shapes with upper coordinate bits set (0x4010 /
+        # 0x8010-style aliases), then with low 11-bit -1 plus E5 offset 33.
+        # Every alias should land over the control and replace it with green.
+        clut = (800 << 6) | (32 >> 4)
+
+        def xy_word(x, y, x_upper=0, y_upper=0):
+            return ((x | x_upper) & 0xffff) | (((y | y_upper) & 0xffff) << 16)
+
+        def coord_set(x, y, alias):
+            if alias == "negative":
+                return [xy_word(0x7ff, 0x7ff), xy_word(63, 0x7ff),
+                        xy_word(0x7ff, 63)]
+            x_upper, y_upper = (0x4000, 0x8000) if alias == "upper" else (0, 0)
+            return [xy_word(x, y, x_upper, y_upper),
+                    xy_word(x + 64, y, x_upper, y_upper),
+                    xy_word(x, y + 64, x_upper, y_upper)]
+
+        def coord_set_quad(x, y, alias):
+            points = coord_set(x, y, alias)
+            if alias == "negative":
+                return points + [xy_word(63, 63)]
+            return points + [xy_word(x + 64, y + 64,
+                                     0x4000 if alias == "upper" else 0,
+                                     0x8000 if alias == "upper" else 0)]
+
+        probes = (
+            ("ft3", 32, 32, (48, 40), 19),
+            ("ft4", 128, 32, (144, 40), 22),
+            ("sprite", 32, 120, (34, 122), 25),
+        )
+        for kind, x, y, (sample_x, sample_y), result_index in probes:
+            draw_env(0, 0, 319, 239)
+            if kind == "ft3":
+                draw = lambda alias, u: ft3_raw(coord_set(x, y, alias),
+                    ((u, 0),) * 3, 0x0800, clut)
+            elif kind == "ft4":
+                draw = lambda alias, u: ft4_raw(coord_set_quad(x, y, alias),
+                    ((u, 0),) * 4, 0x0800, clut)
+            else:
+                def draw(alias, u):
+                    xy = (xy_word(x, y, 0x4000, 0x8000) if alias == "upper"
+                          else xy_word(0x7ff, 0x7ff) if alias == "negative"
+                          else xy_word(x, y))
+                    if alias == "negative":
+                        gp0(0xe5000000 | 33 | (33 << 11))
+                    emit_variable_sprite_raw(xy, u, 0, 16, 16, 0x0800, clut)
+                    if alias == "negative":
+                        gp0(0xe5000000)
+            draw("canonical", 0)
+            c0_pixel(sample_x, sample_y, result_index)
+            draw("upper", 8)
+            c0_pixel(sample_x, sample_y, result_index + 1)
+            if kind != "sprite":
+                draw_env(0, 0, 319, 239, offset_x=33, offset_y=33)
+                draw("negative", 8)
+                draw_env(0, 0, 319, 239)
+            else:
+                draw("negative", 8)
+            c0_pixel(sample_x, sample_y, result_index + 2)
+
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))
     loop = 0xbfc01000 + len(code) * 4
@@ -358,13 +457,15 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
     return code, commands
 
 
-def make_regions(path, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
+def make_regions(path, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
+                 coord_alias=False):
     """Reuse the DRC's local System12 board/media regions; replace guest ROM."""
     drc = module("system12_drc_fixture", ROOT / "tests/check_system12_drc.py")
     drc.make_regions(path, 4, vita_signature=True)
     code, _ = make_guest_code(texture_window=texture_window,
                               sprite_uv_wrap=sprite_uv_wrap,
-                              vram_x_wrap=vram_x_wrap)
+                              vram_x_wrap=vram_x_wrap,
+                              coord_alias=coord_alias)
     if len(code) > (0x400000 - 0x1000) // 4:
         raise RuntimeError("generated framebuffer guest exceeds the main ROM region")
     main = bytearray(0x400000)

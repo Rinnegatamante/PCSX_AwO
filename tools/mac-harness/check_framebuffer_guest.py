@@ -23,17 +23,20 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False):
+def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wrap=False,
+               coord_alias=False):
     path = ROOT / "tools/vita-harness/check_system12_framebuffer_vita3k.py"
     spec = importlib.util.spec_from_file_location("native_framebuffer_guest", path)
     fixture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fixture)
     directory.mkdir()
     fixture.make_regions(directory, texture_window=texture_window,
-                         sprite_uv_wrap=sprite_uv_wrap, vram_x_wrap=vram_x_wrap)
+                         sprite_uv_wrap=sprite_uv_wrap, vram_x_wrap=vram_x_wrap,
+                         coord_alias=coord_alias)
     code, commands = fixture.make_guest_code(texture_window=texture_window,
                                              sprite_uv_wrap=sprite_uv_wrap,
-                                             vram_x_wrap=vram_x_wrap)
+                                             vram_x_wrap=vram_x_wrap,
+                                             coord_alias=coord_alias)
     drc = fixture.module("native_framebuffer_drc", ROOT / "tests/check_system12_drc.py")
     # Remove only the terminal infinite jump; GPU operations and RAM results
     # are identical to the native Vita probe.
@@ -43,6 +46,10 @@ def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wra
         marker_register = None
         result_indices = tuple(range(19, 34))
     elif vram_x_wrap:
+        registers = tuple(range(1, 10))
+        marker_register = None
+        result_indices = tuple(range(19, 28))
+    elif coord_alias:
         registers = tuple(range(1, 10))
         marker_register = None
         result_indices = tuple(range(19, 28))
@@ -63,6 +70,7 @@ def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wra
     return dict(registers=registers,
                 expected=(fixture.EXPECTED_SPRITE_UV_WRAP_PIXELS if sprite_uv_wrap else
                           fixture.EXPECTED_VRAM_X_WRAP_PIXELS if vram_x_wrap else
+                          fixture.EXPECTED_COORD_ALIAS_PIXELS if coord_alias else
                           fixture.EXPECTED_PIXELS + fixture.EXPECTED_POLYGON_PIXELS +
                           (fixture.EXPECTED_TEXTURE_WINDOW_PIXELS if texture_window else ())),
                 marker_register=marker_register, marker=fixture.RESULT_MAGIC,
@@ -82,6 +90,8 @@ def main():
                         help="also compare P4/P8/P16 sprite sampling across UV 255")
     parser.add_argument("--vram-x-wrap", action="store_true",
                         help="compare P8/P16 texture-page and P8 CLUT X wrap at VRAM edge")
+    parser.add_argument("--coord-alias", action="store_true",
+                        help="compare 11-bit GP0 coordinate aliases for FT3/FT4/sprites")
     args = parser.parse_args()
     if not 0 < args.timeout <= 600:
         parser.error("timeout must be in (0, 600]")
@@ -90,10 +100,12 @@ def main():
     if output.exists() and any(output.iterdir()):
         parser.error("output directory must be empty; existing evidence is retained")
     output.mkdir(parents=True, exist_ok=True)
-    if sum((args.texture_window, args.sprite_uv_wrap, args.vram_x_wrap)) > 1:
-        parser.error("texture-window, sprite-uv-wrap, and vram-x-wrap are separate guest modes")
+    if sum((args.texture_window, args.sprite_uv_wrap, args.vram_x_wrap,
+            args.coord_alias)) > 1:
+        parser.error("texture-window, sprite-uv-wrap, vram-x-wrap, and coord-alias are separate modes")
     oracle = make_guest(output / "regions", texture_window=args.texture_window,
-                        sprite_uv_wrap=args.sprite_uv_wrap, vram_x_wrap=args.vram_x_wrap)
+                        sprite_uv_wrap=args.sprite_uv_wrap, vram_x_wrap=args.vram_x_wrap,
+                        coord_alias=args.coord_alias)
     (output / "oracle.json").write_text(json.dumps(oracle, indent=2) + "\n")
     command = [str(harness), "--system12", str(output / "regions"), "--frames", "2",
                "--cycle-snapshots", str(output / "registers.csv"),
@@ -129,7 +141,8 @@ def main():
     except (RuntimeError, OSError, ValueError, KeyError) as error:
         evidence["error"] = str(error)
     (output / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    label = ("VRAM X wrap" if args.vram_x_wrap else "sprite UV wrap" if args.sprite_uv_wrap else
+    label = ("coordinate aliases" if args.coord_alias else
+             "VRAM X wrap" if args.vram_x_wrap else "sprite UV wrap" if args.sprite_uv_wrap else
              "texture-window" if args.texture_window else "framebuffer/polygon")
     print(f"Mac {label} guest: {'PASS' if evidence['passed'] else 'FAIL'}; {output}")
     return 0 if evidence["passed"] else 1
