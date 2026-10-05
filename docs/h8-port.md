@@ -48,7 +48,9 @@ receive without TX. RX start now converts accumulated CPU local attotime to
 ticks, independently of TX's charged cycle count, and retains its fractional
 phase across soft reset. Five programs and three native slice sizes match
 1440 observation stores exactly. The added RX-only program detected an overrun
-one poll late before this correction. This is not a complete RTC/JVS wire trace;
+one poll late before this correction. A separate production-board RTC firmware
+probe also matches eight bytes/address/cycle observations across eight Mac CPU
+and scheduling variants. This is not a complete RTC/JVS wire trace;
 MAME's timer-callback time context and warm reset remain separate comparison work.
 No JVS endpoint or standby implementation is claimed.
 
@@ -93,3 +95,18 @@ and repeats native execution with 1/1024/10000-cycle slices. Parent ROMs are
 unchanged; private NVRAM/config paths and a termination watchdog bound the run.
 The historical baseline is fixed at `dde07db7`, not the moving HEAD. Installed
 MAME reports 0.287; its binary identity with the pinned source is unverified.
+
+The production SCI1/RTC serial gate is reproducible with:
+
+```sh
+python3 tests/check_mame_system12_rtc.py --output artifacts/validation/h8-rx-clock-20261005/mame-rtc.json
+python3 tests/check_system12_rtc.py --harness build/mac-system12-audio-time-20261005/pcsx-harness --mame artifacts/validation/h8-rx-clock-20261005/mame-rtc.json --output artifacts/validation/h8-rx-clock-20261005/native-rtc.json
+```
+
+It drives port A.0/B.5, reads SCI1 with the actual board's inverted RTC CLK and
+RX1 DATA wiring, and captures H8 stores through a passive shared-RAM observer.
+The RTC is seeded at the native deterministic epoch (Sunday 2026-10-04 12:00:00,
+raw BCD `00 00 12 07 04 10 26`). Its 52 valid bits omit the weekday high nibble;
+the remaining clocks retain the final DATA level. This covers that transfer,
+not complete timed mailboxes, RTC calendar advancement, JVS or global scheduler
+equivalence. Observer on/off retains the board report and framebuffer.

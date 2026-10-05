@@ -82,3 +82,10 @@ Peripheral component gates are `tests/Makefile.h8-adc`,
 polling in both MAME and native code and requires identical first-N stores at
 all native slice sizes. This does not prove full RTC/JVS wire, standby, or
 real-game frame/audio equivalence. See `docs/h8-port.md` for scope and commands.
+
+`tests/check_mame_system12_rtc.py` captures a real-MAME eight-byte RTC transfer;
+`tests/check_system12_rtc.py` compares identical firmware through the actual Mac
+System12 pin wiring and shared-store observer. Eight CPU/cadence variants pass
+64 address/value/cycle comparisons, including weekday nibble omission and held
+DATA after the final valid bit. This is a transfer fixture, not whole-board
+scheduler or full serial waveform equivalence.

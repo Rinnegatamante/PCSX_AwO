@@ -827,3 +827,37 @@ Evidence lives in ignored `artifacts/validation/h8-rx-clock-20261005/`:
 `before.json`, `after.json`, `core-final.log`, `mac-gates.json`,
 `vblank-comparison.json`, and the frozen binary/input/log/PPM/PNG/WAV.
 Installed MAME 0.287 has not been tied to the pinned source binary identity.
+
+## Production System12 SCI1/RTC transfer gate, 2026-10-05
+
+`--system12-trace-shared-writes` opts into passive H8 shared-store observations
+inside `--system12-edge-trace FILE`. CSV rows include the charged H8 access cycle,
+address and width; word stores emit one 16-bit event while preserving the former
+two-byte diagnostic write count. Both tracing and nontracing native executions
+retain identical board reports and final images. The gate separately exercises
+an atomic `beef` word store and the RTC firmware's byte stores.
+
+MAME's real H8 executes the same firmware as the Mac production board: select
+RTC with port A.0/B.5, set SCI1 synchronous RX-only with BRR=7, poll RDRF, read
+RDR, and clear RDRF through SSR after each byte. Both use the native fixed epoch
+Sunday 2026-10-04 12:00:00, raw registers `00 00 12 07 04 10 26`. MAME seeds the
+actual RTC save item, with readback, while retaining its real SCI/RTC pin wiring.
+The parent ROM archive is unchanged and the capture exits after eight stores
+under the existing watchdog, before a one-second RTC tick.
+
+The SCI receives `00 00 12 47 00 61 02 00`: the RTC emits 52 LSB-first bits,
+omits the weekday high nibble, and holds final DATA for the remaining clocks.
+MAME shared-store cycles are `328, 590, 840, 1102, 1352, 1614, 1864, 2126`.
+All eight address/value/cycle observations match the Mac interpreter and ARI64
+with short/long MIPS blocks and both frontend catch-up cadences: **64 exact
+comparisons, zero differences**. MAME also records RTC bit/data/clock/CE state
+at each store; native comparison currently covers stores, not those extra
+states or every wire transition.
+
+Evidence is `mame-rtc.json/log` and `native-rtc.json/log` in
+`artifacts/validation/h8-rx-clock-20261005/`. Reproduction commands are in
+[H8 port details](h8-port.md). Remaining work includes timed PSX/H8 shared
+mailboxes and IRQ ordering, RTC calendar progression, JVS, global timer/reset
+contexts, real-game MAME pixels/audio and native/libretro scheduler equivalence.
+No new Vita run, worker or H8 DRC implementation is claimed; all ten driver
+families still retain incomplete fidelity gates.
