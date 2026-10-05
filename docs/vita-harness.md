@@ -685,3 +685,22 @@ are in `/tmp/pcsx-mac-gl-x18-fixed-12000-20261005/evidence.json`. The final
 capture is a blue transition effect, not a matching native frame. These
 replays do not establish sustained interactive stability, identical Mac/Vita
 NEON output, or complete graphics correctness.
+
+The optional VitaGL allocator probe (`d9fbb9c9`) was linked into a new package
+using the frozen progress core and unchanged frontend object. The new VPK
+SHA256 is `d50f9f1a0a991877b4ac2486708ecd67163f020559a35602ebcf9dac67751c27`.
+With the baseline `f996dfab…` host and fresh profile, all twelve bounded events
+request 1,835,008 bytes (1.75 MiB), aligned to 16 bytes, through the GPU route.
+The first four logged requests each fail initially and succeed after one GC
+retry, approximately one second later. Later requests are outside this probe's
+event budget. The last milestone is 8,400 at 366,195 ms, with 116/177 inputs.
+
+The reported pool-free values are invalid: this host leaves
+`sceClibMspaceMallocStats` unimplemented, while VitaGL reads its uninitialized
+output fields. They cannot establish memory exhaustion or fragmentation.
+This is a separate confirmed emulator limitation, not proof that it causes
+the allocation failures or graphics defects. The owned diagnostic host was
+stopped after recording the events and screenshots, requiring SIGKILL after
+SIGTERM. The exact logs, package identities, raw events marked as invalid
+statistics, and stop reason are retained in
+`/tmp/pcsx-vitagl-allocator-trace-native-12000-20261005/allocator-review.json`.
