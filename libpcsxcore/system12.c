@@ -87,9 +87,9 @@ void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque)
     edge_trace_cb = callback;
     edge_trace_opaque = opaque;
 }
-void system12_set_edge_trace_shared(int enable)
+void system12_set_edge_trace_shared(int flags)
 {
-    edge_trace_shared = enable != 0;
+    edge_trace_shared = flags & (SYSTEM12_TRACE_SHARED_STORES | SYSTEM12_TRACE_SHARED_LOADS);
 }
 
 static void trace_edge(unsigned kind, unsigned value)
@@ -100,10 +100,12 @@ static void trace_edge(unsigned kind, unsigned value)
         edge_trace_cb(edge_trace_opaque, &event);
     }
 }
-static void trace_h8_store(u32 address, unsigned width, u32 value)
+static void trace_shared(unsigned kind, u32 address, unsigned width, u32 value)
 {
-    if (edge_trace_cb && edge_trace_shared) {
-        system12_edge_event event = {SYSTEM12_EDGE_H8_STORE, value,
+    unsigned flag = kind == SYSTEM12_EDGE_H8_LOAD || kind == SYSTEM12_EDGE_MAIN_SHARED_LOAD
+        ? SYSTEM12_TRACE_SHARED_LOADS : SYSTEM12_TRACE_SHARED_STORES;
+    if (edge_trace_cb && (edge_trace_shared & flag)) {
+        system12_edge_event event = {kind, value,
             psxRegs.cycle, board.last_cycle, h8_current_cycle(board.h8),
             board.h8_requested, address, width};
         edge_trace_cb(edge_trace_opaque, &event);
@@ -318,7 +320,9 @@ static u8 sub_read8(void *opaque, u32 address)
     if (address < board.sub_size) return board.sub[address];
     if (address >= 0x080000 && address < 0x090000) {
         board.sub_reads++;
-        return board.shared[(address - 0x080000) ^ 1];
+        u8 value = board.shared[(address - 0x080000) ^ 1];
+        trace_shared(SYSTEM12_EDGE_H8_LOAD, address, 8, value);
+        return value;
     }
     if (address >= 0x280000 && address < 0x288000) {
         pcm_sync_h8();
@@ -337,7 +341,7 @@ static void sub_write8(void *opaque, u32 address, u8 value)
     if (address >= 0x080000 && address < 0x090000) {
         board.shared[(address - 0x080000) ^ 1] = value;
         board.sub_writes++;
-        trace_h8_store(address, 8, value);
+        trace_shared(SYSTEM12_EDGE_H8_STORE, address, 8, value);
     }
     else if (address >= 0x280000 && address < 0x288000) {
         unsigned shift = address & 1 ? 0 : 8;
@@ -349,6 +353,13 @@ static void sub_write8(void *opaque, u32 address, u8 value)
 
 static u16 sub_read16(void *opaque, u32 address)
 {
+    if (address >= 0x080000 && address < 0x08ffff) {
+        u16 value = (u16)board.shared[(address - 0x080000) ^ 1] << 8 |
+            board.shared[((address + 1) - 0x080000) ^ 1];
+        board.sub_reads += 2;
+        trace_shared(SYSTEM12_EDGE_H8_LOAD, address, 16, value);
+        return value;
+    }
     return ((u16)sub_read8(opaque, address) << 8) | sub_read8(opaque, address + 1);
 }
 
@@ -361,7 +372,7 @@ static void sub_write16(void *opaque, u32 address, u16 value)
         board.shared[(address - 0x080000) ^ 1] = value >> 8;
         board.shared[((address + 1) - 0x080000) ^ 1] = value;
         board.sub_writes += 2;
-        trace_h8_store(address, 16, value);
+        trace_shared(SYSTEM12_EDGE_H8_STORE, address, 16, value);
     } else {
         sub_write8(opaque, address, value >> 8);
         sub_write8(opaque, address + 1, value);
@@ -853,6 +864,7 @@ int system12_read(u32 address, unsigned width, u32 *value)
         board.last_shared_address = a;
         board.last_shared_pc = psxRegs.pc;
         board.last_shared_value = v;
+        trace_shared(SYSTEM12_EDGE_MAIN_SHARED_LOAD, a, width * 8, v);
     }
     else if (a >= 0x1f140000 && a + width <= 0x1f141000) {
         /* AT28C16 has an 8-bit data bus on each low byte of a 16-bit lane. */
@@ -904,6 +916,7 @@ int system12_write(u32 address, unsigned width, u32 value)
         for (i = 0; i < width; i++)
             board.shared[a - 0x1f080000 + i] = value >> (i * 8);
         board.shared_writes++;
+        trace_shared(SYSTEM12_EDGE_MAIN_SHARED_STORE, a, width * 8, value);
         if (board.shared_writes <= 8)
             SysPrintf("System12 shared w%u %08x=%08x pc=%08x\n",
                 width * 8, a, value, psxRegs.pc);

@@ -111,10 +111,10 @@ static int write_system12_bus_trace(FILE *file,
 #ifdef PCSX_SYSTEM12
 typedef struct {
   FILE *file;
-  system12_edge_event last_read;
-  uint64_t sequence, last_read_sequence, printed_sequence;
+  system12_edge_event last_read[3];
+  uint64_t sequence, last_read_sequence[3], printed_sequence;
   unsigned rows;
-  int have_read, overflow;
+  int have_read[3], overflow;
 } HarnessEdgeTrace;
 
 static void write_edge_event(HarnessEdgeTrace *trace,
@@ -124,11 +124,30 @@ static void write_edge_event(HarnessEdgeTrace *trace,
   if (trace->rows >= 20000) { trace->overflow = 1; return; }
   fprintf(trace->file, "%" PRIu64 ",%s,%u,%u,%u,%" PRIu64 ",%" PRIu64 ",%u,%u\n",
     sequence, event->kind == SYSTEM12_EDGE_VBLANK ? "vblank" :
-      event->kind == SYSTEM12_EDGE_H8_STORE ? "h8_store" : "portb_input",
+      event->kind == SYSTEM12_EDGE_H8_STORE ? "h8_store" :
+      event->kind == SYSTEM12_EDGE_H8_LOAD ? "h8_load" :
+      event->kind == SYSTEM12_EDGE_MAIN_SHARED_LOAD ? "main_shared_load" :
+      event->kind == SYSTEM12_EDGE_MAIN_SHARED_STORE ? "main_shared_store" : "portb_input",
     event->value, event->main_cycle, event->synced_main_cycle,
     (uint64_t)event->h8_cycle, (uint64_t)event->h8_budget, event->address, event->width);
   trace->printed_sequence = sequence;
   trace->rows++;
+}
+
+static void flush_edge_reads(HarnessEdgeTrace *trace)
+{
+  /* Last reads from independent CPUs may have interleaved sequence numbers.
+   * Emit the pending observations in order before a write or value change. */
+  unsigned count;
+  for (count = 0; count < 3; count++) {
+    unsigned i, next = 3;
+    for (i = 0; i < 3; i++)
+      if (trace->have_read[i] && trace->last_read_sequence[i] > trace->printed_sequence &&
+          (next == 3 || trace->last_read_sequence[i] < trace->last_read_sequence[next]))
+        next = i;
+    if (next == 3) break;
+    write_edge_event(trace, &trace->last_read[next], trace->last_read_sequence[next]);
+  }
 }
 
 static void harness_system12_edge_event(void *opaque,
@@ -136,16 +155,22 @@ static void harness_system12_edge_event(void *opaque,
 {
   HarnessEdgeTrace *trace = opaque;
   uint64_t sequence = ++trace->sequence;
-  if (event->kind != SYSTEM12_EDGE_PORTB_INPUT || !trace->have_read ||
-      ((trace->last_read.value ^ event->value) & 0x80)) {
-    if (trace->have_read)
-      write_edge_event(trace, &trace->last_read, trace->last_read_sequence);
+  int slot = event->kind == SYSTEM12_EDGE_PORTB_INPUT ? 0 :
+    event->kind == SYSTEM12_EDGE_H8_LOAD ? 1 :
+    event->kind == SYSTEM12_EDGE_MAIN_SHARED_LOAD ? 2 : -1;
+  if (slot < 0 || !trace->have_read[slot] ||
+      (event->kind == SYSTEM12_EDGE_PORTB_INPUT
+       ? ((trace->last_read[slot].value ^ event->value) & 0x80)
+       : trace->last_read[slot].value != event->value ||
+         trace->last_read[slot].address != event->address ||
+         trace->last_read[slot].width != event->width)) {
+    flush_edge_reads(trace);
     write_edge_event(trace, event, sequence);
   }
-  if (event->kind == SYSTEM12_EDGE_PORTB_INPUT) {
-    trace->last_read = *event;
-    trace->last_read_sequence = sequence;
-    trace->have_read = 1;
+  if (slot >= 0) {
+    trace->last_read[slot] = *event;
+    trace->last_read_sequence[slot] = sequence;
+    trace->have_read[slot] = 1;
   }
 }
 #endif
@@ -277,7 +302,7 @@ static void usage(const char *name)
     "[--reset-at-cycle N] "
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
-    "[--board-bus-trace FILE] [--system12-edge-trace FILE] [--system12-trace-shared-writes] "
+    "[--board-bus-trace FILE] [--system12-edge-trace FILE] [--system12-trace-shared-writes | --system12-trace-shared-accesses] "
     "[--max-blocks N] [--icache] [--drc] [--interactive] [--system12-vblank-sync-only]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
@@ -470,7 +495,7 @@ int main(int argc, char **argv)
   const char *bus_trace_path = NULL;
   FILE *bus_trace_file = NULL;
   const char *edge_trace_path = NULL;
-  int trace_shared_writes = 0;
+  int trace_shared_flags = 0;
 #ifdef PCSX_SYSTEM12
   harness_bus_trace_bin *bus_trace_bins = NULL;
   int bus_trace_finished = 0;
@@ -556,7 +581,8 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
     else if (!strcmp(argv[i], "--system12-edge-trace") && i + 1 < argc) edge_trace_path = argv[++i];
-    else if (!strcmp(argv[i], "--system12-trace-shared-writes")) trace_shared_writes = 1;
+    else if (!strcmp(argv[i], "--system12-trace-shared-writes")) trace_shared_flags |= 1;
+    else if (!strcmp(argv[i], "--system12-trace-shared-accesses")) trace_shared_flags |= 3;
     else if ((!strcmp(argv[i], "--trace-blocks") || !strcmp(argv[i], "--max-blocks")) && i + 1 < argc) {
       int tracing = !strcmp(argv[i], "--trace-blocks");
       char *tail; unsigned long n;
@@ -637,7 +663,7 @@ int main(int argc, char **argv)
       (snapshot_path && (!board || board_family != 12)) ||
       (bus_trace_path && (!board || board_family != 12)) ||
       (edge_trace_path && (!board || board_family != 12 || board_test)) ||
-      (trace_shared_writes && !edge_trace_path) ||
+      (trace_shared_flags && !edge_trace_path) ||
       (reset_at_cycle && (!board || board_family != 12 || board_test || interactive)) ||
       (inputs_path && !strcmp(inputs_path, output)) ||
       (trace_path && inputs_path && !strcmp(trace_path, inputs_path)) ||
@@ -975,7 +1001,7 @@ int main(int argc, char **argv)
       fputs("sequence,event,value,main_cycle,synced_main_cycle,h8_cycle,h8_budget,address,width\n",
         edge_trace.file);
       system12_set_edge_trace(harness_system12_edge_event, &edge_trace);
-      system12_set_edge_trace_shared(trace_shared_writes);
+      system12_set_edge_trace_shared(trace_shared_flags);
     }
   }
 #endif
@@ -1107,9 +1133,7 @@ int main(int argc, char **argv)
 #ifdef PCSX_SYSTEM12
   if (edge_trace.file) {
     system12_set_edge_trace(NULL, NULL);
-    if (edge_trace.have_read)
-      write_edge_event(&edge_trace, &edge_trace.last_read,
-        edge_trace.last_read_sequence);
+    flush_edge_reads(&edge_trace);
     if (edge_trace.overflow || ferror(edge_trace.file)) {
       fprintf(stderr, "System12 edge trace truncated or write failed\n");
       result = 1;
