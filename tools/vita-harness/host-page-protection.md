@@ -45,3 +45,13 @@ Native screenshots from the preceding bounded 180-frame diagnostic are black,
 including `build/vita-validation-host-pages2/emulator/portable/screenshots/PCSX-ReARMed Vita vitagl/PCSX-ReARMed Vita vitagl_2026-10-05-023222.png`.
 The successful lifecycle test establishes resource startup/shutdown; graphics
 remain unvalidated.
+
+For valid-address faults whose protection interval is missing, the optional
+`rebuild_vita3k_fixed.py --trace-protection-miss` patch prints at most eight
+`Vita3K protection miss` lines under the existing protection mutex. Each line
+includes the fault address, memory base, guest address, access type, mapping
+mode, host-page size, allocation validity, interval count, and neighboring
+interval bounds/sizes in descending map order. It changes no recovery behavior
+and retains the existing critical error. The gameplay runner keeps these lines
+in its bounded log. The patch applies with or without the host-page and
+recovery-trace patches; the isolated macOS host compilation passes.

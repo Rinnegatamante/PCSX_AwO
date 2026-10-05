@@ -29,6 +29,8 @@ parser.add_argument('--fix-host-page-protection', action='store_true',
                     help='Track native host-page coverage for direct guest memory protections')
 parser.add_argument('--trace-protection-recovery', action='store_true',
                     help='Record successful native memory fault recovery and Dynarmic forwarding')
+parser.add_argument('--trace-protection-miss', action='store_true',
+                    help='Log up to eight valid-address host protection misses')
 parser.add_argument('--fix-unmapped-readback', action='store_true',
                     help='Synchronize Vulkan color surfaces through CPU staging when mapping is disabled')
 parser.add_argument('--trace-display-presentation', action='store_true',
@@ -58,6 +60,7 @@ SCREENSHOT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-cpu-
 MEMCPY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-memcpy-diagnostic.patch'
 HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-protection.patch'
 RECOVERY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-macos-recovery-trace.patch'
+PROTECTION_MISS_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-protection-miss-trace.patch'
 FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
 READBACK_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-unmapped-readback.patch'
 DISPLAY_TRACE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-display-presentation-trace.patch'
@@ -80,7 +83,8 @@ if options.trace_display_presentation:
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
-if options.fix_host_page_protection or options.trace_protection_recovery:
+if (options.fix_host_page_protection or options.trace_protection_recovery or
+        options.trace_protection_miss):
     SOURCES.append(('mem', 'src/mem.cpp', 'vita3k/mem/src/mem.cpp', 'mem.cpp.o'))
 if options.fix_unmapped_readback:
     SOURCES.extend([
@@ -116,6 +120,9 @@ if options.fix_host_page_protection:
 if options.trace_protection_recovery:
     subprocess.run(['git', 'apply', '--check', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.trace_protection_miss:
+    subprocess.run(['git', 'apply', '--check', str(PROTECTION_MISS_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(PROTECTION_MISS_PATCH)], check=True, cwd=SRC, env=patch_env)
 if options.fix_unmapped_readback:
     subprocess.run(['git', 'apply', '--check', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(READBACK_PATCH)], check=True, cwd=SRC, env=patch_env)
@@ -256,6 +263,8 @@ manifest = {
                                         if options.fix_host_page_protection else None),
     'recovery_trace_patch_sha256': (hashlib.sha256(RECOVERY_PATCH.read_bytes()).hexdigest()
                                   if options.trace_protection_recovery else None),
+    'protection_miss_trace_patch_sha256': (hashlib.sha256(PROTECTION_MISS_PATCH.read_bytes()).hexdigest()
+                                          if options.trace_protection_miss else None),
     'forwarded_exception_patch_sha256': (hashlib.sha256(FORWARDED_PATCH.read_bytes()).hexdigest()
                                        if options.trace_protection_recovery else None),
     'unmapped_readback_patch_sha256': (hashlib.sha256(READBACK_PATCH.read_bytes()).hexdigest()

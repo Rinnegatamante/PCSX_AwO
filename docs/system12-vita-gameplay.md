@@ -158,3 +158,13 @@ The original initial VBO allocation remains unchanged in this run. Removing
 it in a separate experiment exposed a critical host protection diagnostic
 during gameplay before shutdown (`detach-evidence.json`); that experiment is
 recorded as failed and is not part of this fix. Its cause remains under review.
+
+The subsequent production replay (`VITA_CTR_GPU_TRACE=0`, default four library
+patches) uses VPK `d6ef31efb5f4a5d3193c0f3eb77045ae6f24e9b876623098346e6612e83d300e`.
+Its short console probe passes, but gameplay stops before the 12000-frame report
+on the same valid-address critical host protection diagnostic at `60800050`.
+The original VBO initialization is present, so the earlier null-initialization
+experiment alone does not explain this error. The failed replay is retained in
+`/tmp/pcsx-vita-system12-vitagl-production-replay-20261005` and
+`build/vita-system12-vitagl-teardown/production-evidence.json`; the successful
+1800-frame diagnostic run is not a production gameplay validation.

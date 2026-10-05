@@ -1,0 +1,69 @@
+--- a/vita3k/mem/src/mem.cpp
++++ b/vita3k/mem/src/mem.cpp
+@@ -27,2 +27,4 @@
+ #include <cstring>
++#include <cstdio>
++#include <iterator>
+ #include <mutex>
+@@ -268,6 +270,45 @@
+ #endif
+ }
+ 
++static void trace_protection_miss(const MemState &state, const uint8_t *fault_ptr,
++                                  uintptr_t memory_addr, Address vaddr, bool write,
++                                  bool valid, ProtectSegmentTrees::const_iterator it) noexcept {
++    // Called only with protect_mutex held; cap diagnostics across this process.
++    static uint32_t trace_count = 0;
++    if (trace_count >= 8)
++        return;
++    ++trace_count;
++
++    const auto end = state.protect_tree.end();
++    const auto print_interval = [end](const char *label, ProtectSegmentTrees::const_iterator entry) {
++        if (entry == end) {
++            std::fprintf(stderr, " %s=none", label);
++        } else {
++            std::fprintf(stderr, " %s=[0x%llx,0x%llx) size=0x%llx", label,
++                         static_cast<unsigned long long>(entry->first),
++                         static_cast<unsigned long long>(entry->first + entry->second.size),
++                         static_cast<unsigned long long>(entry->second.size));
++        }
++    };
++    // protect_tree uses std::greater, so these neighbors follow descending key order.
++    const bool has_previous = !state.protect_tree.empty() &&
++                              (it == end || it != state.protect_tree.begin());
++    const auto previous = !has_previous ? end : std::prev(it);
++    const auto next = it;
++
++    std::fprintf(stderr,
++                 "Vita3K protection miss #%u fault_ptr=%p memory_base=0x%llx vaddr=0x%llx write=%u "
++                 "use_page_table=%u host_page_size=%u is_valid_addr=%u tree_count=%zu",
++                 trace_count, static_cast<const void *>(fault_ptr),
++                 static_cast<unsigned long long>(memory_addr),
++                 static_cast<unsigned long long>(vaddr), write ? 1U : 0U,
++                 state.use_page_table ? 1U : 0U, state.host_page_size, valid ? 1U : 0U,
++                 state.protect_tree.size());
++    print_interval("predecessor_desc", has_previous ? previous : end);
++    print_interval("successor_desc", next);
++    std::fputc('\n', stderr);
++}
++
+ bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcept {
+     const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
+     const uintptr_t fault_addr = reinterpret_cast<uintptr_t>(addr);
+@@ -301,6 +342,7 @@
+     auto it = state.protect_tree.lower_bound(vaddr);
+     if (it == state.protect_tree.end()) {
+         // HACK: keep going
++        trace_protection_miss(state, addr, memory_addr, vaddr, write, true, it);
+         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
+         LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+         return true;
+@@ -309,6 +351,7 @@
+     ProtectSegmentInfo &info = it->second;
+     if (vaddr < it->first || vaddr >= it->first + info.size) {
+         // HACK: keep going
++        trace_protection_miss(state, addr, memory_addr, vaddr, write, true, it);
+         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
+         LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+         return true;
