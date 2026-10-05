@@ -23,6 +23,16 @@ graphics probe; Soul Calibur and physical Vita remain separate gates.
 
 The failed runs below describe the diagnosis before that correction.
 
+The optional `build_vitagl.py --trace-sampler-bindings` build records bounded
+fragment-sampler resource/unit, GL texture ID and data pointers. The private
+host's display trace also records GXM texture arguments and textured draws.
+These logs established that packing and presentation selected texture ID 3,
+but its backing changed from `62a7f050` (640×478) to `61de7060` (320×240)
+before the correction. See
+`/tmp/pcsx-vitagl-display-sampler-inside-20261005.log`; the diagnostic library
+hash and four flags are in `build/vita-deps/vitaGL-sampler-trace1/pcsx-build.json`.
+Sampler tracing is absent from the default library patch series.
+
 The private VitaGL build uses `HAVE_SHADER_CACHE=1 NO_DEBUG=1
 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1`. Its original checkout remains
 unchanged; `build_vitagl.py` records the source revision, patches, flags and

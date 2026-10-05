@@ -1,0 +1,41 @@
+--- a/source/custom_shaders.c
++++ b/source/custom_shaders.c
+@@ -814,6 +814,12 @@
+ 			texture_unit *tex_unit = &texture_units[(int)p->frag_texunits[i]->sampler_index];
+ 			uint8_t tex_type = p->frag_texunits[i]->type == UNIFORM_CUBE_SAMPLER ? 2 : tex2d_override;
+ 			texture *tex = &texture_slots[tex_unit->tex_id[tex_type]];
++            static unsigned sampler_trace_count = 0;
++            if (sampler_trace_count++ < 64)
++                sceClibPrintf("pcsx-vita: vitagl-sampler program=%u resource=%d sampler-unit=%u tex-type=%u tex-id=%u gl0-id=%u data=%p gxm-data=%p\n",
++                    cur_program, i, (unsigned)p->frag_texunits[i]->sampler_index,
++                    (unsigned)tex_type, (unsigned)tex_unit->tex_id[tex_type],
++                    (unsigned)texture_units[0].tex_id[0], tex->data, sceGxmTextureGetData(&tex->gxm_tex));
+ #ifdef HAVE_TEX_CACHE
+ 			restore_tex_cache(tex);
+ #endif
+@@ -1072,6 +1078,12 @@
+ 			texture_unit *tex_unit = &texture_units[(int)p->frag_texunits[i]->sampler_index];
+ 			uint8_t tex_type = p->frag_texunits[i]->type == UNIFORM_CUBE_SAMPLER ? 2 : tex2d_override;
+ 			texture *tex = &texture_slots[tex_unit->tex_id[tex_type]];
++            static unsigned sampler_trace_count = 0;
++            if (sampler_trace_count++ < 64)
++                sceClibPrintf("pcsx-vita: vitagl-sampler program=%u resource=%d sampler-unit=%u tex-type=%u tex-id=%u gl0-id=%u data=%p gxm-data=%p\n",
++                    cur_program, i, (unsigned)p->frag_texunits[i]->sampler_index,
++                    (unsigned)tex_type, (unsigned)tex_unit->tex_id[tex_type],
++                    (unsigned)texture_units[0].tex_id[0], tex->data, sceGxmTextureGetData(&tex->gxm_tex));
+ #ifdef HAVE_TEX_CACHE
+ 			restore_tex_cache(tex);
+ #endif
+@@ -1358,6 +1370,12 @@
+ 			texture_unit *tex_unit = &texture_units[(int)p->frag_texunits[i]->sampler_index];
+ 			uint8_t tex_type = p->frag_texunits[i]->type == UNIFORM_CUBE_SAMPLER ? 2 : tex2d_override;
+ 			texture *tex = &texture_slots[tex_unit->tex_id[tex_type]];
++            static unsigned sampler_trace_count = 0;
++            if (sampler_trace_count++ < 64)
++                sceClibPrintf("pcsx-vita: vitagl-sampler program=%u resource=%d sampler-unit=%u tex-type=%u tex-id=%u gl0-id=%u data=%p gxm-data=%p\n",
++                    cur_program, i, (unsigned)p->frag_texunits[i]->sampler_index,
++                    (unsigned)tex_type, (unsigned)tex_unit->tex_id[tex_type],
++                    (unsigned)texture_units[0].tex_id[0], tex->data, sceGxmTextureGetData(&tex->gxm_tex));
+ #ifdef HAVE_TEX_CACHE
+ 			restore_tex_cache(tex);
+ #endif

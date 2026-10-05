@@ -30,6 +30,36 @@
 
          // Notifies the renderer of the completion of the callback for the display_entry.
          // The last_display of the entry, when pushed into the queue, is guaranteed to be timestamp_ahead + 1 at the time of the call.
+@@ -2368,6 +2380,16 @@
+     const gxp::TextureInfo vert_textures_sync = gxm_vertex_program.renderer_data->textures_used & context->is_vert_texture_dirty;
+     context->is_vert_texture_dirty &= ~vert_textures_sync;
+     const gxp::TextureInfo frag_textures_sync = gxm_fragment_program.renderer_data->textures_used & context->is_frag_texture_dirty;
++    static std::atomic<uint32_t> draw_trace_count{0};
++    const uint32_t draw_trace_index = gxm_fragment_program.renderer_data->textures_used.any() ? ++draw_trace_count : 65;
++    if (draw_trace_index <= 64) {
++        const auto &tex0 = context->state.textures[0];
++        LOG_INFO("PCSX display GXM draw n={} fp={:08x} gxp={:08x} used={:04x} dirty={:04x} sync={:04x} params={} dependent={} tex0={:08x} size={}x{} indices={}",
++            draw_trace_index, context->state.fragment_program.address(), gxm_fragment_program.program.address(),
++            gxm_fragment_program.renderer_data->textures_used.to_ulong(), context->is_frag_texture_dirty.to_ulong(),
++            frag_textures_sync.to_ulong(), fragment_program_gxp.parameter_count, fragment_program_gxp.dependent_sampler_count,
++            tex0.data_addr << 2, gxm::get_width(tex0), gxm::get_height(tex0), indexCount);
++    }
+     context->is_frag_texture_dirty &= ~frag_textures_sync;
+     const auto &textures = context->state.textures;
+     for (uint16_t texture_index = 0; texture_index < SCE_GXM_MAX_TEXTURE_UNITS; texture_index++) {
+@@ -3965,6 +3987,12 @@
+
+     context->state.textures[textureIndex] = *texture;
+     context->is_frag_texture_dirty[textureIndex] = true;
++    static std::atomic<uint32_t> texture_trace_count{0};
++    const uint32_t texture_trace_index = ++texture_trace_count;
++    if (texture_trace_index <= 64)
++        LOG_INFO("PCSX display GXM texture n={} fp={:08x} unit={} addr={:08x} size={}x{}",
++            texture_trace_index, context->state.fragment_program.address(), textureIndex,
++            texture->data_addr << 2, gxm::get_width(*texture), gxm::get_height(*texture));
+
+     return 0;
+ }
 --- a/vita3k/modules/SceDisplay/SceDisplay.cpp
 +++ b/vita3k/modules/SceDisplay/SceDisplay.cpp
 @@ -16,6 +16,8 @@
