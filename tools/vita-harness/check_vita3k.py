@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run the DRC/GPU smoke guest with an independently bounded Vita3K host."""
 import argparse
+from collections import Counter
 import importlib.util
 import hashlib
 import json
@@ -26,11 +27,25 @@ class CapturedSmoke(CapturedGuest):
 
 def fatal(log):
     """Compatibility for the synthetic DRC checker importing this module."""
-    return any(marker.decode("ascii") in log for marker in CapturedSmoke.ISSUE_MARKERS)
+    if any(marker.decode("ascii") in log for marker in CapturedSmoke.ISSUE_MARKERS):
+        return True
+    pending = Counter()
+    for line in log.splitlines():
+        encoded = line.encode("utf-8")
+        forwarded = CapturedSmoke.FORWARDED.search(encoded)
+        recovered = CapturedSmoke.RECOVERED.search(encoded)
+        if forwarded:
+            pending[int(forwarded[1], 16)] += 1
+        elif b"Dynarmic forwarding EXC_BAD_ACCESS" in encoded:
+            return True
+        if recovered and pending[int(recovered[1], 16)]:
+            pending[int(recovered[1], 16)] -= 1
+    return any(pending.values())
 
 
 def smoke_complete(captured, expected, require_ari64=False):
     return (any(expected.search(message) for message in captured.messages) and
+            not any(captured.pending_faults.values()) and
             "Stopping -> Idle" in captured.markers and
             (not require_ari64 or "pcsx-vita: cpu_driver=ari64" in captured.markers))
 

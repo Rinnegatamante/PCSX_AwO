@@ -20,6 +20,20 @@ if "--" in sys.argv:
     print("pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs=3", flush=True)
     print("Stopping -> Idle", flush=True)
 else:
+    if mode.startswith("forwarded"):
+        print("Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=0x1234", flush=True)
+        if mode == "forwarded-repeat-partial":
+            print("Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=0x1234", flush=True)
+        if mode in ("forwarded-matched", "forwarded-critical"):
+            print("Vita3K recovered protected access pc=0x00001234 addr=0x60001000 write=1", flush=True)
+        elif mode == "forwarded-wrong-pc":
+            print("Vita3K recovered protected access pc=0x1238 addr=0x60001000 write=1", flush=True)
+        elif mode == "forwarded-repeat-partial":
+            print("Vita3K recovered protected access pc=0x1234 addr=0x60001000 write=1", flush=True)
+        if mode == "forwarded-critical":
+            print("|C| untracked protection fallback", flush=True)
+    if mode == "recovered-alone":
+        print("Vita3K recovered protected access pc=0x1234 addr=0x60001000 write=0", flush=True)
     if mode.startswith("lifecycle"):
         if mode != "lifecycle-no-drc":
             print("pcsx-vita: cpu_driver=ari64", flush=True)
@@ -31,6 +45,11 @@ else:
         print(f"pcsx-vita: smoke PASS cpu=ari64 triangle=03ff background=2082 sentinel=534d4f4b runs={runs}", flush=True)
     if mode != "no-idle":
         print("Stopping -> Idle", flush=True)
+    if mode == "forwarded-delayed":
+        time.sleep(.15)
+        print("Vita3K recovered protected access pc=0x1234 addr=0x60001000 write=1", flush=True)
+    if mode == "forwarded-normal-exit":
+        sys.exit(0)
     if mode == "crash":
         sys.exit(17)
     if mode == "fatal":
@@ -58,6 +77,14 @@ def main():
                 ("crash", False, 1),
                 ("fatal", False, 1),
                 ("late-fatal", False, 1),
+                ("forwarded-matched", False, 0),
+                ("forwarded-unresolved", False, 1),
+                ("forwarded-wrong-pc", False, 1),
+                ("forwarded-critical", False, 1),
+                ("forwarded-repeat-partial", False, 1),
+                ("forwarded-delayed", False, 0),
+                ("forwarded-normal-exit", False, 1),
+                ("recovered-alone", False, 0),
                 ("smoke-fail", False, 1),
                 ("wrong-runs", False, 1),
                 ("normal-exit", False, 0),

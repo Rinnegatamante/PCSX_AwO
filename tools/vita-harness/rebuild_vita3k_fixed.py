@@ -27,6 +27,8 @@ parser.add_argument('--diagnose-null-memcpy', action='store_true',
                     help='Log invalid guest memcpy arguments and caller PC/LR without changing behavior')
 parser.add_argument('--fix-host-page-protection', action='store_true',
                     help='Track native host-page coverage for direct guest memory protections')
+parser.add_argument('--trace-protection-recovery', action='store_true',
+                    help='Record successful native memory fault recovery and Dynarmic forwarding')
 options = parser.parse_args()
 ORIG = options.source.resolve()
 BUILD = (options.build or ORIG / 'build/macos').resolve()
@@ -35,6 +37,8 @@ if not ORIG.is_dir() or not BUILD.is_dir() or not options.app_template.is_dir():
     parser.error('source, build and app template must exist')
 if options.dynarmic_archive and not options.dynarmic_archive.is_file():
     parser.error('Dynarmic archive must exist')
+if options.trace_protection_recovery and not options.dynarmic_archive:
+    parser.error('--trace-protection-recovery requires a tested --dynarmic-archive')
 if OUT.exists():
     parser.error('output already exists; use a fresh directory')
 if OUT == ORIG or ORIG in OUT.parents or OUT == BUILD or BUILD in OUT.parents:
@@ -49,6 +53,8 @@ PATCH = Path(__file__).resolve().parent / 'patches/vita3k-teardown.patch'
 SCREENSHOT_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-vulkan-cpu-frame-dump.patch'
 MEMCPY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-memcpy-diagnostic.patch'
 HOST_PAGE_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-host-page-protection.patch'
+RECOVERY_PATCH = Path(__file__).resolve().parent / 'patches/vita3k-macos-recovery-trace.patch'
+FORWARDED_PATCH = Path(__file__).resolve().parent / 'patches/dynarmic-forwarded-exceptions.patch'
 shutil.copytree(options.app_template.resolve(), APP)
 
 SOURCES = [
@@ -62,7 +68,7 @@ SOURCES = [
 if options.diagnose_null_memcpy:
     SOURCES.append(('modules', 'SceLibKernel/SceLibKernel.cpp',
                     'vita3k/modules/SceLibKernel/SceLibKernel.cpp', 'SceLibKernel.cpp.o'))
-if options.fix_host_page_protection:
+if options.fix_host_page_protection or options.trace_protection_recovery:
     SOURCES.append(('mem', 'src/mem.cpp', 'vita3k/mem/src/mem.cpp', 'mem.cpp.o'))
 
 # Only the patched sources/header are copied. Apply the checked-in patch to
@@ -89,6 +95,9 @@ if options.diagnose_null_memcpy:
 if options.fix_host_page_protection:
     subprocess.run(['git', 'apply', '--check', str(HOST_PAGE_PATCH)], check=True, cwd=SRC, env=patch_env)
     subprocess.run(['git', 'apply', str(HOST_PAGE_PATCH)], check=True, cwd=SRC, env=patch_env)
+if options.trace_protection_recovery:
+    subprocess.run(['git', 'apply', '--check', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
+    subprocess.run(['git', 'apply', str(RECOVERY_PATCH)], check=True, cwd=SRC, env=patch_env)
 for relative in inputs:
     if hashlib.sha256((SRC / relative).read_bytes()).hexdigest() == original_hashes[relative]:
         raise RuntimeError(f'patch did not modify expected source: {relative}')
@@ -122,7 +131,7 @@ for target, source_rel, patch_rel, obj_name in SOURCES:
 # Reconstruct each touched static library from the exact existing CMake object
 # list, substituting only the patched TU objects. This preserves distinct GL
 # and Vulkan renderer.cpp archive members despite their common basename.
-for target in ('display', 'modules', 'renderer', *(['mem'] if options.fix_host_page_protection else [])):
+for target in ('display', 'modules', 'renderer', *(['mem'] if ('mem', 'src/mem.cpp') in compiled else [])):
     target_dir = BUILD / 'vita3k' / target
     link_txt = target_dir / 'CMakeFiles' / f'{target}.dir/link.txt'
     words = shlex.split(link_txt.read_text())
@@ -179,7 +188,7 @@ rewrites = {
     'modules/libmodules.a': str(OBJ / 'libmodules.a'),
     'renderer/librenderer.a': str(OBJ / 'librenderer.a'),
 }
-if options.fix_host_page_protection:
+if ('mem', 'src/mem.cpp') in compiled:
     if 'mem/libmem.a' not in words:
         raise RuntimeError('existing link command does not identify the mem archive')
     rewrites['mem/libmem.a'] = str(OBJ / 'libmem.a')
@@ -191,6 +200,26 @@ if options.dynarmic_archive:
     dynarmic_input = options.dynarmic_archive.resolve()
     private_dynarmic = OBJ / 'libdynarmic.a'
     shutil.copy2(dynarmic_input, private_dynarmic)
+    if options.trace_protection_recovery:
+        relative = 'external/dynarmic/src/dynarmic/backend/exception_handler_macos.cpp'
+        original = BUILD / 'external/dynarmic-patched/src/dynarmic/backend/exception_handler_macos.cpp'
+        private_source = SRC / relative
+        private_source.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, private_source)
+        original_hashes[relative] = hashlib.sha256(original.read_bytes()).hexdigest()
+        subprocess.run(['git', 'apply', '--check', str(FORWARDED_PATCH)], check=True, cwd=SRC, env=patch_env)
+        subprocess.run(['git', 'apply', str(FORWARDED_PATCH)], check=True, cwd=SRC, env=patch_env)
+        flags = vars_file(BUILD / 'external/dynarmic/src/dynarmic/CMakeFiles/dynarmic.dir/flags.make')
+        private_object = OBJ / 'exception_handler_macos.cpp.o'
+        subprocess.run(['/usr/bin/c++', *shlex.split(flags['CXX_DEFINES']),
+                        *shlex.split(flags['CXX_INCLUDES']), *shlex.split(flags['CXX_FLAGS']),
+                        '-c', str(private_source), '-o', str(private_object)], check=True, cwd=BUILD)
+        members = subprocess.run(['/usr/bin/ar', 't', str(private_dynarmic)],
+                                 check=True, capture_output=True, text=True).stdout.splitlines()
+        if members.count(private_object.name) != 1:
+            raise RuntimeError('Dynarmic archive must contain exactly one macOS exception handler')
+        subprocess.run(['/usr/bin/ar', 'r', str(private_dynarmic), str(private_object)], check=True)
+        subprocess.run(['/usr/bin/ranlib', str(private_dynarmic)], check=True)
     rewrites[original_link_path] = str(private_dynarmic)
 rewritten = [rewrites.get(w, w) for w in words]
 for i, word in enumerate(rewritten):
@@ -213,9 +242,15 @@ manifest = {
                                       if options.diagnose_null_memcpy else None),
     'host_page_protection_patch_sha256': (hashlib.sha256(HOST_PAGE_PATCH.read_bytes()).hexdigest()
                                         if options.fix_host_page_protection else None),
+    'recovery_trace_patch_sha256': (hashlib.sha256(RECOVERY_PATCH.read_bytes()).hexdigest()
+                                  if options.trace_protection_recovery else None),
+    'forwarded_exception_patch_sha256': (hashlib.sha256(FORWARDED_PATCH.read_bytes()).hexdigest()
+                                       if options.trace_protection_recovery else None),
     'executable_sha256': hashlib.sha256(BIN.read_bytes()).hexdigest(),
     'dynarmic_archive': str(dynarmic_input),
     'dynarmic_archive_sha256': hashlib.sha256(dynarmic_input.read_bytes()).hexdigest(),
+    'linked_dynarmic_archive_sha256': hashlib.sha256(
+        (OBJ / 'libdynarmic.a' if options.dynarmic_archive else dynarmic_input).read_bytes()).hexdigest(),
     'validation_scope': 'incremental macOS arm64 host; untouched CMake objects reused',
 }
 (OUT / 'pcsx-host-build.json').write_text(json.dumps(manifest, indent=2) + '\n')

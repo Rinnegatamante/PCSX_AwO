@@ -6,7 +6,7 @@ The validation targets are tracked separately:
 | --- | --- | --- |
 | M1 harness, NEON GPU and native ARM64 DRC | Console probe, System 12 4/16 MiB generated guests, and a 12,000-frame Soul Calibur run reaching a Stage 2 fight | DRC/interpreter game-state and timing comparison; broader family coverage |
 | Vita ARMv7 DRC and NEON, first in Vita3K | Console pixel/signature probe, System 12 4/16 MiB DRC signatures, and a 12,000-frame Soul Calibur input replay reaching Stage 2 with 23 native screenshots | Game-state/timing comparison, then physical Vita validation |
-| Vita ARMv7 DRC and VitaGL, first in Vita3K | Patched library/package build; with the local compiler, GPU/ari64 startup and shutdown/Idle are observed | Host protection diagnostics, black native capture/triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
+| Vita ARMv7 DRC and VitaGL, first in Vita3K | Patched library/package build; strict startup/shutdown probe passes with local compiler and paired native fault recovery | Black native capture/triangle probe, extended arcade VRAM, actual game, then physical Vita validation |
 
 The System 12 ARMv7 results and isolated runner are documented in
 [system12-vita-drc.md](system12-vita-drc.md). Neither an emulator result nor a

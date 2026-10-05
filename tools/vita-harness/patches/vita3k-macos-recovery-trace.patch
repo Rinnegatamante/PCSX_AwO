@@ -1,0 +1,71 @@
+--- a/vita3k/mem/src/mem.cpp
++++ b/vita3k/mem/src/mem.cpp
+@@ -23,6 +23,7 @@
+ 
+ #include <algorithm>
+ #include <cassert>
++#include <cerrno>
+ #include <cstring>
+ #include <mutex>
+ #include <utility>
+@@ -608,6 +609,49 @@
+ }
+ 
+ #else
++
++#if defined(__APPLE__) && defined(__aarch64__)
++// Signal handlers must avoid fmt/spdlog and allocation. write() is async-signal-safe.
++static void append_trace_literal(char *buffer, size_t &offset, const char *literal) noexcept {
++    while (*literal)
++        buffer[offset++] = *literal++;
++}
++
++static void append_trace_hex(char *buffer, size_t &offset, uintptr_t value) noexcept {
++    static constexpr char digits[] = "0123456789abcdef";
++    char reversed[2 * sizeof(value)];
++    size_t count = 0;
++    do {
++        reversed[count++] = digits[value & 0xf];
++        value >>= 4;
++    } while (value != 0);
++    buffer[offset++] = '0';
++    buffer[offset++] = 'x';
++    while (count != 0)
++        buffer[offset++] = reversed[--count];
++}
++
++static void write_recovery_trace(uintptr_t pc, uintptr_t address, bool is_writing) noexcept {
++    const int saved_errno = errno;
++    char line[128];
++    size_t offset = 0;
++    append_trace_literal(line, offset, "Vita3K recovered protected access pc=");
++    append_trace_hex(line, offset, pc);
++    append_trace_literal(line, offset, " addr=");
++    append_trace_hex(line, offset, address);
++    append_trace_literal(line, offset, is_writing ? " write=1\n" : " write=0\n");
++    size_t written = 0;
++    while (written < offset) {
++        const ssize_t result = ::write(STDERR_FILENO, line + written, offset - written);
++        if (result <= 0) {
++            errno = saved_errno;
++            return;
++        }
++        written += static_cast<size_t>(result);
++    }
++    errno = saved_errno;
++}
++#endif
+ 
+ static void signal_handler(int sig, siginfo_t *info, void *uct) noexcept {
+     auto context = static_cast<ucontext_t *>(uct);
+@@ -646,6 +690,10 @@
+ 
+     if (!is_executing) {
+         if (access_violation_handler(reinterpret_cast<uint8_t *>(info->si_addr), is_writing)) {
++#if defined(__APPLE__) && defined(__aarch64__)
++            write_recovery_trace(static_cast<uintptr_t>(context->uc_mcontext->__ss.__pc),
++                                 reinterpret_cast<uintptr_t>(info->si_addr), is_writing);
++#endif
+             return;
+         }
+     }

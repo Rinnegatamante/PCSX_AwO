@@ -20,12 +20,16 @@ parser.add_argument('--source', type=Path, required=True, help='Vita3K source ch
 parser.add_argument('--build', type=Path, required=True, help='Existing CMake build directory')
 parser.add_argument('--sanitize', action='store_true', help='Enable ASan and UBSan')
 parser.add_argument('--baseline', action='store_true', help='Run against unpatched mem.cpp and require the regression to fail')
+parser.add_argument('--trace-recovery', action='store_true', help='Apply private Apple ARM64 signal-handler recovery trace patch')
 args = parser.parse_args()
 source = args.source.resolve()
 build = args.build.resolve()
 mem_build = build / 'vita3k/mem'
 patch = HERE / 'patches/vita3k-host-page-protection.patch'
 test_src = HERE / 'tests/host_page_protection.cpp'
+recovery_patch = HERE / 'patches/vita3k-macos-recovery-trace.patch'
+if args.baseline and args.trace_recovery:
+    parser.error('--baseline and --trace-recovery cannot be combined')
 for required in (source / 'vita3k/mem/src/mem.cpp', mem_build / 'CMakeFiles/mem.dir/link.txt',
                  mem_build / 'CMakeFiles/mem-tests.dir/link.txt'):
     if not required.is_file():
@@ -50,6 +54,9 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
     if not args.baseline:
         subprocess.run(['git', 'apply', '--check', str(patch)], cwd=private_source, check=True)
         subprocess.run(['git', 'apply', str(patch)], cwd=private_source, check=True)
+    if args.trace_recovery:
+        subprocess.run(['git', 'apply', '--check', str(recovery_patch)], cwd=private_source, check=True)
+        subprocess.run(['git', 'apply', str(recovery_patch)], cwd=private_source, check=True)
 
     mem_vars = make_vars(mem_build / 'CMakeFiles/mem.dir/flags.make')
     test_vars = make_vars(mem_build / 'CMakeFiles/mem-tests.dir/flags.make')
@@ -115,3 +122,11 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
         print(result.stderr, end='')
         if result.returncode:
             raise subprocess.CalledProcessError(result.returncode, [str(exe)])
+        if args.trace_recovery:
+            import re
+            recovered = re.findall(
+                r'Vita3K recovered protected access pc=0x[0-9a-f]+ '
+                r'addr=0x[0-9a-f]+ write=[01]', result.stderr)
+            if not recovered:
+                raise RuntimeError('fault test passed but emitted no successful recovery trace')
+            print(f'recovery trace records={len(recovered)}')

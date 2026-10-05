@@ -7,11 +7,12 @@ validated against their local MAME manifest before they are copied into a VPK.
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import Counter, deque
 import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -115,7 +116,10 @@ class CapturedGuest:
                  b"[InterpreterFallback] Unimplemented instruction", b"Unpredictable instruction",
                  b"Unhandled EXC_", b"|C|", b"Successfully saved screenshot",
                  b"Failed to save screenshot", b"Failed to take screenshot",
-                 b"Game started")
+                 b"Game started", b"Dynarmic forwarding EXC_BAD_ACCESS",
+                 b"Vita3K recovered protected access")
+    FORWARDED = re.compile(rb"Dynarmic forwarding EXC_BAD_ACCESS outside JIT registry pc=(0x[0-9a-fA-F]+)\s*$")
+    RECOVERED = re.compile(rb"Vita3K recovered protected access pc=(0x[0-9a-fA-F]+) addr=0x[0-9a-fA-F]+ write=[01]\s*$")
 
     def __init__(self, process, log: Path, label: str):
         self.process = process
@@ -130,6 +134,9 @@ class CapturedGuest:
         self.kept = []
         self.messages = deque(maxlen=128)
         self.kept_bytes = 0
+        self.pending_faults = Counter()
+        self.forwarded_faults = 0
+        self.matched_faults = 0
         self.thread = threading.Thread(target=self._pump, daemon=True)
         self.thread.start()
 
@@ -137,6 +144,20 @@ class CapturedGuest:
         line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
         encoded = raw_line
         self.lines_seen += 1
+        forwarded = self.FORWARDED.search(encoded)
+        recovered = self.RECOVERED.search(encoded)
+        if forwarded:
+            self.pending_faults[int(forwarded[1], 16)] += 1
+            self.forwarded_faults += 1
+        elif b"Dynarmic forwarding EXC_BAD_ACCESS" in encoded:
+            key = "Malformed forwarded EXC_BAD_ACCESS"
+            self.issue_counts[key] = self.issue_counts.get(key, 0) + 1
+            self.issue_examples.setdefault(key, line[:2048])
+        if recovered:
+            pc = int(recovered[1], 16)
+            if self.pending_faults[pc]:
+                self.pending_faults[pc] -= 1
+                self.matched_faults += 1
         for marker in self.MARKERS:
             if marker in encoded:
                 self.markers.add(marker.decode("ascii"))
@@ -184,7 +205,7 @@ class CapturedGuest:
             matches = all(any(fragment in message for message in self.messages)
                           for fragment in fragments)
             idle = "Stopping -> Idle" in self.markers
-            if matches and (idle or not require_idle):
+            if matches and (idle or not require_idle) and not any(self.pending_faults.values()):
                 if stable_at is None:
                     stable_at = time.monotonic()
                 if time.monotonic() - stable_at >= stable:
@@ -198,12 +219,21 @@ class CapturedGuest:
 
     def close(self):
         self.thread.join(timeout=10)
+        unresolved = sum(self.pending_faults.values())
+        if unresolved:
+            key = "Unresolved forwarded EXC_BAD_ACCESS"
+            self.issue_counts[key] = unresolved
+            self.issue_examples[key] = ", ".join(
+                f"pc=0x{pc:x} count={count}" for pc, count in self.pending_faults.items() if count)
         self.log.parent.mkdir(parents=True, exist_ok=True)
         with self.log.open("a", encoding="utf-8") as out:
             out.write(f"\n--- Vita3K {self.label}: {self.bytes_seen} bytes, "
                       f"{self.lines_seen} lines captured ---\n")
             for line in self.kept:
                 out.write(line + "\n")
+            if self.forwarded_faults:
+                out.write(f"forwarded faults={self.forwarded_faults} matched recoveries={self.matched_faults} "
+                          f"unresolved={unresolved}\n")
             for key, count in self.issue_counts.items():
                 if count:
                     out.write(f"diagnostic count={count} marker={key}\n")
