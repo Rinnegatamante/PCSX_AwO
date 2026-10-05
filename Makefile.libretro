@@ -11,6 +11,13 @@ USE_LIBRETRO_VFS ?= 1
 NDRC_THREAD ?= 1
 GNU_LINKER ?= 1
 ARCADE_SYSTEM12 ?= 0
+ARCADE_SYSTEM_GNET ?= 0
+
+ifeq ($(ARCADE_SYSTEM_GNET),1)
+ifneq ($(ARCADE_SYSTEM12),1)
+$(error ARCADE_SYSTEM_GNET=1 requires ARCADE_SYSTEM12=1)
+endif
+endif
 
 # Dynarec options: lightrec, ari64
 DYNAREC ?= lightrec
@@ -35,6 +42,12 @@ CFLAGS += -DARCADE_SYSTEM12 -DPCSX_SYSTEM12 -DPCSX_SYSTEM12_SOURCE_TIMING
 ifeq ($(platform),vita)
 CXX = arm-vita-eabi-g++$(EXE_EXT)
 endif
+endif
+
+ifeq ($(ARCADE_SYSTEM_GNET),1)
+GNET_GENERATED_DIR ?= build/vita-gnet/gnet-generated
+CFLAGS += -DARCADE_SYSTEM_GNET -DPCSX_SYSTEM_GNET \
+	-I$(GNET_GENERATED_DIR) -Ilibpcsxcore/arcade/tms57002
 endif
 
 CC ?= gcc
@@ -727,7 +740,26 @@ OBJS += libpcsxcore/system12.o libpcsxcore/system11.o libpcsxcore/system10.o \
 	libpcsxcore/arcade/ymfm/ymfm_ssg.o libpcsxcore/arcade/ymfm/ymfm_adpcm.o
 endif
 
+ifeq ($(ARCADE_SYSTEM_GNET),1)
+OBJS += libpcsxcore/systemgnet.o libpcsxcore/arcade/zsg2.o \
+	libpcsxcore/arcade/gnet_zoom.o libpcsxcore/arcade/zoom_board.o \
+	libpcsxcore/arcade/mn10200.o libpcsxcore/arcade/tms57002.o \
+	libpcsxcore/arcade/tms57002/tms57002_core.o \
+	libpcsxcore/arcade/tms57002/tms57kdec.o \
+	libpcsxcore/arcade/tms57002/tmsops.o
+endif
+
 include Makefile
+
+ifeq ($(ARCADE_SYSTEM_GNET),1)
+GNET_TMS_HEADER := $(GNET_GENERATED_DIR)/tms57002.hxx
+$(GNET_TMS_HEADER): libpcsxcore/arcade/tms57002/tmsinstr.lst libpcsxcore/arcade/tms57002/tmsmake.py
+	@mkdir -p $(dir $@)
+	python3 libpcsxcore/arcade/tms57002/tmsmake.py s $< $@
+libpcsxcore/arcade/tms57002/tms57002_core.o \
+libpcsxcore/arcade/tms57002/tms57kdec.o \
+libpcsxcore/arcade/tms57002/tmsops.o: $(GNET_TMS_HEADER)
+endif
 
 ifeq ($(ARCADE_SYSTEM12),1)
 # Ensure the final link provides the C++ runtime for the board CPU/devices.

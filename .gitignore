@@ -17,6 +17,7 @@ cheatpops.db
 !/tools/mac-harness/
 !/tools/vita-harness/
 /build/mac-harness/
+/build/vita-gnet/
 /build/mac-harness-agent/
 /build/mac-harness-console/
 /build/chd-hd-tests/

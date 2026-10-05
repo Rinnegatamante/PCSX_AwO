@@ -16,7 +16,11 @@
 #include "arcade/zn_mcu.h"
 #include "arcade/psx_sio.h"
 #include "gpu_vram.h"
+#if defined(VITA) || defined(__vita__)
+#include <openssl/sha.h>
+#else
 #include <CommonCrypto/CommonDigest.h>
+#endif
 #ifndef DRC_DISABLE
 #include "new_dynarec/new_dynarec.h"
 #endif
@@ -34,6 +38,18 @@
 #define KEY_BYTES 8u
 #define EEPROM_BYTES 2080u
 #define PATH_BYTES 4096
+enum { GNET_SHA1_BYTES = 20 };
+
+static int gnet_sha1(const void *data, size_t size,
+                     unsigned char digest[GNET_SHA1_BYTES])
+{
+#if defined(VITA) || defined(__vita__)
+    return SHA1((const unsigned char *)data, size, digest) ? 0 : -1;
+#else
+    if (size > UINT32_MAX) return -1;
+    return CC_SHA1(data, (CC_LONG)size, digest) ? 0 : -1;
+#endif
+}
 
 typedef struct GnetProfile {
     const char *set, *model, *cpu, *cpu_hz, *gpu;
@@ -147,8 +163,8 @@ static int read_region(const char *directory, const char *filename, size_t size,
                        const char *sha1, uint8_t **result)
 {
     char path[PATH_BYTES];
-    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
-    char hex[CC_SHA1_DIGEST_LENGTH * 2 + 1];
+    unsigned char digest[GNET_SHA1_BYTES];
+    char hex[GNET_SHA1_BYTES * 2 + 1];
     static const char digits[] = "0123456789abcdef";
     FILE *file;
     long length;
@@ -168,7 +184,7 @@ static int read_region(const char *directory, const char *filename, size_t size,
         int close_failed = fclose(file) != 0;
         if (read_failed || close_failed) return -1;
     }
-    if (!CC_SHA1(*result, (CC_LONG)size, digest)) return -1;
+    if (gnet_sha1(*result, size, digest)) return -1;
     for (i = 0; i < sizeof(digest); ++i) {
         hex[i * 2] = digits[digest[i] >> 4];
         hex[i * 2 + 1] = digits[digest[i] & 15];

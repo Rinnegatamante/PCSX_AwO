@@ -45,6 +45,15 @@ fractional, monotonic clock. `1fb00000–1fb0ffff` remains an explicit
 unsupported RF5C296/PCMCIA range; game cards, per-game input variations, and
 game-specific extensions are not claimed as implemented.
 
+The 6.25 MHz adapter clock is the MN10200's effective execution-cycle rate:
+the pinned MAME device is configured at 12.5 MHz and converts external clocks
+to CPU cycles through its internal divide-by-two.
+
+Build the standalone Vita core archive with
+`make -f Makefile.libretro platform=vita ARCADE_SYSTEM12=1 ARCADE_SYSTEM_GNET=1 USE_LIBRETRO_VFS=0 USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0`.
+This enables the G-Net adapter in the archive; Vita frontend profile loading,
+input routing, and lifecycle handling are still pending.
+
 The general PSX core still advances in its existing PSX cycle domain; this
 adapter does not yet reproduce the source 67.7376/100 MHz main-CPU execution
 rate or source vblank timing. The source clocks recorded in `board.ini` are
