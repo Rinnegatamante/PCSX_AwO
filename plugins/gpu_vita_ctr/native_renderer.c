@@ -3335,7 +3335,9 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 	}
 	else
 	{
-		NativeRenderer_BindMainRenderTarget();
+		// Restore the existing target without resizing it from a newer draw environment.
+		// Packing can run after the display dimensions change, before presentation.
+		glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
 		glViewport(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
 	}
 	if (previousStencilEnabled)

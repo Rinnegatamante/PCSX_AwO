@@ -1,5 +1,28 @@
 # VitaGL readback validation
 
+The production console probe now passes both VRAM reads and native
+presentation. GPU packing restored the main framebuffer through a helper that
+also resized its texture from the current draw environment. In this probe,
+the environment changed from 640×478 to 320×240 before presentation, so that
+restoration discarded the rendered pixels. Binding the existing framebuffer
+preserves its storage until the next scene sizes it deliberately.
+
+The corrected production VPK is
+`build/vita-validation-preserve-target/pcsx-rearmed-vita-vitagl.vpk`, SHA256
+`14a19291183c963c9aad5ec1cf299e6dc8dd441c4c6702faf5fb292035d12a43`.
+GPU tracing is disabled and the library uses the four flags below. The
+180-frame ari64 probe passes with `03ff/2082/534d4f4b`, 10 paired fault
+recoveries, successful shutdown and Idle. Three native screenshots taken
+after the presentation draw show the yellow triangle and blue background;
+the final image contains 98,284 yellow and 179,792 blue pixels. The guarded
+runner closes its host and leaves no Vita3K process running.
+`pcsx-vitagl-preserve-target-evidence.json` beside the package binds the host,
+library, source delta and native PNG hashes. The log is
+`/tmp/pcsx-vitagl-preserve-target-20261005.log`. This validates the console
+graphics probe; Soul Calibur and physical Vita remain separate gates.
+
+The failed runs below describe the diagnosis before that correction.
+
 The private VitaGL build uses `HAVE_SHADER_CACHE=1 NO_DEBUG=1
 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1`. Its original checkout remains
 unchanged; `build_vitagl.py` records the source revision, patches, flags and
