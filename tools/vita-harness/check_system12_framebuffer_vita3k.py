@@ -52,7 +52,10 @@ EXPECTED_COORD_ALIAS_PIXELS = (0x001f, 0x03e0, 0x03e0,
 EXPECTED_COORD_SPAN_CULL_PIXELS = (0x001f, 0x001f,
                                    0x001f, 0x03e0,
                                    0x001f, 0x001f,
-                                   0x001f, 0x03e0)
+                                   0x001f, 0x03e0,
+                                   0x001f, 0x001f,
+                                   0x001f, 0x03e0,
+                                   0x03e0, 0x03e0)
 EXPECTED_VRAM_X_WRAP_PIXELS = (0x7fe0, 0x7fe0, 0x7fe0, 0x7c1f, 0x7c1f,
                                0x001f, 0x03e0, 0x001f, 0x03e0)
 EXPECTED_PIXELS = (0x001f, 0x03e0, 0x001f, 0x7c00,
@@ -520,6 +523,50 @@ def make_guest_code(texture_window=False, sprite_uv_wrap=False, vram_x_wrap=Fals
         gp0(0x00780014)  # v3=(  20,120)
         c0_pixel(100, 60, 25)
         c0_pixel(270, 60, 26)
+
+        # The same split test with FT4 ensures a culled half does not lose
+        # the surviving half's texture coordinates, TPAGE, or CLUT.
+        p4_span_palette = [0, 0x001f, 0x03e0] + [0] * 13
+        upload_constant_words(64, 512, 4, 8, 0x2222)
+        upload_palette(32, 800, p4_span_palette)
+        ft4_coords = (0x00140600, 0x00140200,
+                      0x00640000, 0x00780014)
+        ft4_uv = ((0, 0), (0, 0), (0, 0), (0, 0))
+        tile8(96, 56, 0x001f)
+        tile8(264, 56, 0x001f)
+        c0_pixel(100, 60, 27)
+        c0_pixel(270, 60, 28)
+        ft4_raw(ft4_coords, ft4_uv, 0x0801, (800 << 6) | (32 >> 4))
+        c0_pixel(100, 60, 29)
+        c0_pixel(270, 60, 30)
+
+        # A fully culled FT3 still updates the global TPAGE, as the NEON
+        # parser does before its rasterizer rejects the triangle. Follow it
+        # with a sprite without E1 so page 1's green texels distinguish that
+        # state from the explicitly selected page 0 with red texels.
+        upload_constant_words(0, 512, 4, 8, 0x1111)
+        gp0(0xe1000800)
+        ft3_raw((0x01900600, 0x01900200, 0x01f40000),
+                ((0, 0), (0, 0), (0, 0)),
+                0x0801, (800 << 6) | (32 >> 4))
+        gp0(0x64000000 | 0x808080)
+        gp0(32 | (130 << 16))
+        gp0(((800 << 6) | (32 >> 4)) << 16)
+        gp0(8 | (8 << 16))
+        c0_pixel(34, 132, 31)
+
+        # A Gouraud G4 with red v0 and green v1/v2/v3 has the same split.
+        # The surviving triangle must start from v1's green command color.
+        tile8(264, 56, 0x001f)
+        gp0(0x380000ff)
+        gp0(0x00140600)  # v0=(-512,20), red
+        gp0(0x0000ff00)  # v1=green
+        gp0(0x00140200)
+        gp0(0x0000ff00)  # v2=green
+        gp0(0x00640000)
+        gp0(0x0000ff00)  # v3=green
+        gp0(0x00780014)
+        c0_pixel(270, 60, 32)
 
     li(9, RESULT_MAGIC)
     code.append(drc.sw(9, 0, 16))

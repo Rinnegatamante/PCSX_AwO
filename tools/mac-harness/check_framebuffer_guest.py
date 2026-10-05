@@ -55,9 +55,9 @@ def make_guest(directory, texture_window=False, sprite_uv_wrap=False, vram_x_wra
         marker_register = None
         result_indices = tuple(range(19, 28))
     elif coord_span_cull:
-        registers = tuple(range(1, 9))
+        registers = tuple(range(1, 15))
         marker_register = None
-        result_indices = tuple(range(19, 27))
+        result_indices = tuple(range(19, 33))
     else:
         registers = (tuple(range(1, 16)) + tuple(range(17, 26))
                      if texture_window else REGISTERS)

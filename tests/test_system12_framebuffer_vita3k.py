@@ -435,7 +435,7 @@ class System12FramebufferFixtureTests(unittest.TestCase):
 
     def test_optional_coordinate_span_cull_targets_exact_1024_edge(self):
         _code, commands = FIXTURE.make_guest_code(coord_span_cull=True)
-        self.assertEqual(commands.count(0xc0000000), 26)
+        self.assertEqual(commands.count(0xc0000000), 32)
         triangles = [(i, commands[i + 1:i + 4]) for i, word in enumerate(commands)
                      if word == 0x2000ff00]
         self.assertEqual([points for _, points in triangles], [
@@ -445,17 +445,32 @@ class System12FramebufferFixtureTests(unittest.TestCase):
         quad_at = commands.index(0x2800ff00)
         self.assertEqual(commands[quad_at + 1:quad_at + 5],
                          [0x00140600, 0x00140200, 0x00640000, 0x00780014])
+        ft4_at = len(commands) - 1 - commands[::-1].index(0x2c808080)
+        self.assertEqual(commands[ft4_at + 1:ft4_at + 9], [
+            0x00140600, 0xc8020000, 0x00140200, 0x08010000,
+            0x00640000, 0x00000000, 0x00780014, 0x00000000,
+        ])
+        self.assertIn(0xe1000800, commands)
+        self.assertEqual(commands[-11:-2], [
+            0x380000ff, 0x00140600, 0x0000ff00, 0x00140200,
+            0x0000ff00, 0x00640000, 0x0000ff00, 0x00780014,
+            0xc0000000,
+        ])
         read_points = []
         for cursor, word in enumerate(commands):
             if word == 0xc0000000:
                 xy = commands[cursor + 1]
                 read_points.append((xy & 0xffff, xy >> 16))
-        self.assertEqual(read_points[-8:], [(160, 80), (160, 80), (160, 80),
-                                            (160, 80), (100, 60), (270, 60),
-                                            (100, 60), (270, 60)])
+        self.assertEqual(read_points[-14:], [(160, 80), (160, 80), (160, 80),
+                                             (160, 80), (100, 60), (270, 60),
+                                             (100, 60), (270, 60), (100, 60),
+                                             (270, 60), (100, 60), (270, 60),
+                                             (34, 132), (270, 60)])
         self.assertEqual(FIXTURE.EXPECTED_COORD_SPAN_CULL_PIXELS,
                          (0x001f, 0x001f, 0x001f, 0x03e0,
-                          0x001f, 0x001f, 0x001f, 0x03e0))
+                          0x001f, 0x001f, 0x001f, 0x03e0,
+                          0x001f, 0x001f, 0x001f, 0x03e0, 0x03e0,
+                          0x03e0))
         with self.assertRaises(ValueError):
             FIXTURE.make_guest_code(coord_alias=True, coord_span_cull=True)
 
