@@ -297,7 +297,93 @@ static void normalize_gp0_coordinates(uint32_t *words, int count)
     }
 }
 
-static void submit_gp0_packet(const uint32_t *words, int count)
+static int gp0_triangle_x_span_valid(const uint32_t *words, int stride,
+                                     int a, int b, int c)
+{
+    int xa = (int16_t)(words[1 + a * stride] & 0xffff);
+    int xb = (int16_t)(words[1 + b * stride] & 0xffff);
+    int xc = (int16_t)(words[1 + c * stride] & 0xffff);
+    int min_x = xa < xb ? xa : xb;
+    int max_x = xa > xb ? xa : xb;
+
+    if (xc < min_x) min_x = xc;
+    if (xc > max_x) max_x = xc;
+    return max_x - min_x < 1024;
+}
+
+/* NEON/MAME reject each polygon triangle whose X span reaches 1024 pixels.
+ * Keep this at the GP0 boundary so the renderer sees the same geometry and
+ * texture state that the software rasterizer would. */
+static void submit_gp0_polygon(uint32_t *words, int count, const uint32_t *ex_regs)
+{
+    const unsigned command = words[0] >> 24;
+    const int is_quad = (command & 8) != 0;
+    const int textured = (command & 4) != 0;
+    const int gouraud = (command & 16) != 0;
+    const int stride = 1 + textured + gouraud;
+    if (count < 1 + (is_quad ? 4 : 3) * stride - gouraud)
+        return;
+    const int valid_012 = gp0_triangle_x_span_valid(words, stride, 0, 1, 2);
+
+    if (!is_quad) {
+        if (valid_012) {
+            ParseTaglessPrimitive((u32 *)words);
+        } else if (textured && ex_regs) {
+            /* The GP0 parser keeps draw state apart from gpulib's ex_regs. */
+            uint32_t draw_env = ex_regs[1];
+            ParseTaglessPrimitive((u32 *)&draw_env);
+        }
+        return;
+    }
+
+    const int valid_123 = gp0_triangle_x_span_valid(words, stride, 1, 2, 3);
+    if (valid_012 && valid_123) {
+        ParseTaglessPrimitive((u32 *)words);
+        return;
+    }
+
+    if (!valid_012 && !valid_123) {
+        if (textured && ex_regs) {
+            uint32_t draw_env = ex_regs[1];
+            ParseTaglessPrimitive((u32 *)&draw_env);
+        }
+        return;
+    }
+
+    /* Rebuild only the valid half. Gouraud colors follow the previous
+     * vertex's attributes; textured triangles carry CLUT/TPAGE in UV0/UV1. */
+    const int vertices[3] = { valid_012 ? 0 : 1,
+                               valid_012 ? 1 : 2,
+                               valid_012 ? 2 : 3 };
+    uint32_t triangle[1 + 1 + 3 * 3];
+    int out = 1;
+    triangle[out] = words[0] & ~(8u << 24);
+    if (gouraud && vertices[0] > 0) {
+        const int prior_color = 1 + (vertices[0] - 1) * stride + stride - 1;
+        triangle[out] = (triangle[out] & 0xff000000u) | (words[prior_color] & 0x00ffffffu);
+    }
+    out++;
+    for (int i = 0; i < 3; i++) {
+        const int vertex = vertices[i];
+        if (i > 0 && gouraud) {
+            const int prior_color = 1 + (vertex - 1) * stride + stride - 1;
+            triangle[out++] = words[prior_color];
+        }
+        triangle[out++] = words[1 + vertex * stride];
+        if (textured) {
+            uint32_t uv = words[1 + vertex * stride + 1];
+            if (i < 2) {
+                const int sideband = 1 + i * stride + 1;
+                uv = (uv & 0x0000ffffu) | (words[sideband] & 0xffff0000u);
+            }
+            triangle[out++] = uv;
+        }
+    }
+    triangle[0] = ((uint32_t)(out - 1) << 24) | 0x00ffffffu;
+    ParseTaglessPrimitive((u32 *)&triangle[1]);
+}
+
+static void submit_gp0_packet(const uint32_t *words, int count, const uint32_t *ex_regs)
 {
     uint32_t packet[257];
 
@@ -309,7 +395,11 @@ static void submit_gp0_packet(const uint32_t *words, int count)
     /* GP0 ignores coordinate bits 15:11. Normalize only geometry here;
      * VRAM transfer positions, dimensions, colors and UVs retain their ABI. */
     normalize_gp0_coordinates(packet + 1, count);
-    ParseTaglessPrimitive((u32 *)(packet + 1));
+    const unsigned command = packet[1] >> 24;
+    if ((command & 0xe0) == 0x20)
+        submit_gp0_polygon(packet + 1, count, ex_regs);
+    else
+        ParseTaglessPrimitive((u32 *)(packet + 1));
 }
 
 typedef struct RendererInitTask {
@@ -525,7 +615,7 @@ int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
         if (cmd >= 0xe0 && cmd <= 0xe7)
             ex_regs[cmd & 7] = LE32TOH(packet[0]);
 
-        submit_gp0_packet(packet, len);
+        submit_gp0_packet(packet, len, ex_regs);
         pos += len;
     }
 
@@ -568,7 +658,7 @@ void renderer_sync_ecmds(uint32_t *ecmds)
     if (!s_context_ready || !ecmds)
         return;
     for (i = 1; i <= 6; i++)
-        submit_gp0_packet(&ecmds[i], 1);
+        submit_gp0_packet(&ecmds[i], 1, NULL);
 }
 
 void renderer_update_caches(int x, int y, int w, int h, int state_changed)
