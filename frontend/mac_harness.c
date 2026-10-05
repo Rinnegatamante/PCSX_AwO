@@ -277,7 +277,7 @@ static void usage(const char *name)
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
     "[--board-bus-trace FILE] [--system12-edge-trace FILE] "
-    "[--max-blocks N] [--icache] [--drc] [--interactive]\n"
+    "[--max-blocks N] [--icache] [--drc] [--interactive] [--system12-vblank-sync-only]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
 
@@ -491,6 +491,7 @@ int main(int argc, char **argv)
   int use_drc = 0;
   int capture_gl = 0;
   int interactive = 0;
+  int vblank_sync_only = 0;
   int max_blocks_requested = 0;
   uint64_t reset_at_cycle = 0;
   int reset_performed = 0;
@@ -548,6 +549,7 @@ int main(int argc, char **argv)
     }
     else if (!strcmp(argv[i], "--drc")) use_drc = 1;
     else if (!strcmp(argv[i], "--interactive")) interactive = 1;
+    else if (!strcmp(argv[i], "--system12-vblank-sync-only")) vblank_sync_only = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
@@ -590,6 +592,17 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--verify-smoke")) verify = 1;
     else if (!strcmp(argv[i], "--icache")) icache = 1;
     else { usage(argv[0]); return 2; }
+  }
+  if (vblank_sync_only) {
+#ifdef PCSX_SYSTEM12
+    if (!board || board_family != 12 || board_test || interactive) {
+      fprintf(stderr, "--system12-vblank-sync-only requires a System12 execution profile\n");
+      return 2;
+    }
+#else
+    fprintf(stderr, "Rebuild with BOARD=1 for System12 cadence diagnostics.\n");
+    return 2;
+#endif
   }
   if (interactive) {
 #if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
@@ -1020,7 +1033,9 @@ int main(int argc, char **argv)
         prev_cycle = psxRegs.cycle;
         reset_performed = 1;
       }
-      int sync_result = selected_board->sync(psxRegs.cycle);
+      /* Diagnostic control for frontends whose board catch-up is driven by
+       * core vblank events rather than this harness's block loop. */
+      int sync_result = vblank_sync_only ? 0 : selected_board->sync(psxRegs.cycle);
       if (sync_result < 0) {
         fprintf(stderr, "%s: device or bus fault during execution\n", selected_board->name);
         result = 1;

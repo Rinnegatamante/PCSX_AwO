@@ -493,11 +493,19 @@ void psxRcntSourceScreenUpdate(void)
 {
     psx_screen_event event;
     psx_screen_time target;
+    int delivered = 0;
     if (!sourceScreenActive() || source_screen_updating) return;
     source_screen_updating = 1;
     target = sourceScreenTime();
-    while (psx_screen_clock_advance_to(&source_screen, target, &event))
+    while (psx_screen_clock_advance_to(&source_screen, target, &event)) {
         deliverSourceScreenEvent(&event);
+        delivered = 1;
+    }
+    /* Some frontends rely exclusively on the core's vblank catch-up. Advance
+     * RTC/EEPROM/PCM too, after every overdue edge is delivered; advancing to
+     * the late MIPS endpoint between two edges would let H8 pass the next one.
+     * Keep the guard set during system12_sync's screen-update reentry. */
+    if (delivered) system12_sync(psxRegs.cycle);
     scheduleRcntBase();
     psxRcntSet();
     source_screen_updating = 0;
@@ -509,7 +517,10 @@ void psxRcntSourceScreenConfigure(u32 gpu_status)
     if (!sourceScreenActive()) return;
     psxRcntSourceScreenUpdate();
     if (psx_screen_clock_configure(&source_screen, sourceScreenTime(),
-        sourceScreenPeriod(gpu_status), &event)) deliverSourceScreenEvent(&event);
+        sourceScreenPeriod(gpu_status), &event)) {
+        deliverSourceScreenEvent(&event);
+        system12_sync(psxRegs.cycle);
+    }
     scheduleRcntBase();
     psxRcntSet();
 }

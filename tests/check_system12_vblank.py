@@ -9,6 +9,7 @@ import argparse
 import csv
 import hashlib
 import json
+import re
 from pathlib import Path
 import struct
 import subprocess
@@ -36,7 +37,7 @@ def prepare(directory, coarse):
                    (0x100, struct.pack('>HHH', *H8_WORDS))])
 
 
-def run_case(harness, directory, coarse, drc):
+def run_case(harness, directory, coarse, drc, vblank_sync_only=False):
     prepare(directory, coarse)
     trace = directory / 'edges.csv'
     command = [str(harness), '--system12', str(directory), '--frames', '3',
@@ -44,6 +45,8 @@ def run_case(harness, directory, coarse, drc):
                '--output', str(directory / 'frame.ppm')]
     if drc:
         command.append('--drc')
+    if vblank_sync_only:
+        command.append('--system12-vblank-sync-only')
     result = subprocess.run(command, capture_output=True, text=True, timeout=30)
     if result.returncode:
         raise RuntimeError(result.stderr)
@@ -51,6 +54,8 @@ def run_case(harness, directory, coarse, drc):
                        '--output', str(directory / 'control.ppm')]
     if drc:
         control_command.append('--drc')
+    if vblank_sync_only:
+        control_command.append('--system12-vblank-sync-only')
     control = subprocess.run(control_command, capture_output=True, text=True, timeout=30)
     if control.returncode:
         raise RuntimeError(control.stderr)
@@ -61,6 +66,8 @@ def run_case(harness, directory, coarse, drc):
                      if line.startswith('System12:')]
     assert observed_state == control_state, (observed_state, control_state)
     assert (directory / 'frame.ppm').read_bytes() == (directory / 'control.ppm').read_bytes()
+    pcm = re.search(r'System12: C352 rate=88200 frames=(\d+)', result.stderr)
+    assert pcm and int(pcm.group(1)) > 0, ('PCM clock did not advance', result.stderr)
     with trace.open() as stream:
         rows = [{key: value if key == 'event' else int(value)
                  for key, value in row.items()} for row in csv.DictReader(stream)]
@@ -86,6 +93,7 @@ def run_case(harness, directory, coarse, drc):
     print('  unsynchronized main-cycle tails:',
           [edge['pending_main_cycles'] for edge in edges])
     return dict(coarse=coarse, cpu='drc' if drc else 'interpreter',
+                vblank_sync_only=vblank_sync_only,
                 command=command, rows=rows, stderr=result.stderr,
                 observer_control_equal=True)
 
@@ -94,6 +102,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--harness', type=Path, required=True)
     parser.add_argument('--drc', action='store_true')
+    parser.add_argument('--vblank-sync-only', action='store_true',
+                        help='omit frontend block catch-up, keeping core screen events')
     parser.add_argument('--output', type=Path, help='save captured observations as JSON')
     args = parser.parse_args()
     harness = args.harness.resolve()
@@ -101,7 +111,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='pcsx-vblank-probe-') as tmp:
         directory = Path(tmp)
         for coarse in (False, True):
-            captures.append(run_case(harness, directory, coarse, args.drc))
+            captures.append(run_case(harness, directory, coarse, args.drc,
+                                     args.vblank_sync_only))
     evidence = dict(harness=str(harness),
                     harness_sha256=hashlib.sha256(harness.read_bytes()).hexdigest(),
                     main_cycle_hz=50000000, h8_hz=16934400,

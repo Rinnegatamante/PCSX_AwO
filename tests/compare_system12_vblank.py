@@ -72,10 +72,12 @@ def main():
                                  native_before=old['h8_cycle'], native_after=new['h8_cycle'],
                                  first_read_delta=new['h8_cycle'] - after, equal=same))
                 print(f"{capture['cpu']} coarse={int(capture['coarse'])} "
+                      f"vblank_only={int(capture.get('vblank_sync_only', False))} "
                       f"edge={index + 1}: MAME first={after}, "
                       f"native first={new['h8_cycle']}, "
                       f"delta={new['h8_cycle'] - after} H8 cycles")
             results.append(dict(cpu=capture['cpu'], coarse=capture['coarse'],
+                                vblank_sync_only=capture.get('vblank_sync_only', False),
                                 native_evidence=str(path), rows=rows))
     equal = all(row['equal'] for result in results for row in result['rows'])
     if args.output:
