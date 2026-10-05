@@ -1,5 +1,20 @@
 # System 12 gameplay replay
 
+For a keyboard-controlled native Mac window using the High Octane OpenGL path:
+
+```sh
+make -f Makefile.mac-harness BUILD=build/mac-harness-interactive GPU=vitagl-like DRC=1 SYSTEM12_TIMING=1
+build/mac-harness-interactive/pcsx-harness --system12 artifacts/system12-profile \
+  --drc --interactive --output /tmp/system12-interactive.ppm
+```
+
+Focus the game window. `5` adds a coin, `1` starts player one, the arrow keys
+move, and `A`/`S`/`D`/Space map to buttons one through four. Escape or closing
+the window ends the session. Losing focus releases held controls. Interactive
+mode paces presentation at 60 frames per second without changing board clocks;
+it cannot be combined with an input replay, GL capture, or board fixture.
+This window exercises the Mac OpenGL implementation, not VitaGL/GXM scheduling.
+
 `tests/check_system12_gameplay.py` runs the local Soul Calibur Asia SOC14/VER.C
 package (`soulclbrac`) through MAME and the native System 12 harness with one
 generated input timeline. It checks that both runs complete, that the board

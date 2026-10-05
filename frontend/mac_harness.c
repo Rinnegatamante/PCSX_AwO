@@ -7,6 +7,9 @@
 #include <inttypes.h>
 #include <math.h>
 #include <unistd.h>
+#ifdef PCSX_NATIVE_VITA_PATH
+#include <SDL3/SDL.h>
+#endif
 #include "../libpcsxcore/r3000a.h"
 #include "../libpcsxcore/psxinterpreter.h"
 #include "../libpcsxcore/misc.h"
@@ -232,9 +235,39 @@ static void usage(const char *name)
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
     "[--board-bus-trace FILE] "
-    "[--max-blocks N] [--icache] [--drc]\n"
+    "[--max-blocks N] [--icache] [--drc] [--interactive]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
+
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+static void poll_interactive_input(void)
+{
+  static const struct { SDL_Scancode key; const char *control; } keys[] = {
+    {SDL_SCANCODE_5, "coin1"}, {SDL_SCANCODE_1, "p1start"},
+    {SDL_SCANCODE_UP, "p1up"}, {SDL_SCANCODE_DOWN, "p1down"},
+    {SDL_SCANCODE_LEFT, "p1left"}, {SDL_SCANCODE_RIGHT, "p1right"},
+    {SDL_SCANCODE_A, "p1button1"}, {SDL_SCANCODE_S, "p1button2"},
+    {SDL_SCANCODE_D, "p1button3"}, {SDL_SCANCODE_SPACE, "p1button4"}
+  };
+  SDL_Event event;
+  while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+      interrupted = 1;
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+      for (unsigned i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+        system12_set_input(keys[i].control, 0);
+    }
+    if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
+      continue;
+    if (event.key.repeat) continue;
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_ESCAPE)
+      interrupted = 1;
+    for (unsigned i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+      if (event.key.scancode == keys[i].key)
+        system12_set_input(keys[i].control, event.type == SDL_EVENT_KEY_DOWN);
+  }
+}
+#endif
 
 #ifdef PCSX_SYSTEM12
 static int load_nvram(const char *path)
@@ -410,6 +443,11 @@ int main(int argc, char **argv)
   int icache = 0;
   int use_drc = 0;
   int capture_gl = 0;
+  int interactive = 0;
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+  unsigned interactive_frame = 0;
+  uint64_t interactive_started_ns = 0;
+#endif
   const char *vram_path = NULL;
   struct timespec begin, end;
   /* These fixture selectors are parsed for a clear BOARD=0 diagnostic too. */
@@ -445,6 +483,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--nvram") && i + 1 < argc) nvram_path = argv[++i];
     else if (!strcmp(argv[i], "--audio-test-fixture")) audio_test_fixture = 1;
     else if (!strcmp(argv[i], "--drc")) use_drc = 1;
+    else if (!strcmp(argv[i], "--interactive")) interactive = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
@@ -482,6 +521,18 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--verify-smoke")) verify = 1;
     else if (!strcmp(argv[i], "--icache")) icache = 1;
     else { usage(argv[0]); return 2; }
+  }
+  if (interactive) {
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+    if (!board || board_family != 12 || inputs_path || capture_gl || board_test) {
+      fprintf(stderr, "interactive mode requires System12 without replay/capture/board-test options\n");
+      return 2;
+    }
+    frames = UINT32_MAX / 4;
+#else
+    fprintf(stderr, "interactive mode requires the vitagl-like Mac renderer build\n");
+    return 2;
+#endif
   }
   next_snapshot = snapshot_start ? snapshot_start : snapshot_interval;
   if (vram_path) {
@@ -751,6 +802,13 @@ int main(int argc, char **argv)
 #endif
   if (!result && exe && Load(exe)) result = 1;
   signal(SIGINT, on_signal); signal(SIGTERM, on_signal);
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+  if (interactive) {
+    interactive_started_ns = SDL_GetTicksNS();
+    interactive_frame = frame_counter;
+    fprintf(stderr, "Interactive: 5 coin, 1 start, arrows move, A/S/D/Space buttons, Escape exit\n");
+  }
+#endif
   start_frame = frame_counter; prev_cycle = psxRegs.cycle;
   if (harness_configure_gl_capture(capture_gl, start_frame + frames - 1)) {
     fprintf(stderr, "failed to configure GL capture\n");
@@ -773,6 +831,20 @@ int main(int argc, char **argv)
   clock_gettime(CLOCK_MONOTONIC, &begin);
   while (!result && !interrupted && frame_counter - start_frame < frames) {
     unsigned int steps = 0;
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+    if (interactive) {
+      if ((blocks & 255) == 0 || frame_counter != interactive_frame)
+        poll_interactive_input();
+      if (frame_counter != interactive_frame) {
+        /* Pace presentation only; emulated board clocks remain unchanged. */
+        uint64_t target = interactive_started_ns +
+            (uint64_t)(frame_counter - start_frame) * 1000000000 / 60;
+        uint64_t now = SDL_GetTicksNS();
+        if (target > now) SDL_DelayNS(target - now);
+        interactive_frame = frame_counter;
+      }
+    }
+#endif
 #ifdef PCSX_SYSTEM12
     if (board && apply_input_events(input_events, input_event_count,
         &next_input_event, frame_counter - start_frame)) { result = 1; break; }
