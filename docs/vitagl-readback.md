@@ -122,3 +122,19 @@ alpha. All 11 forwarded faults match recoveries; shutdown and Idle pass. The
 isolated host is in `build/vita-validation-display-trace2`; its portable
 `vita3k.log` contains the bounded display records. The watchdog closes each
 owned install/run process; no native host remains after the test.
+
+Three scratch shader experiments further isolate the failure. Forcing only
+presentation alpha to one leaves its RGB zero (`display-alpha` log). Replacing
+the presentation fragment with constant red produces `(255,0,0,255)` and native
+PNG captures show the red viewport with black side bars (`display-red` log).
+Sampling the source texture at fixed UV `(0.5,0.5)` produces black again
+(`display-constantuv` log). Each run passes the 180-frame VRAM probe and shutdown;
+the latter host pairs 13 forwarded faults with 13 recoveries. These logs are
+`/tmp/pcsx-vitagl-<name>-20261005.log`. The constant-UV run uses
+`build/vita-validation-display-trace3`, which also locks the display-state
+snapshot used by diagnostic logging. The runner's crash/timeout/installation
+regression passes in `/tmp/pcsx-vita3k-display-runner-tests-20261005.log`.
+
+These shader changes are confined to the SDK scratch tree. They are diagnostic
+probes, not renderer fixes: native presentation draws correctly with a constant
+fragment, while sampling the source render texture in this path still fails.

@@ -41,16 +41,22 @@
  
  #include <display/functions.h>
  #include <display/state.h>
-@@ -154,6 +156,12 @@
+@@ -154,6 +156,18 @@
      info.image_size.x = pFrameBuf->width;
      info.image_size.y = pFrameBuf->height;
      update_prediction(emuenv, info);
 +    static std::atomic<uint32_t> trace_count{0};
 +    const uint32_t trace_index = ++trace_count;
-+    if (trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0))
++    if (trace_index <= 8 || (trace_index <= 240 && trace_index % 60 == 0)) {
++        Address next_base;
++        {
++            const std::lock_guard<std::mutex> guard(emuenv.display.display_info_mutex);
++            next_base = emuenv.display.next_rendered_frame.base.address();
++        }
 +        LOG_INFO("PCSX display accepted n={} base={:08x} pitch={} size={}x{} predicting={} next={:08x}",
 +            trace_index, info.base.address(), info.pitch, pFrameBuf->width, pFrameBuf->height,
-+            emuenv.display.predicting.load(), emuenv.display.next_rendered_frame.base.address());
++            emuenv.display.predicting.load(), next_base);
++    }
  
      emuenv.display.last_setframe_vblank_count = emuenv.display.vblank_count.load();
      emuenv.frame_count++;
