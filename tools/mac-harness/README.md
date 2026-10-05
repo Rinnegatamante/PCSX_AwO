@@ -203,3 +203,11 @@ comparison; the recorded host summary identifies what actually ran. The NEON
 interpreter passes all eighteen pixels in
 `/tmp/pcsx-mac-framebuffer-runner-neon-fixed-20261005`. This probe does not
 establish whole-game graphics compatibility.
+
+Add `--texture-window` for six further reads after setting GP0 E2 mask/offset
+and resetting E2. Mac NEON passes this 24-pixel probe in
+`/tmp/pcsx-mac-framebuffer-e2-neon-20261005`; Vita NEON also passes its native
+version. The segmented VitaGL version preserves the original eighteen reads
+but fails the E2 remapped samples, returning the unwindowed colors. This is a
+demonstrated missing texture-window operation in the PCSX native backend;
+it does not establish that Soul Calibur's remaining artifacts use E2.
