@@ -33,7 +33,7 @@ movstore(0x003f, 0x28000c) -- sample end
 nops(keyon_delay_nops)
 movstore(0x0000, 0x280404) -- execute key-on
 nops(keyoff_delay_nops)
-movstore(0x2006, 0x280006) -- key-off + loop/filter
+movstore(0xa006, 0x280006) -- preserve BUSY until execute-key handles key-off
 movstore(0x0000, 0x280404) -- execute key-off
 emit(0x0180) -- sleep while the sound stream advances
 
