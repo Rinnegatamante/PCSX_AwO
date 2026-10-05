@@ -1,0 +1,112 @@
+--- a/vita3k/mem/src/mem.cpp
++++ b/vita3k/mem/src/mem.cpp
+@@ -28,6 +28,15 @@
+ #include <mutex>
+ #include <utility>
+ 
++#if defined(__APPLE__)
++#include <mach/mach.h>
++#include <mach/mach_vm.h>
++#endif
++
++#ifdef VITA3K_MEM_STALE_FAULT_TEST
++#include <atomic>
++#endif
++
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <Windows.h>
+@@ -53,6 +62,61 @@
+ static Address alloc_inner(MemState &state, uint32_t start_page, uint32_t page_count, const char *name, const bool force);
+ static void delete_memory(uint8_t *memory);
+ 
++#if defined(__APPLE__) && !defined(VITA3K_MEM_STALE_FAULT_BASELINE)
++// Query current (not maximum) protection for the region containing this address.
++static bool mach_region_is_read_write(uintptr_t address) noexcept {
++    mach_vm_address_t region_address = static_cast<mach_vm_address_t>(address);
++    mach_vm_size_t region_size = 0;
++    vm_region_basic_info_data_64_t region_info {};
++    mach_msg_type_number_t info_count = VM_REGION_BASIC_INFO_COUNT_64;
++    mach_port_t object_name = MACH_PORT_NULL;
++    const kern_return_t result = mach_vm_region(
++        mach_task_self(), &region_address, &region_size, VM_REGION_BASIC_INFO_64,
++        reinterpret_cast<vm_region_info_t>(&region_info), &info_count, &object_name);
++    if (object_name != MACH_PORT_NULL)
++        (void)mach_port_deallocate(mach_task_self(), object_name);
++    if (result != KERN_SUCCESS || region_address > address || address - region_address >= region_size)
++        return false;
++    constexpr vm_prot_t required = VM_PROT_READ | VM_PROT_WRITE;
++    return (region_info.protection & required) == required;
++}
++
++static bool is_stale_direct_memory_fault(const MemState &state, uintptr_t fault_addr) noexcept {
++    if (state.use_page_table)
++        return false;
++    const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
++    if (fault_addr < memory_addr || fault_addr - memory_addr >= TOTAL_MEM_SIZE)
++        return false;
++    return mach_region_is_read_write(fault_addr);
++}
++#endif
++
++#ifdef VITA3K_MEM_STALE_FAULT_TEST
++namespace {
++std::atomic<uint32_t> stale_fault_test_arrivals { 0 };
++std::atomic<bool> stale_fault_test_release { true };
++}
++
++void mem_test_arm_stale_fault_gate() noexcept {
++    stale_fault_test_arrivals.store(0, std::memory_order_relaxed);
++    stale_fault_test_release.store(false, std::memory_order_release);
++}
++
++uint32_t mem_test_stale_fault_arrivals() noexcept {
++    return stale_fault_test_arrivals.load(std::memory_order_acquire);
++}
++
++void mem_test_release_stale_fault_gate() noexcept {
++    stale_fault_test_release.store(true, std::memory_order_release);
++}
++
++static void wait_at_stale_fault_test_gate() noexcept {
++    stale_fault_test_arrivals.fetch_add(1, std::memory_order_acq_rel);
++    while (!stale_fault_test_release.load(std::memory_order_acquire)) {
++    }
++}
++#endif
++
+ #ifdef _WIN32
+ static std::string get_error_msg() {
+     return std::system_category().message(GetLastError());
+@@ -274,6 +338,9 @@
+     const uintptr_t fault_addr = reinterpret_cast<uintptr_t>(addr);
+ 
+     Address vaddr = 0;
++#ifdef VITA3K_MEM_STALE_FAULT_TEST
++    wait_at_stale_fault_test_gate();
++#endif
+     const std::unique_lock<std::mutex> lock(state.protect_mutex);
+     if (fault_addr < memory_addr || fault_addr >= memory_addr + TOTAL_MEM_SIZE) {
+         if (state.use_page_table) {
+@@ -301,6 +368,10 @@
+ 
+     auto it = state.protect_tree.lower_bound(vaddr);
+     if (it == state.protect_tree.end()) {
++#if defined(__APPLE__) && !defined(VITA3K_MEM_STALE_FAULT_BASELINE)
++        if (is_stale_direct_memory_fault(state, fault_addr))
++            return true;
++#endif
+         // HACK: keep going
+         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
+         LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
+@@ -309,6 +380,10 @@
+ 
+     ProtectSegmentInfo &info = it->second;
+     if (vaddr < it->first || vaddr >= it->first + info.size) {
++#if defined(__APPLE__) && !defined(VITA3K_MEM_STALE_FAULT_BASELINE)
++        if (is_stale_direct_memory_fault(state, fault_addr))
++            return true;
++#endif
+         // HACK: keep going
+         unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
+         LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);

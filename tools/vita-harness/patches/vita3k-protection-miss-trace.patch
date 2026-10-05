@@ -51,19 +51,17 @@
  bool handle_access_violation(MemState &state, uint8_t *addr, bool write) noexcept {
      const uintptr_t memory_addr = reinterpret_cast<uintptr_t>(state.memory.get());
      const uintptr_t fault_addr = reinterpret_cast<uintptr_t>(addr);
-@@ -301,6 +342,7 @@
-     auto it = state.protect_tree.lower_bound(vaddr);
-     if (it == state.protect_tree.end()) {
+@@ -303,5 +344,6 @@
          // HACK: keep going
 +        trace_protection_miss(state, addr, memory_addr, vaddr, write, true, it);
          unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
          LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
          return true;
-@@ -309,6 +351,7 @@
-     ProtectSegmentInfo &info = it->second;
-     if (vaddr < it->first || vaddr >= it->first + info.size) {
+     }
+@@ -311,5 +353,6 @@
          // HACK: keep going
 +        trace_protection_miss(state, addr, memory_addr, vaddr, write, true, it);
          unprotect_inner(state, align_down(vaddr, state.host_page_size), state.host_page_size);
          LOG_CRITICAL("Unhandled write protected region was valid. Address=0x{:X}", vaddr);
          return true;
+     }

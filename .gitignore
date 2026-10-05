@@ -19,6 +19,7 @@ cheatpops.db
 /build/mac-harness/
 /build/vita-gnet/
 /build/vita-validation-protection-miss7/
+/build/vita-validation-stale-fault8/
 /build/mac-harness-agent/
 /build/mac-harness-console/
 /build/chd-hd-tests/

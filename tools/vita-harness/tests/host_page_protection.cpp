@@ -4,6 +4,16 @@
 #include <cstdio>
 #include <cstdlib>
 
+#ifdef VITA3K_MEM_STALE_FAULT_TEST
+#include <atomic>
+#include <chrono>
+#include <thread>
+
+void mem_test_arm_stale_fault_gate() noexcept;
+uint32_t mem_test_stale_fault_arrivals() noexcept;
+void mem_test_release_stale_fault_gate() noexcept;
+#endif
+
 namespace {
 constexpr Address kBase = 0x40000000;
 int watched_a = 0;
@@ -96,6 +106,63 @@ int main() {
     mem.memory[kBase + 2 * host_page + 0x100] = 0x4f;
     require(lower_count == 1 && upper_count == 1 && wide_count == 1,
             "effective grown range invokes all merged callbacks");
+
+#ifdef VITA3K_MEM_STALE_FAULT_TEST
+    // Both threads must have taken the synchronous host fault before either
+    // handler can acquire protect_mutex and open/erase this segment.
+    const Address lower_neighbor = kBase + 3 * host_page + 0x200;
+    const Address race_watch = kBase + 4 * host_page + 0x200;
+    int lower_neighbor_callbacks = 0;
+    require(add_protect(mem, lower_neighbor, 64, MemPerm::ReadOnly,
+                        counter(lower_neighbor_callbacks)),
+            "retain a lower neighboring protection segment");
+    const auto run_race = [&] {
+        mem.memory[race_watch] = 0x81;
+        int race_callbacks = 0;
+        require(add_protect(mem, race_watch, 64, MemPerm::None, counter(race_callbacks)),
+                "protect the concurrent-fault page");
+        const volatile uint8_t *race_ptr = &mem.memory[race_watch];
+        uint8_t result_a = 0;
+        uint8_t result_b = 0;
+        mem_test_arm_stale_fault_gate();
+        std::thread reader_a([&] { result_a = race_ptr[0]; });
+        std::thread reader_b([&] { result_b = race_ptr[0]; });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (mem_test_stale_fault_arrivals() < 2 && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        const bool both_faulted = mem_test_stale_fault_arrivals() == 2;
+        mem_test_release_stale_fault_gate();
+        reader_a.join();
+        reader_b.join();
+        require(both_faulted, "both readers reached the fault gate");
+        require(result_a == 0x81 && result_b == 0x81, "both readers retry successfully");
+        require(race_callbacks == 1, "concurrent faults invoke the callback once");
+        require(lower_neighbor_callbacks == 0,
+                "neighboring segment callback remains untouched after stale-fault recovery");
+        std::puts("STALE_FAULT_RACE_PASS");
+    };
+    run_race();
+    std::atomic<int> unrelated_callbacks { 0 };
+    require(add_protect(mem, kBase + 0x100, 64, MemPerm::None, [&](Address, bool) {
+                unrelated_callbacks.fetch_add(1, std::memory_order_relaxed);
+                return true;
+            }),
+            "keep an unrelated lower-address segment during the duplicate fault");
+    run_race();
+    require(unrelated_callbacks.load(std::memory_order_relaxed) == 0, "duplicate fault preserves the unrelated watcher");
+    mem.memory[kBase + 0x100] = 0x42;
+    require(unrelated_callbacks.load(std::memory_order_relaxed) == 1, "unrelated watcher remains armed after duplicate fault");
+    const Address race_missing = race_watch + 0x100;
+
+    // A real metadata miss must retain the old critical fallback. The page is
+    // protected directly, with no matching protect_tree entry.
+    protect_inner(mem, race_missing, 16, MemPerm::None);
+    require(handle_access_violation(mem, &mem.memory[race_missing], false),
+            "true metadata miss retains fallback recovery");
+    require(mem.memory[race_missing] == 0,
+            "fallback recovery makes a true-miss page accessible");
+    std::puts("STALE_FAULT_TRUE_MISS_PASS");
+#endif
 
     std::puts("host-page protection regression PASS");
     return 0;

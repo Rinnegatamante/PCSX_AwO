@@ -12,6 +12,7 @@ from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 
 HERE = Path(__file__).resolve().parent
@@ -21,6 +22,10 @@ parser.add_argument('--build', type=Path, required=True, help='Existing CMake bu
 parser.add_argument('--sanitize', action='store_true', help='Enable ASan and UBSan')
 parser.add_argument('--baseline', action='store_true', help='Run against unpatched mem.cpp and require the regression to fail')
 parser.add_argument('--trace-recovery', action='store_true', help='Apply private Apple ARM64 signal-handler recovery trace patch')
+parser.add_argument('--test-stale-faults', action='store_true',
+                    help='Run the concurrent stale-fault and true-metadata-miss regression')
+parser.add_argument('--baseline-stale-faults', action='store_true',
+                    help='Require the host-page-patched baseline to log the concurrent stale fault')
 args = parser.parse_args()
 source = args.source.resolve()
 build = args.build.resolve()
@@ -28,8 +33,15 @@ mem_build = build / 'vita3k/mem'
 patch = HERE / 'patches/vita3k-host-page-protection.patch'
 test_src = HERE / 'tests/host_page_protection.cpp'
 recovery_patch = HERE / 'patches/vita3k-macos-recovery-trace.patch'
+stale_fault_patch = HERE / 'patches/vita3k-stale-protection-fault.patch'
 if args.baseline and args.trace_recovery:
     parser.error('--baseline and --trace-recovery cannot be combined')
+if args.baseline and (args.test_stale_faults or args.baseline_stale_faults):
+    parser.error('--baseline cannot be combined with stale-fault regression modes')
+if args.test_stale_faults and args.baseline_stale_faults:
+    parser.error('choose either --test-stale-faults or --baseline-stale-faults')
+if (args.test_stale_faults or args.baseline_stale_faults) and sys.platform != 'darwin':
+    parser.error('stale-fault regression modes require macOS Mach VM APIs')
 for required in (source / 'vita3k/mem/src/mem.cpp', mem_build / 'CMakeFiles/mem.dir/link.txt',
                  mem_build / 'CMakeFiles/mem-tests.dir/link.txt'):
     if not required.is_file():
@@ -57,6 +69,9 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
     if args.trace_recovery:
         subprocess.run(['git', 'apply', '--check', str(recovery_patch)], cwd=private_source, check=True)
         subprocess.run(['git', 'apply', str(recovery_patch)], cwd=private_source, check=True)
+    if args.test_stale_faults or args.baseline_stale_faults:
+        subprocess.run(['git', 'apply', '--check', str(stale_fault_patch)], cwd=private_source, check=True)
+        subprocess.run(['git', 'apply', str(stale_fault_patch)], cwd=private_source, check=True)
 
     mem_vars = make_vars(mem_build / 'CMakeFiles/mem.dir/flags.make')
     test_vars = make_vars(mem_build / 'CMakeFiles/mem-tests.dir/flags.make')
@@ -68,6 +83,9 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
     def compile_cmd(vars_, source_path, output):
         return ['/usr/bin/c++', *shlex.split(vars_['CXX_DEFINES']),
                 *shlex.split(vars_['CXX_INCLUDES']), *shlex.split(vars_['CXX_FLAGS']),
+                *(['-DVITA3K_MEM_STALE_FAULT_TEST']
+                  if args.test_stale_faults or args.baseline_stale_faults else []),
+                *(['-DVITA3K_MEM_STALE_FAULT_BASELINE'] if args.baseline_stale_faults else []),
                 *sanitizer, '-c', str(source_path), '-o', str(output)]
 
     subprocess.run(compile_cmd(mem_vars, patched_mem, patched_obj), cwd=build, check=True)
@@ -110,13 +128,24 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
     if args.sanitize:
         environment['ASAN_OPTIONS'] = 'detect_leaks=0'
     result = subprocess.run([str(exe)], cwd=mem_build, env=environment,
-                            text=True, capture_output=True)
+                            text=True, capture_output=True, timeout=20)
     if args.baseline:
         if result.returncode == 0 or 'FAIL: same host page shares one protection segment' not in result.stderr:
             print(result.stdout, end='')
             print(result.stderr, end='')
             raise RuntimeError('unpatched baseline did not fail at the expected regression assertion')
         print('unpatched baseline fails at the expected host-page segment assertion')
+    elif args.baseline_stale_faults:
+        print(result.stdout, end='')
+        print(result.stderr, end='')
+        if result.returncode:
+            raise subprocess.CalledProcessError(result.returncode, [str(exe)])
+        message = 'Unhandled write protected region was valid.'
+        if result.stdout.count('STALE_FAULT_RACE_PASS') != 2 or result.stdout.count('STALE_FAULT_TRUE_MISS_PASS') != 1:
+            raise RuntimeError('baseline did not complete both stale-fault scenarios')
+        if (result.stdout + result.stderr).count(message) != 3:
+            raise RuntimeError('host-page baseline did not log both the stale fault and true metadata miss')
+        print('host-page baseline logs the stale concurrent fault and the true metadata miss')
     else:
         print(result.stdout, end='')
         print(result.stderr, end='')
@@ -130,3 +159,10 @@ with tempfile.TemporaryDirectory(prefix='vita3k-host-page-test-') as temp_name:
             if not recovered:
                 raise RuntimeError('fault test passed but emitted no successful recovery trace')
             print(f'recovery trace records={len(recovered)}')
+        if args.test_stale_faults:
+            message = 'Unhandled write protected region was valid.'
+            if result.stdout.count('STALE_FAULT_RACE_PASS') != 2 or result.stdout.count('STALE_FAULT_TRUE_MISS_PASS') != 1:
+                raise RuntimeError('stale-fault regression did not complete both scenarios')
+            if (result.stdout + result.stderr).count(message) != 1:
+                raise RuntimeError('stale-fault fix must suppress only the duplicate miss and retain the true-miss critical')
+            print('stale-fault regression suppresses the duplicate miss and retains the true-miss critical')

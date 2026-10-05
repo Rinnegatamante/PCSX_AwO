@@ -55,3 +55,37 @@ interval bounds/sizes in descending map order. It changes no recovery behavior
 and retains the existing critical error. The gameplay runner keeps these lines
 in its bounded log. The patch applies with or without the host-page and
 recovery-trace patches; the isolated macOS host compilation passes.
+
+## Concurrent faults on an already opened page
+
+`--fix-stale-protection-faults` adds a macOS-only check for a valid address in
+non-page-table direct memory whose tree interval is missing. Under the existing
+protection mutex, `mach_vm_region` must report that the containing region is
+currently readable and writable before the fault can retry without a critical.
+The returned object port is released. A protected page, failed query, invalid
+address, or page-table mapping keeps the existing path. This adds no retired
+page cache or handler-time allocation.
+
+The deterministic regression gates two native reader faults before either
+handler acquires the mutex. It covers both an empty interval tree and a missing
+interval next to an unrelated protected range. Callbacks fire once, both readers
+retry, and the unrelated watcher remains armed. A separate protected page with
+missing metadata must still emit the original critical. Run:
+
+```sh
+python3 tools/vita-harness/test_host_page_protection.py \
+  --source ../vita3k --build ../vita3k/build/macos --test-stale-faults --sanitize
+python3 tools/vita-harness/test_host_page_protection.py \
+  --source ../vita3k --build ../vita3k/build/macos --baseline-stale-faults
+```
+
+Both normal and ASan/UBSan fixed runs pass; the baseline reports both duplicate
+criticals plus the genuine metadata miss. The fixed runs retain only the genuine
+miss. Logs are `/tmp/pcsx-stale-fault-fixed-final2-20261005.log`,
+`/tmp/pcsx-stale-fault-sanitize-final2-20261005.log`, and
+`/tmp/pcsx-stale-fault-baseline-final2-20261005.log`. Each fixture process has a
+20-second timeout. All eight combinations of host-page/recovery/stale patches
+with the optional miss trace apply. Private host
+`build/vita-validation-stale-fault8` compiles with the new flag; native game
+validation is still pending. The regression establishes this race mechanism,
+not that every observed game protection critical has this cause.
