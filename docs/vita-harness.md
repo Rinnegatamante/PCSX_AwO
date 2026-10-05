@@ -671,3 +671,17 @@ SIGKILL after SIGTERM. There is no frame-9,000 milestone or completed replay.
 Twenty-five native screenshots, the exact runtime/static mapping, sampled
 waits, and the controlled-stop reason are retained in
 `/tmp/pcsx-vitagl-lwcond-trace3-native-12000-20261005/allocator-delay-review.json`.
+
+Separate Mac investigation reproduced an ARM64 DRC SIGSEGV with both the
+interactive GL harness and a headless NEON replay. The allocator had allowed
+Apple's reserved platform register x18 to hold guest state. Commit `62d5b56a`
+excludes it on Apple ARM64. The previously crashing 12,000-frame NEON replay
+then completes in 93.450 seconds; its evidence is retained in
+`/tmp/pcsx-mac-neon-x18-excluded-12000-20261005`. A fresh GL build with that
+fix also completes the 12,000-frame/177-input schedule and shutdown, with
+zero reported unsupported H8 instructions, DMA truncations, or unmapped board
+accesses. Its frozen executable, actual GL backbuffer, VRAM, log, and timings
+are in `/tmp/pcsx-mac-gl-x18-fixed-12000-20261005/evidence.json`. The final
+capture is a blue transition effect, not a matching native frame. These
+replays do not establish sustained interactive stability, identical Mac/Vita
+NEON output, or complete graphics correctness.
