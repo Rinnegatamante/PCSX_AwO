@@ -1,0 +1,2 @@
+# Unified diffs contain a leading context space before source tabs and blanks.
+tools/vita-harness/patches/*.patch -whitespace
