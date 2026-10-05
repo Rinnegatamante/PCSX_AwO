@@ -1,0 +1,26 @@
+CXX ?= clang++
+CXXFLAGS ?= -std=c++11 -O2 -g -Wall -Wextra -Werror
+BUILD ?= build/h8-adc-tests
+TARGET := $(BUILD)/h8-adc
+SAN_TARGET := $(BUILD)/ubsan/h8-adc
+SAN_FLAGS := -std=c++11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all
+
+.PHONY: all test ubsan clean
+all: $(TARGET)
+
+$(TARGET): libpcsxcore/arcade/h8_adc.cpp libpcsxcore/arcade/h8_adc.h tests/h8_adc.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8_adc.cpp tests/h8_adc.cpp -o $@
+
+$(SAN_TARGET): libpcsxcore/arcade/h8_adc.cpp libpcsxcore/arcade/h8_adc.h tests/h8_adc.cpp
+	@mkdir -p $(BUILD)/ubsan
+	$(CXX) $(SAN_FLAGS) libpcsxcore/arcade/h8_adc.cpp tests/h8_adc.cpp -o $@
+
+test: $(TARGET)
+	$(TARGET)
+
+ubsan: $(SAN_TARGET)
+	$(SAN_TARGET)
+
+clean:
+	rm -rf $(BUILD)
