@@ -1,0 +1,394 @@
+#include "ata_storage.h"
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <vector>
+
+namespace {
+constexpr uint8_t kBsy = 0x80;
+constexpr uint8_t kDrq = 0x08;
+constexpr uint8_t kDrdy = 0x40;
+constexpr uint8_t kErr = 0x01;
+
+struct Disk {
+  std::vector<uint8_t> bytes = std::vector<uint8_t>(16 * 512);
+  bool fail_read = false;
+  bool fail_write = false;
+  ata_storage_t *ata = nullptr;
+  int destroy_result = 0;
+  int reentry_result = 0;
+};
+
+int read_sector(void *opaque, uint32_t lba, void *out) {
+  auto &disk = *static_cast<Disk *>(opaque);
+  if (disk.ata) {
+    disk.destroy_result = ata_storage_try_destroy(disk.ata);
+    disk.reentry_result = ata_storage_run_until(
+        disk.ata, ata_storage_now(disk.ata));
+  }
+  if (disk.fail_read || lba >= 16)
+    return 0;
+  std::memcpy(out, disk.bytes.data() + lba * 512, 512);
+  return 1; // MAME read_sector convention: nonzero means success.
+}
+
+int write_sector(void *opaque, uint32_t lba, const void *in) {
+  auto &disk = *static_cast<Disk *>(opaque);
+  if (disk.ata) {
+    disk.destroy_result = ata_storage_try_destroy(disk.ata);
+    disk.reentry_result = ata_storage_run_until(
+        disk.ata, ata_storage_now(disk.ata));
+  }
+  if (disk.fail_write || lba >= 16)
+    return 0;
+  std::memcpy(disk.bytes.data() + lba * 512, in, 512);
+  return 1;
+}
+
+struct Lines {
+  int irq = 0;
+  int dmarq = 0;
+  int dasp = 0;
+};
+void irq_line(void *opaque, int state) { static_cast<Lines *>(opaque)->irq = state; }
+void dmarq_line(void *opaque, int state) { static_cast<Lines *>(opaque)->dmarq = state; }
+void dasp_line(void *opaque, int state) { static_cast<Lines *>(opaque)->dasp = state; }
+
+ata_storage_t *make_ata(Disk &disk, Lines &lines,
+                        const uint8_t *identify = nullptr,
+                        size_t identify_size = 0) {
+  ata_storage_config_t config{};
+  config.sector_count = 16;
+  config.cylinders = 1;
+  config.heads = 1;
+  config.sectors_per_track = 16;
+  config.model = "Port fidelity disk";
+  config.identify_data = identify;
+  config.identify_size = identify_size;
+  config.media_opaque = &disk;
+  config.read_sector = read_sector;
+  config.write_sector = write_sector;
+  config.line_opaque = &lines;
+  config.irq = irq_line;
+  config.dmarq = dmarq_line;
+  config.dasp = dasp_line;
+  ata_storage_t *ata = nullptr;
+  assert(ata_storage_create(&config, &ata) == ATA_STORAGE_OK);
+  disk.ata = ata;
+  return ata;
+}
+
+void finish_power_on_reset(ata_storage_t *ata, bool expect_ready = true) {
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_run_until(ata, 2'000'000) == ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kBsy); // device detection starts diagnostics.
+  assert(ata_storage_run_until(ata, 4'000'000) == ATA_STORAGE_OK);
+  assert(!(ata_storage_status(ata) & kBsy));
+  if (expect_ready)
+    assert(ata_storage_status(ata) & kDrdy);
+}
+
+void write_register(ata_storage_t *ata, uint32_t reg, uint16_t value) {
+  ata_storage_command_w(ata, reg, value, 0xffff, 0);
+}
+void set_lba(ata_storage_t *ata, uint16_t count, uint8_t lba) {
+  write_register(ata, 2, count);
+  write_register(ata, 3, lba);
+  write_register(ata, 4, 0);
+  write_register(ata, 5, 0);
+  write_register(ata, 6, 0x40);
+}
+void read_sector_words(ata_storage_t *ata, uint8_t *out) {
+  for (unsigned i = 0; i < 256; ++i) {
+    const uint16_t word = ata_storage_command_r(ata, 0, 0xffff, 0);
+    out[i * 2] = static_cast<uint8_t>(word);
+    out[i * 2 + 1] = static_cast<uint8_t>(word >> 8);
+  }
+}
+void write_sector_words(ata_storage_t *ata, const uint8_t *in) {
+  for (unsigned i = 0; i < 256; ++i) {
+    const uint16_t word = uint16_t(in[i * 2]) | (uint16_t(in[i * 2 + 1]) << 8);
+    ata_storage_command_w(ata, 0, word, 0xffff, 0);
+  }
+}
+
+void test_pio_read_write_and_multiple() {
+  Disk disk;
+  Lines lines;
+  for (size_t i = 0; i < disk.bytes.size(); ++i)
+    disk.bytes[i] = static_cast<uint8_t>(i * 13 + 7);
+  ata_storage_t *ata = make_ata(disk, lines);
+  finish_power_on_reset(ata);
+
+  set_lba(ata, 2, 0);
+  write_register(ata, 7, 0x20);
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata)) == ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  assert(lines.irq == 1);
+  std::array<uint8_t, 512> first{};
+  read_sector_words(ata, first.data());
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_sector_count(ata) == 1);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 400) == ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  std::array<uint8_t, 512> second{};
+  read_sector_words(ata, second.data());
+  assert(first[0] == disk.bytes[0] && first[511] == disk.bytes[511]);
+  assert(second[0] == disk.bytes[512] && second[511] == disk.bytes[1023]);
+  assert(ata_storage_sector_count(ata) == 0);
+
+  std::array<uint8_t, 512> out_a{}, out_b{};
+  for (unsigned i = 0; i < 512; ++i) {
+    out_a[i] = static_cast<uint8_t>(i ^ 0x39);
+    out_b[i] = static_cast<uint8_t>(i ^ 0xa6);
+  }
+  set_lba(ata, 2, 4);
+  write_register(ata, 7, 0x30);
+  assert(ata_storage_status(ata) & kDrq);
+  write_sector_words(ata, out_a.data());
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 100'000) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  write_sector_words(ata, out_b.data());
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 100'000) ==
+         ATA_STORAGE_OK);
+  assert(std::memcmp(disk.bytes.data() + 4 * 512, out_a.data(), 512) == 0);
+  assert(std::memcmp(disk.bytes.data() + 5 * 512, out_b.data(), 512) == 0);
+  assert(ata_storage_sector_count(ata) == 0);
+  assert(disk.destroy_result == ATA_STORAGE_BUSY);
+  assert(disk.reentry_result == ATA_STORAGE_BUSY);
+  assert(ata_storage_try_destroy(ata) == ATA_STORAGE_OK);
+}
+
+void test_identify_error_feature_and_reset() {
+  Disk disk;
+  Lines lines;
+  std::array<uint8_t, 512> identify{};
+  identify[0] = 0x34;
+  identify[1] = 0x12;
+  identify[120] = 0xef;
+  identify[121] = 0xbe;
+  ata_storage_t *ata = make_ata(disk, lines, identify.data(), identify.size());
+  finish_power_on_reset(ata);
+  write_register(ata, 7, 0xec);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  assert(ata_storage_command_r(ata, 0, 0xffff, 0) == 0x1234);
+  for (unsigned i = 1; i < 256; ++i)
+    (void)ata_storage_command_r(ata, 0, 0xffff, 0);
+  assert(!(ata_storage_status(ata) & kDrq));
+
+  write_register(ata, 1, 0x01);
+  write_register(ata, 7, 0xef);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+         ATA_STORAGE_OK);
+  write_register(ata, 7, 0xec);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_command_r(ata, 0, 0x00ff, 1) == 0x34);
+  assert(ata_storage_command_r(ata, 0, 0x00ff, 1) == 0x12);
+  for (unsigned i = 2; i < 512; ++i)
+    (void)ata_storage_command_r(ata, 0, 0x00ff, 1);
+
+  // NIEN masks the external pin while preserving the internal pending IRQ.
+  ata_storage_control_w(ata, 6, 2, 0xffff);
+  write_register(ata, 2, 2);
+  write_register(ata, 7, 0xc6);
+  assert(lines.irq == 0);
+  ata_storage_control_w(ata, 6, 0, 0xffff);
+  assert(lines.irq == 1);
+  (void)ata_storage_command_r(ata, 7, 0xffff, 0);
+  assert(lines.irq == 0);
+
+  disk.fail_read = true;
+  set_lba(ata, 1, 3);
+  write_register(ata, 7, 0x20);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata)) == ATA_STORAGE_OK);
+  assert((ata_storage_status(ata) & kErr) != 0);
+  assert(ata_storage_error(ata) == 0x80);
+  disk.fail_read = false;
+
+  ata_storage_control_w(ata, 6, 4, 0xffff);
+  assert(ata_storage_status(ata) & kBsy);
+  ata_storage_control_w(ata, 6, 0, 0xffff);
+  assert(ata_storage_status(ata) & kBsy);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 2'000'000) ==
+         ATA_STORAGE_OK);
+  assert(!(ata_storage_status(ata) & kBsy));
+  ata_storage_destroy(ata);
+}
+
+void test_dma_read_write_and_dma_mode_selection() {
+  Disk disk;
+  Lines lines;
+  std::array<uint8_t, 512> identify{};
+  identify[124] = 0x07; // word 62: SWDMA modes 0-2 supported.
+  identify[126] = 0x07; // word 63: MWDMA modes 0-2 supported.
+  ata_storage_t *ata = make_ata(disk, lines, identify.data(), identify.size());
+  finish_power_on_reset(ata);
+
+  write_register(ata, 1, 0x03);
+  write_register(ata, 2, 0x22); // Select multiword DMA mode 2.
+  write_register(ata, 7, 0xef);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 10'000) ==
+         ATA_STORAGE_OK);
+  assert(ata_storage_identify(ata)[63] == 0x0407);
+
+  for (size_t i = 0; i < disk.bytes.size(); ++i)
+    disk.bytes[i] = static_cast<uint8_t>(i * 9 + 5);
+  set_lba(ata, 2, 1);
+  write_register(ata, 7, 0xc8);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata)) == ATA_STORAGE_OK);
+  assert(lines.dmarq == 1);
+  ata_storage_set_dmack(ata, 1);
+  std::array<uint8_t, 512> got_a{};
+  for (unsigned i = 0; i < 256; ++i) {
+    const uint16_t word = ata_storage_dma_r(ata);
+    got_a[2 * i] = static_cast<uint8_t>(word);
+    got_a[2 * i + 1] = static_cast<uint8_t>(word >> 8);
+  }
+  ata_storage_set_dmack(ata, 0);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 400) ==
+         ATA_STORAGE_OK);
+  assert(lines.dmarq == 1);
+  ata_storage_set_dmack(ata, 1);
+  std::array<uint8_t, 512> got_b{};
+  for (unsigned i = 0; i < 256; ++i) {
+    const uint16_t word = ata_storage_dma_r(ata);
+    got_b[2 * i] = static_cast<uint8_t>(word);
+    got_b[2 * i + 1] = static_cast<uint8_t>(word >> 8);
+  }
+  ata_storage_set_dmack(ata, 0);
+  assert(got_a[0] == disk.bytes[512] && got_a[511] == disk.bytes[1023]);
+  assert(got_b[0] == disk.bytes[1024] && got_b[511] == disk.bytes[1535]);
+  assert(!(ata_storage_status(ata) & kDrq));
+
+  std::array<uint8_t, 512> write_a{}, write_b{};
+  for (unsigned i = 0; i < 512; ++i) {
+    write_a[i] = static_cast<uint8_t>(i ^ 0x5a);
+    write_b[i] = static_cast<uint8_t>(i ^ 0xc3);
+  }
+  set_lba(ata, 2, 7);
+  write_register(ata, 7, 0xca);
+  assert(lines.dmarq == 1);
+  ata_storage_set_dmack(ata, 1);
+  for (unsigned i = 0; i < 256; ++i)
+    ata_storage_dma_w(ata, uint16_t(write_a[2 * i]) |
+                               (uint16_t(write_a[2 * i + 1]) << 8));
+  ata_storage_set_dmack(ata, 0);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 100'000) ==
+         ATA_STORAGE_OK);
+  assert(lines.dmarq == 1);
+  ata_storage_set_dmack(ata, 1);
+  for (unsigned i = 0; i < 256; ++i)
+    ata_storage_dma_w(ata, uint16_t(write_b[2 * i]) |
+                               (uint16_t(write_b[2 * i + 1]) << 8));
+  ata_storage_set_dmack(ata, 0);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata) + 100'000) ==
+         ATA_STORAGE_OK);
+  assert(std::memcmp(disk.bytes.data() + 7 * 512, write_a.data(), 512) == 0);
+  assert(std::memcmp(disk.bytes.data() + 8 * 512, write_b.data(), 512) == 0);
+  ata_storage_destroy(ata);
+}
+
+void test_security_password_unlock() {
+  Disk disk;
+  Lines lines;
+  std::array<uint8_t, 34> password{};
+  password[0] = 1;
+  password[1] = 0;
+  for (unsigned i = 2; i < password.size(); ++i)
+    password[i] = static_cast<uint8_t>(0x30 + i);
+
+  ata_storage_config_t config{};
+  config.sector_count = 16;
+  config.cylinders = 1;
+  config.heads = 1;
+  config.sectors_per_track = 16;
+  config.user_password = password.data();
+  config.user_password_size = password.size();
+  config.media_opaque = &disk;
+  config.read_sector = read_sector;
+  config.write_sector = write_sector;
+  config.line_opaque = &lines;
+  config.irq = irq_line;
+  config.dmarq = dmarq_line;
+  config.dasp = dasp_line;
+  ata_storage_t *ata = nullptr;
+  assert(ata_storage_create(&config, &ata) == ATA_STORAGE_OK);
+  disk.ata = ata;
+  finish_power_on_reset(ata);
+
+  set_lba(ata, 1, 0);
+  write_register(ata, 7, 0x20);
+  assert((ata_storage_status(ata) & (kErr | kDrdy)) == kErr);
+  assert(ata_storage_error(ata) == 0);
+
+  write_register(ata, 7, 0xf2);
+  assert(ata_storage_status(ata) & kDrq);
+  std::array<uint8_t, 512> unlock{};
+  std::copy(password.begin(), password.end(), unlock.begin());
+  write_sector_words(ata, unlock.data());
+  assert(!(ata_storage_status(ata) & kErr));
+
+  set_lba(ata, 1, 0);
+  write_register(ata, 7, 0x20);
+  assert(ata_storage_run_until(ata, ata_storage_now(ata)) == ATA_STORAGE_OK);
+  assert(ata_storage_status(ata) & kDrq);
+  ata_storage_destroy(ata);
+}
+
+void test_taito_type2_unlock_through_real_engine() {
+  Disk disk;
+  Lines lines;
+  ata_storage_t *ata = make_ata(disk, lines);
+  const uint8_t key[5] = {0x12, 0x34, 0x56, 0x78, 0x9a};
+  const auto *ata_ops = ata_storage_gnet_pccard_ops(ata);
+  gnet_pccard_config_t card_config{};
+  card_config.variant = GNET_PCCARD_TAITO_TYPE2;
+  card_config.key = key;
+  card_config.key_size = sizeof(key);
+  card_config.ata = ata_ops;
+  gnet_pccard_t *card = nullptr;
+  assert(gnet_pccard_create(&card_config, &card) == GNET_PCCARD_OK);
+  assert(ata_storage_set_pccard(ata, card) == ATA_STORAGE_OK);
+  assert(gnet_pccard_is_locked(card));
+  finish_power_on_reset(ata, false);
+
+  write_register(ata, 7, 0xfe);
+  assert(ata_storage_status(ata) & kDrdy);
+  assert(ata_storage_sector_count(ata) == 1);
+  write_register(ata, 7, 0xfc);
+  assert(ata_storage_status(ata) & kDrq);
+  for (unsigned byte = 0; byte < 512; byte += 2) {
+    uint8_t lo = 0, hi = 0;
+    if (byte >= 2 && byte < 7)
+      lo = key[byte - 2];
+    if (byte + 1 >= 2 && byte + 1 < 7)
+      hi = key[byte + 1 - 2];
+    ata_storage_command_w(ata, 0, uint16_t(lo) | (uint16_t(hi) << 8),
+                          0xffff, 0);
+  }
+  assert(gnet_pccard_is_ready(card));
+  assert(!(ata_storage_status(ata) & kErr));
+  assert(gnet_pccard_try_destroy(card) == GNET_PCCARD_OK);
+  ata_storage_destroy(ata);
+}
+} // namespace
+
+int main() {
+  test_pio_read_write_and_multiple();
+  test_identify_error_feature_and_reset();
+  test_dma_read_write_and_dma_mode_selection();
+  test_security_password_unlock();
+  test_taito_type2_unlock_through_real_engine();
+  std::puts("ATA storage source-port tests passed");
+  return 0;
+}
