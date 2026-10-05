@@ -370,23 +370,24 @@ static void sub_port_write(void *opaque, unsigned port, u8 value, u8 ddr)
     namco_settings_ce_w(&board.settings, (board.portb & 0x20) && !(board.porta & 1));
 }
 
-/* Byte-level SCI scheduling retains the actual bit order and opposite clock
- * polarities of the board. Pin transitions are grouped at byte completion. */
-static void sub_serial_tx(void *opaque, unsigned channel, u8 value)
+/* MAME wiring order: RTC sees the inverted clock before settings sees CLK. */
+static void sub_serial_tx_pin(void *opaque, unsigned channel, int level)
 {
-    unsigned bit;
-    u8 received = 0;
     (void)opaque;
     if (channel != 1) return; /* No JVS peripheral connected. */
-    for (bit = 0; bit < 8; bit++) {
-        namco_settings_data_w(&board.settings, (value >> bit) & 1);
-        namco_settings_clk_w(&board.settings, 0);
-        rtc4543_clk_w(&board.rtc, 1); /* board inverts the SCI clock */
-        received |= rtc4543_data_r(&board.rtc) << bit;
-        namco_settings_clk_w(&board.settings, 1);
-        rtc4543_clk_w(&board.rtc, 0);
-    }
-    h8_serial_receive(board.h8, 1, received);
+    namco_settings_data_w(&board.settings, level);
+}
+static void sub_serial_clk_pin(void *opaque, unsigned channel, int level)
+{
+    (void)opaque;
+    if (channel != 1) return;
+    rtc4543_clk_w(&board.rtc, !level);
+    namco_settings_clk_w(&board.settings, level);
+}
+static void rtc_serial_data(void *opaque, int level)
+{
+    (void)opaque;
+    h8_serial_rx_pin(board.h8, 1, level);
 }
 
 /* Preserve sub-microsecond time across scheduler calls. Reset re-anchors the
@@ -667,12 +668,14 @@ int system12_load(const char *directory)
     board.eeprom = at28c16_create(NULL, 0);
     h8config.read8 = sub_read8; h8config.write8 = sub_write8;
     h8config.read16 = sub_read16; h8config.write16 = sub_write16;
-    h8config.serial_tx = sub_serial_tx;
+    h8config.serial_tx_pin = sub_serial_tx_pin;
+    h8config.serial_clk_pin = sub_serial_clk_pin;
+    h8config.serial_external_period_as[0] = UINT64_C(542534722222);
     h8config.port_read = sub_port_read; h8config.port_write = sub_port_write;
     board.h8 = h8_create(&h8config);
     if (!board.pcm || !board.h8 || !board.eeprom) { system12_unload(); return -1; }
     rtc4543_datetime_t epoch = {2026, 10, 4, 7, 12, 0, 0};
-    rtc4543_init(&board.rtc, NULL, NULL, &epoch);
+    rtc4543_init(&board.rtc, rtc_serial_data, NULL, &epoch);
     namco_settings_init(&board.settings, NULL, NULL);
     psxRamSize = board.ram_size;
     psxRomSize = board.main_size;
