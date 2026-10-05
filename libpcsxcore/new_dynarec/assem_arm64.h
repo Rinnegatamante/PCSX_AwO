@@ -2,11 +2,15 @@
 
 /* calling convention:
    x0 -x17: caller-save
-   x18    : caller-save (platform reg)
+   x18    : platform register on Apple ARM64
    x19-x29: callee-save */
 
 #define HOST_REGS 29
+#if defined(__APPLE__)
+#define EXCLUDE_REG 18
+#else
 #define EXCLUDE_REG -1
+#endif
 
 #define SP 31
 #define WZR SP
