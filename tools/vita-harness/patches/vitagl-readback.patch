@@ -1,0 +1,93 @@
+diff --git a/source/framebuffers.c b/source/framebuffers.c
+index 4db5dc8..d2309b8 100644
+--- a/source/framebuffers.c
++++ b/source/framebuffers.c
+@@ -105,6 +105,7 @@ GLboolean _glReadPixels_gpu(GLint x, GLint y, GLsizei width, GLsizei height, GLe
+ 	}
+ 	
+ 	void *dst;
++	int transfer_result;
+ 	if (active_read_fb) {
+ 		SceGxmTransferFormat src_fmt = tex_format_to_transfer(active_read_fb->format);
+ 		if (src_fmt == 0xFFFFFFFF) {
+@@ -114,15 +115,15 @@ GLboolean _glReadPixels_gpu(GLint x, GLint y, GLsizei width, GLsizei height, GLe
+ #ifndef HAVE_UNFLIPPED_FBOS
+ 		uint8_t *src = (uint8_t *)active_read_fb->data;
+ 		int stride = active_read_fb->stride;
+-		sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
++		transfer_result = sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
+ 			tex_format_to_transfer(active_read_fb->format), SCE_GXM_TRANSFER_LINEAR, src, x, y, stride, 
+-			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, x, y, width * dst_bpp, NULL, 0, NULL);
++			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, 0, 0, width * dst_bpp, NULL, 0, NULL);
+ #else
+ 		uint8_t *src = (uint8_t *)active_read_fb->data + active_read_fb->stride * (active_read_fb->height - y - 1);
+ 		int stride = -(int)active_read_fb->stride;
+-		sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
++		transfer_result = sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
+ 			tex_format_to_transfer(active_read_fb->format), SCE_GXM_TRANSFER_LINEAR, src, x, 0, stride, 
+-			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, x, y, width * dst_bpp, NULL, 0, NULL);
++			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, 0, 0, width * dst_bpp, NULL, 0, NULL);
+ #endif
+ 	} else {
+ 		dst = is_mapped ? data : gpu_alloc_mapped_temp(width * height * dst_bpp);
+@@ -133,11 +134,19 @@ GLboolean _glReadPixels_gpu(GLint x, GLint y, GLsizei width, GLsizei height, GLe
+ 			src = (uint8_t *)gxm_color_surfaces_addr[gxm_front_buffer_index];
+ 		}
+ 		src += DISPLAY_STRIDE * 4 * (DISPLAY_HEIGHT - y - 1);
+-		sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
++		transfer_result = sceGxmTransferCopy(width, height, 0, 0, SCE_GXM_TRANSFER_COLORKEY_NONE,
+ 			SCE_GXM_TRANSFER_FORMAT_U8U8U8U8_ABGR, SCE_GXM_TRANSFER_LINEAR, src, x, 0, -DISPLAY_STRIDE * 4, 
+-			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, x, y, width * dst_bpp, NULL, 0, NULL);
++			dst_fmt, SCE_GXM_TRANSFER_LINEAR, dst, 0, 0, width * dst_bpp, NULL, 0, NULL);
++	}
++	if (transfer_result < 0) {
++		sceClibPrintf("pcsx-vita: vitaGL readback FAIL transfer-copy rc=%d x=%d y=%d w=%d h=%d\n", transfer_result, x, y, width, height);
++		return GL_FALSE;
++	}
++	int finish_result = sceGxmTransferFinish();
++	if (finish_result < 0) {
++		sceClibPrintf("pcsx-vita: vitaGL readback FAIL transfer-finish rc=%d x=%d y=%d w=%d h=%d\n", finish_result, x, y, width, height);
++		return GL_FALSE;
+ 	}
+-	sceGxmTransferFinish();
+ 	
+ 	if (!is_mapped) {
+ 		vgl_fast_memcpy(data, dst, width * height * dst_bpp);
+@@ -818,10 +827,23 @@ void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format
+ 	}
+ }
+ 
++GLboolean vglReadPixelsChecked(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *data) {
++#ifdef DEBUG_THREAD_SAFENESS
++	if (!vgl_is_main_thread) {
++		vgl_log("%s:%d %s: A thread unsafe function has been called from an invalid thread.\n", __FILE__, __LINE__, __func__);
++		return GL_FALSE;
++	}
++#else
++	THREAD_SAFE()
++#endif
++
++	return _glReadPixels_gpu(x, y, width, height, format, type, data, GL_TRUE);
++}
++
+ void vglReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *data) {
+ 	THREAD_SAFE()
+ 
+-	GLboolean res = _glReadPixels_gpu(x, y, width, height, format, type, data, GL_TRUE);
++	GLboolean res = vglReadPixelsChecked(x, y, width, height, format, type, data);
+ #ifndef SKIP_ERROR_HANDLING
+ 	if (!res) {
+ 		vgl_log("%s:%d %s: Unsupported formats combination.\n", __FILE__, __LINE__, __func__);
+diff --git a/source/vitaGL.h b/source/vitaGL.h
+index bdc6350..80c5074 100644
+--- a/source/vitaGL.h
++++ b/source/vitaGL.h
+@@ -1296,6 +1296,8 @@ void vglPhycontMemLazyInit(size_t size);
+ 
+ // Variant of glReadPixels that uses GPU underneat to perform the readback. The passed data pointer must be GPU mapped (eg: heap memory).
+ void vglReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *data);
++// Checked GPU readback. Returns GL_TRUE only after transfer and finish succeed. Data must be GPU mapped; output rows are tightly packed.
++GLboolean vglReadPixelsChecked(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, GLvoid *data);
+ 
+ // realloc implementation for vitaGL internal memory pools.
+ void *vglRealloc(void *ptr, uint32_t size);

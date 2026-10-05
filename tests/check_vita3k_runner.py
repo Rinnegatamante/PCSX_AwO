@@ -59,6 +59,8 @@ else:
         print("|C| guest teardown failed", flush=True)
     if mode == "smoke-fail":
         print("pcsx-vita: smoke FAIL triangle=0000", flush=True)
+    if mode == "readback-fail":
+        print("pcsx-vita: vitaGL readback FAIL transfer-copy rc=-1", flush=True)
     if mode == "flood":
         for _ in range(30000):
             print("[InterpreterFallback] Unimplemented instruction at 0x81155B94")
@@ -86,6 +88,7 @@ def main():
                 ("forwarded-normal-exit", False, 1),
                 ("recovered-alone", False, 0),
                 ("smoke-fail", False, 1),
+                ("readback-fail", False, 1),
                 ("wrong-runs", False, 1),
                 ("normal-exit", False, 0),
                 ("flood", False, 1),

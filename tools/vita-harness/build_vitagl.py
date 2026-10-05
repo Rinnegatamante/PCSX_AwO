@@ -14,6 +14,7 @@ FLAGS = {name: "1" for name in ("HAVE_SHADER_CACHE", "NO_DEBUG",
 PATCHES = (
     ROOT / "tools/vita-harness/patches/vitagl-shutdown.patch",
     ROOT / "tools/vita-harness/patches/vitagl-shader-cache.patch",
+    ROOT / "tools/vita-harness/patches/vitagl-readback.patch",
 )
 
 

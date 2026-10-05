@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+#include "../../libpcsxcore/system.h"
+#endif
 #ifdef __vita__
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/threadmgr/lw_cond.h>
@@ -2542,6 +2545,26 @@ internal void SetPSXMaskState(u32 code)
 // Draws all polygons after AggregatePTAG
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	static int traceFrameCount;
+	if (traceFrameCount < 8)
+	{
+		SysPrintf("pcsx-vita: gpu-trace frame[%d] vertices=%d splits=%d target=(%d,%d %dx%d dfe=%d)\n",
+		          traceFrameCount, vertexCount, splitCount,
+	          NativeGpu_GetRenderDrawEnv()->clip.x, NativeGpu_GetRenderDrawEnv()->clip.y,
+	          NativeGpu_GetRenderDrawEnv()->clip.w, NativeGpu_GetRenderDrawEnv()->clip.h,
+	          NativeGpu_GetRenderDrawEnv()->dfe);
+		for (int i = 1; i <= splitCount && i <= 4; i++)
+		{
+			const GPUDrawSplit *split = &splits[i];
+			SysPrintf("pcsx-vita: gpu-trace split[%d] start=%u count=%u blend=%d tex=%u fmt=%d dfe=%d clip=(%d,%d %dx%d) drawmode=%d\n",
+			          i, (unsigned)split->startVertex, (unsigned)split->numVerts, split->blendMode, split->textureId, split->texFormat,
+			          split->drawenv.dfe, split->drawenv.clip.x, split->drawenv.clip.y,
+			          split->drawenv.clip.w, split->drawenv.clip.h, split->drawPrimMode);
+		}
+		traceFrameCount++;
+	}
+#endif
 	if (splitCount > 0)
 	{
 		GPUDrawSplit *lastSplit = &splits[splitCount];
@@ -2932,12 +2955,25 @@ internal int ProcessFlatPoly(P_TAG *polyTag)
 	const bool shadeTexOn = (polyTag->code & 1) == 0;
 	const bool semiTrans = (polyTag->code & 2);
 	const int primSubType = polyTag->code & 0x0C;
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	static int traceF3Count;
+#endif
 
 	switch (primSubType)
 	{
 	case 0x0:
 	{
 		POLY_F3 *poly = (POLY_F3 *)polyTag;
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+		if (traceF3Count < 8)
+		{
+			SysPrintf("pcsx-vita: gpu-trace F3[%d] cmd=%08x rgb=%02x%02x%02x xy=(%d,%d),(%d,%d),(%d,%d) draw=(%d,%d %dx%d dfe=%d) disp=(%d,%d %dx%d)\n",
+			          traceF3Count, ((u32)poly->code << 24) | ((u32)poly->b0 << 16) | ((u32)poly->g0 << 8) | poly->r0,
+			          (unsigned)poly->r0, (unsigned)poly->g0, (unsigned)poly->b0, poly->x0, poly->y0, poly->x1, poly->y1, poly->x2, poly->y2,
+			          activeDrawEnv.clip.x, activeDrawEnv.clip.y, activeDrawEnv.clip.w, activeDrawEnv.clip.h, activeDrawEnv.dfe,
+			          activeDispEnv.disp.x, activeDispEnv.disp.y, activeDispEnv.disp.w, activeDispEnv.disp.h);
+		}
+#endif
 
 		AddSplit(semiTrans, false, false, 0);
 
@@ -2945,6 +2981,16 @@ internal int ProcessFlatPoly(P_TAG *polyTag)
 		MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2);
 		MakeTexcoordTriangleZero(firstVertex, 0);
 		MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0);
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+		if (traceF3Count < 8)
+		{
+			SysPrintf("pcsx-vita: gpu-trace F3 verts=(%d,%d z=%u rgb=%u,%u,%u a=%u),(%d,%d z=%u),(%d,%d z=%u) index=%d\n",
+			          firstVertex[0].x, firstVertex[0].y, (unsigned)firstVertex[0].orderDepth, (unsigned)firstVertex[0].r, (unsigned)firstVertex[0].g, (unsigned)firstVertex[0].b, (unsigned)firstVertex[0].a,
+			          firstVertex[1].x, firstVertex[1].y, (unsigned)firstVertex[1].orderDepth, firstVertex[2].x, firstVertex[2].y, (unsigned)firstVertex[2].orderDepth,
+			          s_gpu.vertexIndex);
+			traceF3Count++;
+		}
+#endif
 
 		s_gpu.vertexIndex += 3;
 

@@ -337,6 +337,9 @@ else ifeq ($(platform), psp1)
 # Vita
 else ifeq ($(platform), vita)
 	TARGET := $(TARGET_NAME)_libretro_vita.a
+ifeq ($(VITA_CTR_GPU_TRACE),1)
+		CFLAGS += -DVITA_CTR_GPU_TRACE
+endif
 	CFLAGS += -DVITA
 	CFLAGS += -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neon -marm
 	CFLAGS += -fsingle-precision-constant -mword-relocations -fno-unwind-tables

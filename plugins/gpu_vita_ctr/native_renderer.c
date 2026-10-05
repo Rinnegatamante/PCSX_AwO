@@ -137,7 +137,8 @@ struct NativeVramState
 global_variable struct NativeVramState s_vram;
 
 #ifdef __vita__
-global_variable u8 s_vitaVramTransferPixels[VRAM_WIDTH * VRAM_HEIGHT * 4];
+#define NATIVE_VITA_VRAM_TRANSFER_BYTES (VRAM_WIDTH * VRAM_HEIGHT * 4u)
+global_variable u8 *s_vitaVramTransferPixels;
 
 #define NATIVE_P4_CACHE_CAPACITY 320
 #define NATIVE_P4_HASH_CAPACITY 1024
@@ -562,6 +563,13 @@ void NativeRenderer_Shutdown(void)
 	}
 	glDeleteVertexArrays(1, &s_vramQuadVAO);
 	glDeleteBuffers(1, &s_vramQuadVBO);
+#ifdef __vita__
+	if (s_vitaVramTransferPixels != NULL)
+	{
+		vglFree(s_vitaVramTransferPixels);
+		s_vitaVramTransferPixels = NULL;
+	}
+#endif
 }
 
 #if defined(CTR_INTERNAL)
@@ -2170,6 +2178,17 @@ int NativeRenderer_InitialisePSX(void)
 	}
 
 	NativeRenderer_ResetDevice();
+#ifdef __vita__
+	if (s_vitaVramTransferPixels == NULL)
+	{
+		s_vitaVramTransferPixels = (u8 *)vglMemalign(64, NATIVE_VITA_VRAM_TRANSFER_BYTES);
+	}
+	if (s_vitaVramTransferPixels == NULL)
+	{
+		SysPrintf("pcsx-vita: failed to allocate mapped VRAM readback buffer (%u bytes)\n", (unsigned)NATIVE_VITA_VRAM_TRANSFER_BYTES);
+		return 0;
+	}
+#endif
 
 	return 1;
 }
@@ -3139,8 +3158,13 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	glFinish();
 	/* Use GXM transfer readback so render-target data is resolved before
 	 * reading it. The CPU fast path can see stale render-surface storage. */
-	vglReadPixels(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
-	             readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
+	if (!vglReadPixelsChecked(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
+	                          readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels))
+	{
+		SysPrintf("pcsx-vita: vitaGL readback FAIL VRAM x=%d y=%d w=%d h=%d\n", readRect.x, readRect.y, readRect.w, readRect.h);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)previousReadFramebuffer);
+		return;
+	}
 	for (int row = 0; row < readRect.h; row++)
 	{
 		const u8 *src = s_vitaVramTransferPixels + (size_t)row * readRect.w * 4;
@@ -3340,6 +3364,34 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 {
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	static int traceMainSampled;
+	if (!traceMainSampled && x <= 160 && y <= 100 && x + w > 160 && y + h > 100 &&
+	    s_mainRenderTarget.width > 0 && s_mainRenderTarget.height > 0 &&
+	    NativeGpu_GetRenderDrawEnv()->clip.w > 0 && NativeGpu_GetRenderDrawEnv()->clip.h > 0)
+	{
+		const int sampleX[2] = {160, 10};
+		const int sampleY[2] = {100, 10};
+		GLint previousFramebuffer = 0;
+		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFramebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
+		glFinish();
+		for (int i = 0; i < 2; i++)
+		{
+			const RECT16 *clip = &NativeGpu_GetRenderDrawEnv()->clip;
+			const int pixelX = (sampleX[i] - clip->x) * s_mainRenderTarget.width / clip->w;
+			const int pixelY = s_mainRenderTarget.height - 1 - (sampleY[i] - clip->y) * s_mainRenderTarget.height / clip->h;
+			vglReadPixels(pixelX, pixelY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
+			SysPrintf("pcsx-vita: gpu-trace mainrt xy=%d,%d physical=%d,%d rgba=%u,%u,%u,%u size=%dx%d logical=%dx%d\n",
+			          sampleX[i], sampleY[i], pixelX, pixelY,
+			          s_vitaVramTransferPixels[0], s_vitaVramTransferPixels[1], s_vitaVramTransferPixels[2], s_vitaVramTransferPixels[3],
+			          s_mainRenderTarget.width, s_mainRenderTarget.height,
+			          NativeGpu_GetRenderDrawEnv()->clip.w, NativeGpu_GetRenderDrawEnv()->clip.h);
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previousFramebuffer);
+		traceMainSampled = 1;
+	}
+#endif
 	NativeRenderer_GpuPackTextureToVRAM(s_mainRenderTarget.texture, x, y, w, h, true);
 
 }
@@ -4014,6 +4066,23 @@ void NativeRenderer_PresentVRAMDisplay(void)
 void NativeRenderer_SwapWindow(void)
 {
 #ifdef __vita__
+	#if defined(VITA_CTR_GPU_TRACE)
+	static int traceSwapCount;
+	if (traceSwapCount++ < 2 && s_vitaVramTransferPixels != NULL && s_presentViewport.w > 0 && s_presentViewport.h > 0)
+	{
+		GLint framebuffer = -1;
+		const int sampleX = s_presentViewport.x + (160 * s_presentViewport.w) / 320;
+		const int sampleY = s_presentViewport.y + s_presentViewport.h - 1 - (100 * s_presentViewport.h) / 240;
+		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+		glFinish();
+		vglReadPixels(sampleX, sampleY, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
+		SysPrintf("pcsx-vita: gpu-trace backbuffer xy=%d,%d fbo=%d rgba=%u,%u,%u,%u viewport=%d,%d %dx%d\n",
+		          sampleX, sampleY, framebuffer,
+		          s_vitaVramTransferPixels[0], s_vitaVramTransferPixels[1],
+		          s_vitaVramTransferPixels[2], s_vitaVramTransferPixels[3],
+		          s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h);
+	}
+	#endif
 	vglSwapBuffers(GL_FALSE);
 #else
 	SDL_GL_SwapWindow(g_window);
@@ -4232,6 +4301,23 @@ GrVertex *NativeRenderer_AllocateVertexBuffer(int count)
 
 void NativeRenderer_DrawTriangles(int start_vertex, int triangles)
 {
+#if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
+	static int traceDrawCount;
+	if (traceDrawCount < 24)
+	{
+		GLint framebuffer = 0;
+		GLint program = 0;
+		GLint viewport[4] = {0, 0, 0, 0};
+		glGetIntegerv(GL_FRAMEBUFFER_BINDING, &framebuffer);
+		glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+		glGetIntegerv(GL_VIEWPORT, viewport);
+		SysPrintf("pcsx-vita: gpu-trace draw[%d] first=%d triangles=%d fbo=%d program=%d vbo-index=%d viewport=%d,%d %dx%d depth=%d blend=%d stencil=%d scissor=%d\n",
+		          traceDrawCount, start_vertex, triangles, framebuffer, program, s_boundVertexBuffer,
+		          viewport[0], viewport[1], viewport[2], viewport[3],
+		          glIsEnabled(GL_DEPTH_TEST), glIsEnabled(GL_BLEND), glIsEnabled(GL_STENCIL_TEST), glIsEnabled(GL_SCISSOR_TEST));
+		traceDrawCount++;
+	}
+#endif
 	glDrawArrays(GL_TRIANGLES, start_vertex, triangles * 3);
 }
 

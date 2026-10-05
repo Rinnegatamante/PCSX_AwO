@@ -321,5 +321,7 @@ equivalence and physical Vita validation remain pending.
 
 For the direct-memory M1 host protection correction and its real fault
 regression, see [host-page-protection.md](../tools/vita-harness/host-page-protection.md).
-The latest VitaGL pixel diagnostic still fails: both sampled pixels are `2082`
-instead of the expected triangle `03ff` and background `2082`.
+The subsequent mapped-buffer/tight-destination diagnostic still fails: both
+pixels are `0000` instead of triangle `03ff` and background `2082`.
+See [VitaGL readback validation](vitagl-readback.md) for the latest evidence
+and the optional host synchronization correction.
