@@ -19,12 +19,12 @@ pixel equivalence to MAME remain open. The captured executable identifies itself
 as MAME 0.287 with an unknown build commit; source comparisons use the pinned
 commit below. An exact pinned-executable comparison remains a separate gate.
 
-The next System12 gate is a timed trace of MIPS/H8 shared-memory exchanges and
-vblank-driven IRQ1/ADTRG/port-B transitions. It must establish MAME's actual CPU
-advance order and local event times before choosing a common frontend schedule.
-Record initial state, inputs, clocks, reset epoch and event timestamps so the
-same fixture can compare MAME, the native MIPS interpreter and ARI64. A final
-framebuffer hash or matching aggregate cycle totals cannot replace that trace.
+Timed MIPS/H8 shared-memory exchanges now have a strict, failing MAME comparison;
+the H8 bus cycles match, while PSX sees the reply at different times under both
+current catch-up policies. Vblank port-B polling has a separate passing gate.
+The next scheduler change must retain these exact timestamps and extend coverage
+to global SCI timers, PSX counters, IRQ delivery and reset contexts before choosing
+a common frontend schedule. See the [measured mailbox boundary](system12-performance.md#mac-psxh8-mailbox-boundary-2026-10-05).
 
 Keep the synchronous interpreter as a control. Each optimization must preserve
 the relevant ordered bus/state/IRQ/PCM observations and pass authentic-game
@@ -156,16 +156,17 @@ The relevant local sources were checked at
 `deb2f54fe7300e7a192690318beb860159bfd52a`, with no working-tree differences in
 `namcos12.cpp`, `h8.cpp`, `h83002.cpp`, `h8_timer16.cpp`, `c352.cpp`,
 `diexec.cpp` or `schedule.cpp`.
-This is a source comparison, not a measured MAME scheduler trace.
+The source review is supplemented by the cold mailbox runtime capture below;
+that fixture does not cover the complete scheduler or every System12 variant.
 
 | Boundary | Pinned MAME behavior | Current port / implication |
 | --- | --- | --- |
-| CPU scheduling | `src/emu/schedule.cpp::rebuild_execute_list` defaults to a maximum 1/60 s quantum; `timeslice` caps the target at the next global timer and advances each CPU's local time. No explicit maximum/perfect-quantum override was found in the System12 driver or reviewed PSX/H8 configuration. | The default quantum does not establish the actual CPU slice length. Neither Mac block boundaries nor two libretro vblank syncs can be justified as equivalent solely from this value. Measure actual slice targets before choosing a common policy. |
+| CPU scheduling | `src/emu/schedule.cpp` defaults to a maximum 1/60 s quantum; `timeslice` caps the target at the next global timer and advances each CPU's local time. The COH-700/716 insertion order executes PSX before H8. JVS slot devices can request shorter maximum quanta, including Cyberlead's 1/(2×115200) s. | The cold no-SCI mailbox reply becomes visible to PSX at 16.666680 ms in MAME, 5.240 µs in native ARI64 block catch-up, and 16.715160 ms with vblank-only catch-up. A fixed slice alone is insufficient: local clock floors and dynamically adjusted global timers also affect targets. |
 | Shared RAM | `namcos12.cpp::sharedram_r/w` directly access shared words; the handlers contain no explicit scheduler synchronization. | Both ports already have source-derived lane/endian coverage. Adding a catch-up before every shared access would introduce a different scheduling policy; it needs an event-order justification, not just a map test. |
-| H8 internal events | `h83002.cpp::internal_update` selects the earliest ADC, SCI, timer and watchdog event. `h8.cpp::execute_run` uses that boundary, partial execution states and carried cycle debt. | Our interpreter calls `tick` between full execution states, including prefix states. Matching aggregate H8 cycles does not validate where a device event falls relative to an instruction's bus accesses. Deadline and partial-state semantics are a separate fidelity requirement. |
-| Timer state | `h8_timer16.cpp` advances counters arithmetically, recomputes IRQ deadlines and catches up on register accesses. It explicitly accounts for polling status with interrupts disabled. | The current per-tick loop is a performance candidate, but skipping updates simply because no IRQ is enabled would lose observable flags/counter state. Deadline conversion must retain lazy-read/write catch-up as well as IRQ timing. |
+| H8 internal events | `h83002.cpp::internal_update` selects the earliest ADC, SCI, timer and watchdog event. `h8.cpp::execute_run` uses that boundary, partial execution states and carried cycle debt. | The production port now resumes generated partial states at internal/external deadlines; ADC/SCI/timer ordering and cold-MMIO receive phase have exact component gates. SCI's global synchronization timer, standby, DMA and watchdog contexts remain open. The legacy `h8_run_cycles` API retains coarser checkpoints. |
+| Timer state | `h8_timer16.cpp` advances counters arithmetically, recomputes IRQ deadlines and catches up on register accesses. It explicitly accounts for polling status with interrupts disabled. | The timer16 port uses source arithmetic/deadline semantics and passes the firmware comparison. External pins and full global timer contexts remain open; disabling updates when IRQs are masked would still lose observable flags/counter state. |
 | C352 register access | `src/devices/sound/c352.cpp::read/write` calls `m_stream->update()` before inspecting or changing voice registers. | The System12 adapter now catches up the stream using `h8_current_cycle()` before byte/word reads and writes. Timed key-on/off and BUSY reads pass with interpreter/DRC and fine/coarse main CPU blocks. This covers the register boundary, not complete scheduler equivalence. |
-| Vblank | `namcos12.cpp::namcos12_sub_irq` drives IRQ1, ADTRG and the port-B vblank bit from the screen callback. | The port preserves these signals and catches up before delivering its edge. Edge phase/order still needs a common trace across frontends and MAME. |
+| Vblank | `namcos12.cpp::namcos12_sub_irq` drives H8 IRQ1, ADTRG and the port-B vblank bit from the screen callback. The base shared-RAM handlers do not raise a PSX mailbox IRQ. | Port-B polling matches 32 transition pairs across both native CPUs, block sizes and catch-up policies. That does not establish every IRQ ordering or frontend equivalence. |
 | Soft reset | `namcos12.cpp::driver_start` initializes banks/offsets; `driver_reset` only repeats the optional 12-byte boot copy. RAM, CPU local time and sound stream phase survive. H8 reset retains ER/CCR/RAM/GPIO, resets execution/peripherals and discards instruction debt. | The adapter now distinguishes creation from soft reset, catches up before the main counter is cleared, retains board storage/banks/inputs and audio phase, and uses an explicit H8 budget timeline. Generated COH-700/716 guests and a real MAME reset sound capture cover these boundaries. Other adapters still need their own source/lifetime audit. |
 
 In particular, audio synchronization cannot be repaired by running all H8 work

@@ -861,3 +861,75 @@ mailboxes and IRQ ordering, RTC calendar progression, JVS, global timer/reset
 contexts, real-game MAME pixels/audio and native/libretro scheduler equivalence.
 No new Vita run, worker or H8 DRC implementation is claimed; all ten driver
 families still retain incomplete fidelity gates.
+
+## Mac PSX/H8 mailbox boundary, 2026-10-05
+
+The priority remains a Mac reference faithful to MAME before performance work.
+The shared-RAM map has no source synchronization handler or H8-to-PSX mailbox
+IRQ. The injected PSX firmware publishes `1122`, polls H8's response `3344`,
+acknowledges it and parks. The real MAME H8 executes the identical poll/response/
+sleep firmware used by the production Mac board. Both reset at time zero.
+
+`--system12-trace-shared-accesses` adds passive reads and writes from both CPUs
+to the edge CSV. H8 words produce one atomic 16-bit observation, preserving the
+two-byte access counters. Repeated polls retain their first and last observation
+around a change; sequence numbers preserve CPU execution order rather than
+sorting overlapping CPU local timestamps. Both engines and catch-up policies
+produce identical complete board reports and framebuffers with tracing on/off.
+
+MAME's 100 MHz input becomes 25 MHz execution cycles, with one cycle charged
+after each instruction. Native's 50 MHz counter and multiplier 200 charge two
+counts per instruction: both execute at 40 ns/instruction. The interpreter
+charges before its bus access and reports a 40 ns later initial bus phase;
+ARI64's initial stores/loads match the source phase. No diagnostic timestamps
+were shifted and no clock/multiplier was changed to disguise the difference.
+
+| Bus observation, reset-relative | MAME | Mac interpreter, block | Mac ARI64, block | Mac interpreter, vblank only | Mac ARI64, vblank only |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| PSX command store | 0.080 µs | 0.120 µs | 0.080 µs | 0.120 µs | 0.080 µs |
+| H8 command read, cycle 14 | 0.826719576718 µs | same | same | same | same |
+| H8 response store, cycle 34 | 2.007747543458 µs | same | same | same | same |
+| PSX first response read | 16666.680 µs | 5.280 µs | 5.240 µs | 16715.200 µs | 16715.160 µs |
+| PSX acknowledgement store | 16666.960 µs | 5.560 µs | 5.520 µs | 16715.480 µs | 16715.440 µs |
+
+The fixture and observer controls pass, but the strict comparison **fails**:
+interpreter 5/7 observations differ per policy, ARI64 3/7. Address/value/width
+match; the differences are timestamps. The test exits nonzero and retains exact
+attosecond deltas. This is a reproducible scheduler gap, not a passing whole-board
+validation or a reason to halve the native CPU clock.
+
+Source `schedule.cpp` runs PSX before H8 toward a common target bounded by the
+maximum quantum and next global timer. In this cold no-SCI fixture, PSX runs
+through its first quantum before H8 publishes the reply, so the PSX poll sees
+the reply in its next slice. The base maximum is 1/60 s; JVS slots can override
+it. CPU local-time flooring, cycle debt and timers adjusted while a CPU runs
+also affect targets. SCI's `m_sync_timer` is a global timer, including after
+internally clocked events, so a fixed 1/60 catch-up would not establish faithful
+game scheduling. PSX root-counter timers also need their source contract:
+counts use `owner.total_cycles()*2`, but scheduling uses the source's fixed
+33.8688 MHz timer period even on the 100 MHz board. No scheduler change is
+included in this milestone.
+
+A separate RTC correction advances the weekday by all days consumed when
+crossing a month, following `dirtc.cpp::advance_seconds`. Previously Jan 30 +
+three days reached the right date with the wrong weekday. The new boundary
+fixture fails against the preceding source and passes normally and under UBSan;
+it includes leap day, two-digit year rollover, multiple months, and split versus
+continuous advance. Existing production RTC transfer comparisons still pass
+64/64, and the vblank observer still matches all 32 transition pairs.
+
+Evidence is retained in ignored `artifacts/validation/system12-mailbox-20261005/`:
+`mame-mailbox.json/log`, `native-mailbox.json/log`, `calendar.log`,
+`native-rtc.json/log`, `vblank-comparison.json/log`, and device/audio gate logs.
+The MAME capture identifies 0.287 with unknown build commit; its binary identity
+has still not been tied to the pinned source revision. Reproduce with:
+
+```sh
+python3 tests/check_mame_system12_mailbox.py --output mame-mailbox.json --log mame-mailbox.log
+python3 tests/check_system12_mailbox.py --harness build/mac-system12-mailbox-20261005/pcsx-harness --mame mame-mailbox.json --output native-mailbox.json
+```
+
+Next work is the shared CPU scheduler and global timer boundaries, retaining
+the passing peripheral gates, then real-game MAME state/pixel/audio comparison.
+Workers and H8 DRC remain studies. Vita NEON/DRC and vitaGL validation follow
+the Mac reference; no additional Vita run or completed driver family is claimed.
