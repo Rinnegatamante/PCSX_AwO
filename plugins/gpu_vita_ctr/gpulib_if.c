@@ -268,6 +268,35 @@ int StoreImage(RECT16 *rect, uint32_t *p)
     return 0;
 }
 
+static uint32_t normalize_gp0_xy(uint32_t word)
+{
+    int x = word & 0x7ff;
+    int y = (word >> 16) & 0x7ff;
+    if (x & 0x400) x -= 0x800;
+    if (y & 0x400) y -= 0x800;
+    return (uint16_t)x | ((uint32_t)(uint16_t)y << 16);
+}
+
+static void normalize_gp0_coordinates(uint32_t *words, int count)
+{
+    const unsigned command = words[0] >> 24;
+    if ((command & 0xe0) == 0x20) {
+        const int vertices = (command & 8) ? 4 : 3;
+        const int stride = 1 + !!(command & 4) + !!(command & 16);
+        for (int i = 0, offset = 1; i < vertices && offset < count; i++, offset += stride)
+            words[offset] = normalize_gp0_xy(words[offset]);
+    } else if ((command & 0xe0) == 0x40) {
+        const int stride = (command & 16) ? 2 : 1;
+        for (int offset = 1; offset < count; offset += stride) {
+            if ((command & 8) && (words[offset] & 0xf000f000u) == 0x50005000u)
+                break;
+            words[offset] = normalize_gp0_xy(words[offset]);
+        }
+    } else if ((command & 0xe0) == 0x60 && count > 1) {
+        words[1] = normalize_gp0_xy(words[1]);
+    }
+}
+
 static void submit_gp0_packet(const uint32_t *words, int count)
 {
     uint32_t packet[257];
@@ -277,6 +306,9 @@ static void submit_gp0_packet(const uint32_t *words, int count)
 
     packet[0] = ((uint32_t)count << 24) | 0x00ffffffu;
     memcpy(packet + 1, words, (size_t)count * sizeof(uint32_t));
+    /* GP0 ignores coordinate bits 15:11. Normalize only geometry here;
+     * VRAM transfer positions, dimensions, colors and UVs retain their ABI. */
+    normalize_gp0_coordinates(packet + 1, count);
     ParseTaglessPrimitive((u32 *)(packet + 1));
 }
 

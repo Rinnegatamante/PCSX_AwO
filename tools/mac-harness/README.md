@@ -261,3 +261,15 @@ shader now carries the overflow into Y; all nine samples pass in
 15-read sprite UV-wrap control also pass with that binary. These are Mac GPU
 readback results; native Vita shader compilation and execution still require
 separate validation.
+
+`--coord-alias` draws FT3, FT4 and sprites with canonical coordinates and
+alternate 16-bit encodings of the same signed 11-bit coordinates. NEON passes
+all nine samples; the preserved original GL binary fails the six alias cases.
+The GP0 bridge now sign-extends only geometry XY words before native packet
+parsing, preserving UVs, colors and transfer fields. All nine reads pass in
+`/tmp/pcsx-mac-gp0-coords-alias-fixed-20261005`. A guarded 3,600-frame source-
+timing Mac GL replay also removes the vertical sky bands after this change;
+a flat blue lake area remains in both synchronized VRAM and the GL capture
+(`/tmp/pcsx-mac-vitagl-like-fixed-source-timing-vram-20261005`). This narrows
+the remaining issue to submitted geometry/textures or rendered VRAM rather
+than presentation capture. Native Vita verification remains separate.
