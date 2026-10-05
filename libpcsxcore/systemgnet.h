@@ -8,6 +8,10 @@
 typedef void (*systemgnet_audio_frame_fn)(void *opaque, float left, float right,
                                            uint64_t zsg_cycle);
 
+/* Loads a strict source-profile package. board.ini selects one of the 41
+ * pinned MAME taitogn sets; game sets also resolve BIOS option and verified
+ * CHD/PC Card media from the generated registry. BIOS-root packages remain
+ * media-free. */
 int systemgnet_load(const char *directory);
 /* Test-only in-memory BIOS fixture; never accepted by the production loader. */
 int systemgnet_test_load(void);

@@ -30,20 +30,87 @@ def main() -> int:
         "SystemGNet PCM sink disable: PASS",
         "SystemGNet set=coh3002t model=ZN2 ram=4194304 vram=2097152 gpu=type2",
         "reads=2 writes=1 unsupported=0 bank=1 fault=0 execution_verified=false",
+        "SystemGNet media bios=coh3002t option=v1 card=NONE chd=none auth_boot=false",
+        "SystemGNet source parent=none bios_model=COH-3002T machine=coh3002t input=taitogn init=empty_init rotation=ROT0 flags=MACHINE_IS_BIOS_ROOT",
     )
     missing = [token for token in expected if token not in run.stdout]
     if missing:
         raise RuntimeError(f"G-Net fixture report missing {missing}:\n{run.stdout}")
     print(run.stdout, end="")
 
-    with tempfile.TemporaryDirectory(prefix="pcsx-systemgnet-invalid-") as temp:
-        directory = pathlib.Path(temp)
-        (directory / "board.ini").write_text("format=wrong\n", encoding="ascii")
-        rejected = subprocess.run([str(args.harness), "--system-gnet", str(directory)],
-                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                  timeout=10)
-        if rejected.returncode == 0 or "invalid or unsupported G-Net board.ini" not in rejected.stdout:
-            raise RuntimeError(f"G-Net loader accepted an invalid profile:\n{rejected.stdout}")
+    base_config = [
+        "format=pcsx-aow-gnet-v1",
+        "mame_set={set}",
+        "mame_source_commit=deb2f54fe7300e7a192690318beb860159bfd52a",
+        "board_model={model}",
+        "cpu_device={cpu}",
+        "cpu_clock_hz={cpu_hz}",
+        "gpu_device={gpu}",
+        "gpu_clock_hz=53693175",
+        "main_ram_size=4194304",
+        "vram_size=2097152",
+        "game_execution_verified=false",
+    ]
+
+    def reject(directory: pathlib.Path, expected: str) -> None:
+        run = subprocess.run([str(args.harness), "--system-gnet", str(directory)],
+                             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             timeout=10)
+        if run.returncode == 0 or expected not in run.stdout:
+            raise RuntimeError(f"G-Net loader rejection expected {expected!r}:\n{run.stdout}")
+
+    with tempfile.TemporaryDirectory(prefix="pcsx-systemgnet-loader-") as temp:
+        root = pathlib.Path(temp)
+        invalid = root / "invalid"
+        invalid.mkdir()
+        (invalid / "board.ini").write_text("format=wrong\n", encoding="ascii")
+        reject(invalid, "invalid or unsupported G-Net board.ini")
+
+        wrong_set = root / "wrong-set"
+        wrong_set.mkdir()
+        text = "\n".join(line.format(set="unknown", model="ZN2", cpu="CXD8661R",
+                                     cpu_hz="100000000", gpu="CXD8654Q")
+                           for line in base_config) + "\n"
+        (wrong_set / "board.ini").write_text(text, encoding="ascii")
+        reject(wrong_set, "invalid or unsupported G-Net board.ini")
+
+        wrong_option = root / "wrong-option"
+        wrong_option.mkdir()
+        text = "\n".join(line.format(set="coh3002t", model="ZN2", cpu="CXD8661R",
+                                     cpu_hz="100000000", gpu="CXD8654Q")
+                           for line in base_config)
+        (wrong_option / "board.ini").write_text(
+            text + "\nbios_option=unknown\n", encoding="ascii")
+        reject(wrong_option, "invalid or unsupported G-Net board.ini")
+
+        selected_game = root / "selected-game"
+        selected_game.mkdir()
+        text = "\n".join(line.format(set="chaoshea", model="ZN2", cpu="CXD8661R",
+                                     cpu_hz="100000000", gpu="CXD8654Q")
+                           for line in base_config)
+        (selected_game / "board.ini").write_text(
+            text + "\nchd_file=chaosheat.chd\noverlay_file=chaoshea.overlay\n",
+            encoding="ascii")
+        # Exact-sized synthetic BIOS region reaches the source profile hash
+        # check; no ROM or CHD payload is provided or generated here.
+        (selected_game / "maincpu.bin").write_bytes(bytes(0x80000))
+        reject(selected_game, "SHA1 does not match pinned MAME region")
+
+        wrong_chd = root / "wrong-chd"
+        wrong_chd.mkdir()
+        text = "\n".join(line.format(set="chaoshea", model="ZN2", cpu="CXD8661R",
+                                     cpu_hz="100000000", gpu="CXD8654Q")
+                           for line in base_config)
+        (wrong_chd / "board.ini").write_text(
+            text + "\nchd_file=wrong.chd\n", encoding="ascii")
+        reject(wrong_chd, "invalid or unsupported G-Net board.ini")
+
+        unsafe_overlay = root / "unsafe-overlay"
+        unsafe_overlay.mkdir()
+        (unsafe_overlay / "board.ini").write_text(
+            text + "\nchd_file=chaosheat.chd\noverlay_file=../outside.overlay\n",
+            encoding="ascii")
+        reject(unsafe_overlay, "invalid or unsupported G-Net board.ini")
     return 0
 
 

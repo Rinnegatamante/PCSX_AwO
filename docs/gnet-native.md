@@ -5,8 +5,11 @@ ZN common board implementation. Source is MAME commit
 `deb2f54fe7300e7a192690318beb860159bfd52a`, primarily
 `src/mame/sony/taitogn.cpp` and `src/mame/sony/zn.cpp`.
 
-The strict `board.ini` loader currently accepts the two MAME BIOS-root machine
-sets, `coh1002t` and `coh3002t`. Each package supplies these assembled regions:
+The strict `board.ini` loader selects any of the 41 source registry entries:
+the two BIOS roots or one of the 39 game profiles in
+[`gnet-media-profiles.md`](gnet-media-profiles.md). A game profile selects its
+MAME BIOS root/default option, PC Card type, CHD filename and exact CHD SHA-1.
+Each package supplies these assembled BIOS regions:
 
 | Region file | MAME region | Size | Source check |
 |---|---|---:|---|
@@ -14,7 +17,13 @@ sets, `coh1002t` and `coh3002t`. Each package supplies these assembled regions:
 | `cat702_0.bin` | `cat702_1` | 8 bytes | Exact root-set SHA1 |
 | `cat702_1.bin` | `cat702_2` | 8 bytes | Exact root-set SHA1 |
 | `firm.bin` | `firm` | 2 MiB | Exact root-set SHA1 |
-| `eprom.bin` | `eprom` | 1 MiB | Exact SHA1; COH1002T source region is erased `0xff`, COH3002T uses BIOS v1 |
+| `eprom.bin` | `eprom` | 1 MiB | Selected COH-3002T BIOS option and exact SHA1; COH-1002T source region is synthesized as erased `0xff` |
+
+For a game profile, the source CHD is named `<DISK_IMAGE>.chd` in the package
+directory and opened with the registry's exact MAME SHA-1. The CHD stays
+read-only; writes use an overlay named `<mame_set>.overlay`, flushed on
+unload. Optional `chd_file` and `overlay_file` keys make those names explicit;
+`chd_file` must match the source filename.
 
 The sound program and three sample-flash devices are absent from the BIOS-root
 ROM declarations. MAME creates those flash devices in erased state, so the
@@ -22,11 +31,13 @@ adapter initializes them to `0xff`; it does not substitute media. The source's
 `upd78081` region is a NO_DUMP device that this G-Net machine configuration
 does not instantiate. This does not imply that all games or PCMCIA media work.
 
-The `board.ini` file has exactly these keys, in any order:
+BIOS-root packages keep the original `board.ini` keys and use the source
+default EPROM option. A game package selects a MAME set and can explicitly
+choose an available COH-3002T BIOS option:
 
 ```ini
 format=pcsx-aow-gnet-v1
-mame_set=coh3002t
+mame_set=chaoshea
 mame_source_commit=deb2f54fe7300e7a192690318beb860159bfd52a
 board_model=ZN2
 cpu_device=CXD8661R
@@ -36,17 +47,23 @@ gpu_clock_hz=53693175
 main_ram_size=4194304
 vram_size=2097152
 game_execution_verified=false
+bios_option=v1
+chd_file=chaosheat.chd
+overlay_file=chaoshea.overlay
 ```
+
+The selectable COH-3002T options are `v1`, `v2`, `mb2009`, and `mb2011`;
+COH-1002T is fixed and uses its erased EPROM region. BIOS and CHD hashes are
+checked against the generated source registry. The loader records each source
+game's machine, input, initializer, and flags, but does not apply per-game input
+variations or game-specific extensions yet.
 
 The adapter configures the source 4 MiB PSX RAM and 2 MiB VRAM, Sony ZN CAT702,
 EEPROM and SIO devices, then routes CPU accesses through `gnet_zoom_bus_*` and
-the shared ZN map. PSX cycles advance the 6.25 MHz MN10200 sound board on a
-fractional, monotonic clock. The composed board now supports optional
-RF5C296 callbacks at `1fb00000–1fb0ffff` and the bank-0 card attribute window,
-including byte, word and dword transactions. The strict native loader still
-supplies no card callbacks, so these ranges remain unsupported when loading
-the two BIOS-root profiles. Game cards, per-game input variations, and
-game-specific extensions are not claimed as implemented.
+the shared ZN map. Game profiles attach CHD-backed ATA/PC Card storage to the
+RF5C296 callbacks; BIOS-root profiles have no card. Core cycles advance Zoom
+and storage timers on monotonic board time. The executed fixture still has no
+card, and no real G-Net media is available locally.
 
 The 6.25 MHz adapter clock is the MN10200's effective execution-cycle rate:
 the pinned MAME device is configured at 12.5 MHz and converts external clocks
@@ -84,10 +101,13 @@ timestamps, and identical output for one-shot versus split cycle synchronization
 This validates the emulator's PCM path with test data; it does not supply the
 missing authenticated game sound program or sample media.
 
-The general PSX core still advances in its existing PSX cycle domain; this
-adapter does not yet reproduce the source 67.7376/100 MHz main-CPU execution
-rate or source vblank timing. The source clocks recorded in `board.ini` are
-profile checks, not a claim that those main-CPU timings are already applied.
+The general PSX core still advances in its existing PSX cycle domain. MAME's
+ZN1 CPU is 67.7376 MHz with a divide-by-two interface clock (33.8688 MHz); ZN2
+is 100 MHz with a divide-by-two interface clock (50 MHz). This adapter does not
+change CPU execution or vblank scheduling to those board-specific rates. ATA
+and Zoom timers use monotonic nanoseconds derived from core cycles, so the ZN2
+CPU-to-peripheral timing ratio remains a known limitation. The source clock
+values in `board.ini` are profile checks, not proof that CPU timing is applied.
 
 `--system-gnet-fixture` is test-only and uses generated in-memory data. Its
 executed MIPS program selects flash bank 1, reads the banked flash and constant
@@ -98,7 +118,8 @@ monotonic timestamps through the public adapter callback. The complete fixture
 passes with both the interpreter and ARM64 DRC, including the PCM assertions
 and sink-disable check. This checks the board map bridge, audio callback
 lifecycle, and 4 MiB RAM path, not MAME assets, startup firmware, game boot, or
-real-board compatibility.
+real-board compatibility. Registry and synthetic storage tests do not
+establish an authentic G-Net boot; no BIOS/CHD/key set has been loaded here.
 
 After the RF5C296 and byte/dword card-window changes (`7bbdde2b`, `0423695f`,
 `62bb5605`), the complete Mac NEON harness regression still passes with both
