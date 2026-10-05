@@ -653,3 +653,21 @@ and matching wait/signal sequences, is in
 `/tmp/pcsx-vitagl-lwcond-trace2-native-12000-20261005/wait-review.json`.
 The result motivates a separate private probe for long renderer delays and
 their guest caller addresses; it does not attribute the waits to an allocator.
+
+A subsequent private host (`99a4c4e5…`) captured 32 bounded long-renderer
+delay records with the unchanged progress VPK. Every record has
+`delay_us=1000000`, guest PC `0x8131bc74`, and Thumb LR `0x812ac405`.
+The exact VPK's eboot is byte-identical to the SELF regenerated from its
+retained VELF. Its ELF disassembly maps that LR to the delay call in
+`gpu_alloc_mapped_aligned_unsafe_for_gpu`. The enclosing VitaGL allocator
+enters this retry only after the initial allocation fails. Thus the sampled
+slow phase includes GPU allocation failures and one-second GC retry delays;
+requested sizes, available pools, and the reason allocations fail remain
+unmeasured. This does not establish the origin of the graphics artifacts.
+
+The last milestone is 8,400 at 358,570 ms, with 116/177 inputs. The owned host
+was stopped after the bounded probe and screenshot schedule, requiring
+SIGKILL after SIGTERM. There is no frame-9,000 milestone or completed replay.
+Twenty-five native screenshots, the exact runtime/static mapping, sampled
+waits, and the controlled-stop reason are retained in
+`/tmp/pcsx-vitagl-lwcond-trace3-native-12000-20261005/allocator-delay-review.json`.
