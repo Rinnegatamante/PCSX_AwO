@@ -780,10 +780,50 @@ gates in [H8 port details](h8-port.md), and:
 python3 tests/check_mame_h8_peripherals.py --include-sci --output artifacts/validation/h8-peripherals-20261005/mame-peripherals.json
 ```
 
-Open fidelity work includes the scheduler-attotime phase of RX clock starts
-(the source distinguishes `now_as_cycles()` from TX `total_cycles()`),
+At this milestone, open fidelity work included RX-start scheduler-attotime
+phase (addressed for CPU MMIO in the next section),
 standby/DMA/watchdog, timer external pins, complete RTC/JVS wire traces, timed
 shared mailboxes and MIPS IRQ ordering, real-game MAME pixels/audio, and
 native/libretro scheduler equivalence. The legacy whole-state `h8_run_cycles`
 API retains coarse checkpoints. Worker/H8 DRC and new Vita/vitaGL validation
 remain outside this milestone. No whole driver family is complete.
+
+## Mac SCI receive clock correction, 2026-10-05
+
+Mac fidelity to MAME is the first gate. Performance changes must preserve the
+reproducible device/board comparisons and measure a reduction in cost. Worker
+and H8 DRC proposals remain architectural studies.
+
+MAME starts TX from `total_cycles()` but RX from `now_as_cycles()`. During CPU
+MMIO, `machine().time()` uses that CPU's charged local attotime. The port now
+accumulates the source integer attotime conversions separately from executed
+cycles, retaining fractional phase over soft reset. No floating point or 128-bit
+arithmetic is required. Timer expiration contexts and full warm-reset timing
+are not covered by this cold-start comparison.
+
+A fifth injected program starts synchronous RX without TX. Before the change,
+the SSR read at cycle 96 returned `c4` in Mac and `e4` in MAME: Mac exposed
+overrun one poll late. The observable store at cycle 104 differed at all three
+native slice sizes. After correction, all five programs' first 96 stores at
+1/1024/10000-cycle slices match **1440 addresses, values and cycles exactly**.
+The preceding committed implementation failed three observations; the older
+fixed baseline `dde07db7` differs in 195 observations over the expanded suite.
+
+Normal/UBSan clock and H8 instruction/IRQ/deadline/reset gates pass. Mac
+interpreter and ARI64 screen-mode, C352 audio and warm-reset integration gates
+pass. The existing MAME vblank capture still matches all 32 old/new read pairs
+across engines, MIPS block sizes and frontend catch-up cadences with zero cycle
+difference.
+
+The authentic 12000-frame NEON/ARI64 replay retains main cycles `10029193005`,
+H8 cycles `3396767298` and PCM frames `17691497`, with no H8 illegal/unsupported
+or unmapped access. H8 retires `590883828` instructions. The final VS-BATTLE
+ranking image matches the preceding capture byte-for-byte; the WAV differs,
+so no whole-replay audio equivalence or MAME audio fidelity is claimed. Emulation
+elapsed 58.545 s is a smoke observation, not an optimization benchmark. Frozen
+binary SHA-256 is `ee36dc857bc088f829325dba60f8047c16527050d9d7edbb9d92904e4466e93b`.
+
+Evidence lives in ignored `artifacts/validation/h8-rx-clock-20261005/`:
+`before.json`, `after.json`, `core-final.log`, `mac-gates.json`,
+`vblank-comparison.json`, and the frozen binary/input/log/PPM/PNG/WAV.
+Installed MAME 0.287 has not been tied to the pinned source binary identity.

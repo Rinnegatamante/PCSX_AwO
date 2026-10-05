@@ -43,10 +43,13 @@ RX errors and read-before-clear status latches. System12 routes SCI1 TX to
 settings and CLK to inverted RTC CLK before direct settings CLK; RTC DATA
 feeds RX1. SCI0 uses the source external period `542534722222` attoseconds.
 Byte receive/transmit helpers remain diagnostic compatibility paths.
-The independent MAME probe currently covers register polling, rather than
-a full RTC or JVS wire trace. MAME's RX-start `now_as_cycles()` derives from
-scheduler attotime, whereas the port currently shares the local cycle callback
-with TX-start `total_cycles()`: fractional RX-start phase remains to compare.
+The independent MAME probe covers register polling, including synchronous
+receive without TX. RX start now converts accumulated CPU local attotime to
+ticks, independently of TX's charged cycle count, and retains its fractional
+phase across soft reset. Five programs and three native slice sizes match
+1440 observation stores exactly. The added RX-only program detected an overrun
+one poll late before this correction. This is not a complete RTC/JVS wire trace;
+MAME's timer-callback time context and warm reset remain separate comparison work.
 No JVS endpoint or standby implementation is claimed.
 
 `make -f tests/Makefile.h8 test` verifies instructions/addressing/flags,
@@ -80,6 +83,7 @@ The new peripheral comparison is reproducible with:
 make -f tests/Makefile.h8-adc test ubsan
 make -f tests/Makefile.h8_timer16 test ubsan-test
 make -f tests/Makefile.h8-sci test ubsan
+make -f tests/Makefile.h8 cycle-clock-test cycle-clock-ubsan-test
 python3 tests/check_mame_h8_peripherals.py --include-sci --output artifacts/validation/h8-peripherals-20261005/mame-peripherals.json
 ```
 

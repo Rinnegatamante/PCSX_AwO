@@ -44,8 +44,13 @@ the charged access cycle, using source ADC/SCI0/SCI1/timer order. Device
 cycles restart on soft reset; bus callbacks retain the absolute board epoch.
 The older whole-state `run_cycles` API remains coarser than `run_until`.
 
+RX start converts accumulated CPU local attotime to ticks, separately from TX
+charged cycles. The clock retains its fractional phase across soft reset.
+The MAME RX-only firmware gate verifies cold-start synchronous receive phase;
+global timer-callback contexts and warm-reset equivalence need separate probes.
+
 Remaining limitations: DMA and watchdog execution, external timer clock pins,
-RX-start scheduler-attotime phase versus TX-start local cycles, hardware timer output
+hardware timer output
 waveforms/synchronization, ADC analog power/standby behavior, and save-state
 serialization. DMA/watchdog accesses set diagnostic bits in `H8Status`.
 Unconnected analog channels return zero; device responses belong in the board
