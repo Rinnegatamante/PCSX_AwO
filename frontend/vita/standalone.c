@@ -14,6 +14,7 @@
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
+#include <kubridge.h>
 
 #include <SDL3/SDL.h>
 #include <libretro.h>
@@ -57,20 +58,46 @@ static bool g_pause_combo_down;
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
 
-unsigned int _newlib_heap_size_user = 40 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 24 * 1024 * 1024;
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
 
 int getVMBlock(void)
 {
     int size;
+    int ret;
+    void *base = NULL;
+    SceKernelAllocMemBlockKernelOpt opt;
 
     if (g_vm_block > 0)
         return g_vm_block;
 
     size = (_newlib_vm_size_user + 0xfffff) & ~0xfffff;
-    g_vm_block = sceKernelAllocMemBlockForVM("pcsx-awo-jit", size);
-    sceClibPrintf("PCSX AwO: JIT VM block size=0x%x uid=0x%x\n", size, g_vm_block);
+    memset(&opt, 0, sizeof(opt));
+    opt.size = sizeof(opt);
+    g_vm_block = kuKernelAllocMemBlock("pcsx-awo-jit", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, size, &opt);
+    if (g_vm_block < 0) {
+        sceClibPrintf("PCSX AwO: kuKernelAllocMemBlock(JIT) failed: 0x%x\n", g_vm_block);
+        return g_vm_block;
+    }
+
+    ret = sceKernelGetMemBlockBase(g_vm_block, &base);
+    if (ret < 0) {
+        sceClibPrintf("PCSX AwO: sceKernelGetMemBlockBase(JIT) failed: 0x%x\n", ret);
+        sceKernelFreeMemBlock(g_vm_block);
+        g_vm_block = -1;
+        return ret;
+    }
+
+    ret = kuKernelMemProtect(base, size, KU_KERNEL_PROT_READ | KU_KERNEL_PROT_WRITE | KU_KERNEL_PROT_EXEC);
+    if (ret < 0) {
+        sceClibPrintf("PCSX AwO: kuKernelMemProtect(JIT RWX) failed: 0x%x\n", ret);
+        sceKernelFreeMemBlock(g_vm_block);
+        g_vm_block = -1;
+        return ret;
+    }
+
+    sceClibPrintf("PCSX AwO: JIT kubridge block size=0x%x base=%p uid=0x%x\n", size, base, g_vm_block);
     return g_vm_block;
 }
 

@@ -4,8 +4,9 @@ TITLE := PCSX AwO
 CORE := pcsx_rearmed_libretro_vita.a
 GIT_VERSION := $(shell git rev-parse --short HEAD)
 ifeq ($(strip $(VITAGL_DIR)),)
-VITAGL_DIR := ../vitagl
+VITAGL_DIR := ../vitaGL-pcsx-rearmed
 endif
+VITAGL_BUILD_FLAGS := HAVE_SHADER_CACHE=1 NO_DEBUG=1 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1
 
 PREFIX := arm-vita-eabi-
 CC := $(PREFIX)gcc
@@ -30,8 +31,11 @@ SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=0 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
-.PHONY: all core clean
+.PHONY: all core vitagl clean
 all: $(TARGET).vpk
+
+vitagl:
+	$(MAKE) -C $(VITAGL_DIR) $(VITAGL_BUILD_FLAGS) -j4
 
 core:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) -j4
@@ -51,7 +55,7 @@ $(SETTINGS_OBJ): frontend/vita/settings.c | $(BUILD_DIR)
 $(SAVESTATES_OBJ): frontend/vita/savestates.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(TARGET).elf: core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ)
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ)
 	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf

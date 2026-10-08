@@ -121,11 +121,9 @@ extern uintptr_t mini_ht[32][2];
 #endif
 
 #ifdef VITA
-// apparently Vita has a 16MB limit, so either we cut tc in half,
-// or use this hack (it's a hack because tc size was designed to be power-of-2)
-#define NDRC_TRAMP_BANKS       4
+#define NDRC_TRAMP_BANKS       16
 #define NDRC_TRAMP_ARRAY_BYTES 4096
-#define TC_REDUCE_BYTES        (NDRC_TRAMP_BANKS * NDRC_TRAMP_ARRAY_BYTES * 2)
+#define TC_REDUCE_BYTES        0
 
 struct ndrc_tramp_bank
 {
@@ -672,6 +670,7 @@ static noinline void perf_dump_wrap_(void)
 
 #ifdef VITA
 #include <psp2/kernel/sysmem.h>
+#include <kubridge.h>
 static int sceBlock;
 // note: this interacts with RetroArch's Vita bootstrap code: bootstrap/vita/sbrk.c
 extern int getVMBlock();
@@ -682,12 +681,13 @@ static void mprotect_w_x(void *start, void *end, int is_x)
 {
 #ifdef NO_WRITE_EXEC
   #if defined(VITA)
-  // *Open* enables write on all memory that was
-  // allocated by sceKernelAllocMemBlockForVM()?
-  if (is_x)
-    sceKernelCloseVMDomain();
-  else
-    sceKernelOpenVMDomain();
+  uintptr_t mstart = (uintptr_t)start & ~4095u;
+  uintptr_t mend = ((uintptr_t)end + 4095u) & ~4095u;
+  SceUInt32 prot = KU_KERNEL_PROT_READ |
+    (is_x ? KU_KERNEL_PROT_EXEC : KU_KERNEL_PROT_WRITE);
+  int ret = kuKernelMemProtect((void *)mstart, mend - mstart, prot);
+  if (ret < 0)
+    SysPrintf("kuKernelMemProtect(%c) failed: %08x\n", is_x ? 'x' : 'w', ret);
   #elif defined(HAVE_LIBNX)
   Result rc;
   // check to avoid the full flush in jitTransitionToExecutable()
@@ -720,7 +720,7 @@ void new_dyna_clear_cache(void *start, void *end)
   #elif defined(__MACH__)
   sys_cache_control(kCacheFunctionPrepareForExecution, start, len);
   #elif defined(VITA)
-  sceKernelSyncVMDomain(sceBlock, start, len);
+  kuKernelFlushCaches(start, len);
   #elif defined(_3DS)
   // tuned for old3ds' 16k:16k cache (in it's mostly clean state...)
   if ((char *)end - (char *)start <= 2*1024)
@@ -6727,15 +6727,13 @@ void new_dynarec_init(void)
 
 #ifdef BASE_ADDR_DYNAMIC
   #ifdef VITA
-  sceBlock = getVMBlock(); //sceKernelAllocMemBlockForVM("code", sizeof(*ndrc));
+  sceBlock = getVMBlock();
   if (sceBlock <= 0)
     SysPrintf("getVMBlock failed: %x\n", sceBlock);
   int ret = sceKernelGetMemBlockBase(sceBlock, (void **)&ndrc);
   if (ret)
     SysPrintf("sceKernelGetMemBlockBase: %x\n", ret);
-  ret = sceKernelOpenVMDomain();
-  if (ret)
-    SysPrintf("sceKernelOpenVMDomain: %x\n", ret);
+  memset(&ndrc->tramp, 0, sizeof(ndrc->tramp));
   #elif defined(_MSC_VER)
   ndrc = VirtualAlloc(NULL, sizeof(*ndrc), MEM_COMMIT | MEM_RESERVE,
     PAGE_EXECUTE_READWRITE);

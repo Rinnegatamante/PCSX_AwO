@@ -297,7 +297,7 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	vglSetShaderCachePath("ux0:data/pcsx-rearmed/shader_cache");
 	vglUseLowPrecision(GL_TRUE);
 	vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_TRUE, GL_TRUE);
-	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 4 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 24 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
 	NativeGpu_BackendLock();
 	s_gpuBackendInitSucceeded = 1;
 	s_gpuBackendInitComplete = 1;
