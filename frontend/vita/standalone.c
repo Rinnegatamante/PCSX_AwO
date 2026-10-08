@@ -58,7 +58,7 @@ static bool g_pause_combo_down;
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
 
-unsigned int _newlib_heap_size_user = 24 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 40 * 1024 * 1024;
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
 
