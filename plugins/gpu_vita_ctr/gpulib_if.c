@@ -622,7 +622,8 @@ int renderer_present_frame(struct psx_gpu *psx_gpu, int src_x, int src_y, int sr
         return 0;
 
     display_width = psx_gpu->screen.hres > 0 ? psx_gpu->screen.hres : w;
-    display_height = psx_gpu->screen.vres > 0 ? psx_gpu->screen.vres : h;
+    display_height = psx_gpu->state.screen_centering_type == C_BORDERLESS ? h :
+        (psx_gpu->screen.vres > 0 ? psx_gpu->screen.vres : h);
     if (display_width <= 0 || display_height <= 0 || w <= 0 || h <= 0)
         return 0;
 

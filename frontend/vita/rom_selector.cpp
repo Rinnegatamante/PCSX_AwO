@@ -139,6 +139,9 @@ static const OptionChoice k_fractional_choices[] = {
 static const OptionChoice k_flip_choices[] = {
     { "auto", "Auto" }, { "early", "Early" }, { "late", "Late" }
 };
+static const OptionChoice k_centering_choices[] = {
+    { "auto", "Auto" }, { "game", "Game" }, { "borderless", "Borderless" }
+};
 static const OptionChoice k_toggle_choices[] = {
     { "disabled", "Off" }, { "enabled", "On" }
 };
@@ -158,6 +161,7 @@ static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "BIOS Boot Logo", "Controls whether the PlayStation BIOS boot animation is shown. Takes effect on the next game start/restart.", "pcsx_rearmed_show_bios_bootlogo", k_bios_logo_choices, 3, false },
     { "SYSTEM", "PSX CPU Clock", "Changes the emulated PlayStation CPU clock. Leave on Auto unless a game needs different CPU timing.", "pcsx_rearmed_psxclock", NULL, 0, true },
     { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched uses an experimental widescreen projection that preserves geometry proportions and can reveal extra horizontal content, but some games may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
+    { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },

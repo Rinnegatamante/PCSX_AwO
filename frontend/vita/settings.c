@@ -38,6 +38,7 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_psxclock", "auto", {0} },
     { "pcsx_rearmed_fractional_framerate", "auto", {0} },
     { "pcsx_rearmed_alt_flip", "auto", {0} },
+    { "pcsx_rearmed_screen_centering", "borderless", {0} },
     { "vita_aspect_ratio", "4:3", {0} },
 };
 
