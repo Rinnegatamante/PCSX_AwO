@@ -3,6 +3,8 @@
 *.swp
 *.so
 *.d
+# All isolated build outputs are generated; source and evidence live elsewhere.
+/build/
 tags
 cscope.out
 compile_commands.json

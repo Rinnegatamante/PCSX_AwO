@@ -1,5 +1,11 @@
 # Vita standalone validation
 
+Historical build paths below may have been retired by the
+[2026-10-08 storage cleanup](build-storage.md). Their source, packages and
+runtime evidence remain recoverable from the local verified archive. New
+`rebuild_vita3k_fixed.py` builds discard intermediate objects after successful
+linking; use `--keep-objects` only when diagnosing the build itself.
+
 The validation targets are tracked separately:
 
 | Target | Recorded evidence | Remaining gate |

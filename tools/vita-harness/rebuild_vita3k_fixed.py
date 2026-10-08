@@ -21,6 +21,8 @@ parser.add_argument('--source', type=Path, required=True, help='Local Vita3K sou
 parser.add_argument('--build', type=Path, help='Existing build directory; defaults to SOURCE/build/macos')
 parser.add_argument('--app-template', type=Path, required=True, help='Built app bundle to copy, including resources/frameworks')
 parser.add_argument('--output', type=Path, required=True, help='Fresh isolated output directory')
+parser.add_argument('--keep-objects', action='store_true',
+                    help='Retain intermediate objects/archives after a successful link (about 600 MiB)')
 parser.add_argument('--dynarmic-archive', type=Path,
                     help='Tested patched Dynarmic archive to link into this private host')
 parser.add_argument('--diagnose-null-memcpy', action='store_true',
@@ -349,6 +351,12 @@ manifest = {
     'linked_dynarmic_archive_sha256': hashlib.sha256(
         (OBJ / 'libdynarmic.a' if options.dynarmic_archive else dynarmic_input).read_bytes()).hexdigest(),
     'validation_scope': 'incremental macOS arm64 host; untouched CMake objects reused',
+    'intermediate_objects_retained': options.keep_objects,
 }
 (OUT / 'pcsx-host-build.json').write_text(json.dumps(manifest, indent=2) + '\n')
+# The signed app, patched source and hashes are the retained result. Failed
+# builds keep their intermediates for diagnosis; successful ones discard only
+# this fresh output's compilation cache unless explicitly requested.
+if not options.keep_objects:
+    shutil.rmtree(OBJ)
 print(f'linked {BIN}')
