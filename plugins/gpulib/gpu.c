@@ -1121,7 +1121,9 @@ long GPUfreeze(uint32_t type, GPUFreeze_t *freeze, uint16_t **vram_ptr)
       for (i = 8; i > 1; i--)
         GPUwriteStatus((i << 24) | freeze->ulControl[i]);
       renderer_sync_ecmds(gpu.ex_regs);
+#ifndef GPU_VITA_CTR
       renderer_update_caches(0, 0, 1024, 512, 0);
+#endif
       gpu_async_sync_ecmds(&gpu);
       break;
   }

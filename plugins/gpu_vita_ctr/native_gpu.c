@@ -1104,7 +1104,7 @@ void MakeTexcoordRect(GrVertex *vertex, u8 *uv, s16 page, s16 clut, s16 w, s16 h
 	const int endV = (int)uv[1] + h;
 	const bool wrapsU = endU == 256;
 	const bool wrapsV = endV == 256;
-	const s8 texelCenterOffset = g_cfg_bilinearFiltering ? -1 : 0;
+	const s8 texelCenterOffset = -1;
 	const u8 encodedEndU = wrapsU ? 255 : (u8)endU;
 	const u8 encodedEndV = wrapsV ? 255 : (u8)endV;
 
