@@ -268,7 +268,9 @@ static void *gpu_alloc(unsigned int size)
   return ptr;
 }
 static void gpu_free(void *ptr, unsigned int size) { free(ptr); }
-void pl_frame_limit(void) {}
+static int frontend_loop;
+/* As in libretro: the core's per-frame call makes psxCpu->Execute return. */
+void pl_frame_limit(void) { if (frontend_loop) psxRegs.stop++; }
 void pl_timing_prepare(int is_pal) {}
 void plat_trigger_vibrate(int pad, int low, int high) {}
 void pl_gun_byte2(int gun, unsigned char byte) {}
@@ -303,7 +305,7 @@ static void usage(const char *name)
     "[--trace FILE --trace-blocks N] [--cycle-snapshots FILE "
     "--snapshot-start CYCLES --snapshot-interval N] "
     "[--board-bus-trace FILE] [--system12-edge-trace FILE] [--system12-trace-shared-writes | --system12-trace-shared-accesses] "
-    "[--max-blocks N] [--icache] [--drc] [--interactive] [--system12-vblank-sync-only] [--system12-source-step]\n"
+    "[--max-blocks N] [--icache] [--drc] [--interactive] [--system12-vblank-sync-only] [--system12-source-step] [--frontend-loop]\n"
     "       %s (--gpu-type1-test | --gpu-type1-test-1m)\n", name, name);
 }
 
@@ -581,6 +583,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[i], "--interactive")) interactive = 1;
     else if (!strcmp(argv[i], "--system12-vblank-sync-only")) vblank_sync_only = 1;
     else if (!strcmp(argv[i], "--system12-source-step")) source_step = 1;
+    else if (!strcmp(argv[i], "--frontend-loop")) frontend_loop = 1;
     else if (!strcmp(argv[i], "--trace") && i + 1 < argc) trace_path = argv[++i];
     else if (!strcmp(argv[i], "--cycle-snapshots") && i + 1 < argc) snapshot_path = argv[++i];
     else if (!strcmp(argv[i], "--board-bus-trace") && i + 1 < argc) bus_trace_path = argv[++i];
@@ -636,6 +639,12 @@ int main(int argc, char **argv)
     fprintf(stderr, "Rebuild with BOARD=1 for System12 source instruction stepping.\n");
     return 2;
 #endif
+  }
+  if (frontend_loop && (source_step || board_test || interactive || trace_path ||
+      snapshot_path || reset_at_cycle || gpu_type1_test)) {
+    fprintf(stderr, "--frontend-loop runs whole frames like libretro; it excludes "
+      "source step, board tests, interactive, traces, snapshots and resets\n");
+    return 2;
   }
   if (vblank_sync_only) {
 #ifdef PCSX_SYSTEM12
@@ -1053,7 +1062,13 @@ int main(int argc, char **argv)
     }
     /* Use the public interpreter step to cap otherwise branchless blocks.
      * It preserves the core's branch and pending load-delay semantics. */
-    if (source_step) {
+    if (frontend_loop) {
+      /* libretro retro_run(): one whole frame; the board advances only
+       * through the core's screen events, never per block. */
+      psxRegs.stop = 0;
+      psxCpu->Execute(&psxRegs);
+    }
+    else if (source_step) {
 #ifdef PCSX_SYSTEM12
       /* MAME order: the main CPU runs a whole slice, then the H8 catches up. */
       while (!slice_steps) {
@@ -1097,7 +1112,8 @@ int main(int argc, char **argv)
       }
       /* Diagnostic control for frontends whose board catch-up is driven by
        * core vblank events rather than this harness's block loop. */
-      int sync_result = vblank_sync_only || source_step ? 0 : selected_board->sync(psxRegs.cycle);
+      int sync_result = vblank_sync_only || source_step || frontend_loop ? 0 :
+        selected_board->sync(psxRegs.cycle);
       if (sync_result < 0) {
         fprintf(stderr, "%s: device or bus fault during execution\n", selected_board->name);
         result = 1;

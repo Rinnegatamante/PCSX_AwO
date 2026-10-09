@@ -18,6 +18,7 @@ cheatpops.db
 /tools/*
 !/tools/mac-harness/
 !/tools/vita-harness/
+!/tools/libretro-host/
 /build/mac-harness/
 /build/mac-harness-vitagl-like/
 /build/vita-gnet/
