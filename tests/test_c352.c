@@ -128,12 +128,71 @@ static void test_interpolation_full_swing(void)
     c352_destroy(c);
 }
 
+static uint32_t rng_state = 12345;
+static uint32_t rng(void)
+{
+    rng_state ^= rng_state << 13;
+    rng_state ^= rng_state >> 17;
+    rng_state ^= rng_state << 5;
+    return rng_state;
+}
+
+/* c352_generate mixes one voice over a whole block (calls of 2 frames or
+ * more without noise) and MAME's way, every voice per frame, otherwise.
+ * Random voice programs on two chips: one generated a frame per call, the
+ * other in blocks; outputs and readable registers must stay equal. */
+static void test_block_order_equivalence(void)
+{
+    static uint8_t rom[0x20000];
+    static int16_t a[300 * 4], b[300 * 4];
+    C352 *ca, *cb;
+    unsigned round, i;
+    for (i = 0; i < sizeof(rom); ++i)
+        rom[i] = (uint8_t)rng();
+    ca = c352_create(rom, sizeof(rom), 25401600, 288);
+    cb = c352_create(rom, sizeof(rom), 25401600, 288);
+    assert(ca && cb);
+    for (round = 0; round < 4000; ++round) {
+        unsigned writes = rng() % 6, frames = 1 + rng() % 300, w;
+        for (w = 0; w < writes; ++w) {
+            unsigned voice = rng() % 32, index = rng() % 8;
+            uint16_t value = (uint16_t)rng();
+            if (index == 3) {
+                /* flags: mostly PCM, sometimes noise, key on or off */
+                value &= 0x07ff;
+                if (rng() % 8) value &= (uint16_t)~0x0010;
+                if (rng() % 2) value |= KEYON;
+                else if (rng() % 3 == 0) value |= KEYOFF;
+            } else if (index == 4) {
+                value &= 1;                    /* bank inside the ROM */
+            } else if (index == 2) {
+                value = (uint16_t)(rng() % 3 == 0 ? value : value & 0x3fff);
+            }
+            reg(ca, voice, index, value);
+            reg(cb, voice, index, value);
+        }
+        if (rng() % 2) {
+            keyon(ca);
+            keyon(cb);
+        }
+        for (i = 0; i < frames; ++i)
+            c352_generate(ca, a + i * 4, 1);
+        c352_generate(cb, b, frames);
+        assert(memcmp(a, b, frames * 4 * sizeof(a[0])) == 0);
+        for (i = 0; i < 0x100; ++i)
+            assert(c352_read(ca, i) == c352_read(cb, i));
+    }
+    c352_destroy(ca);
+    c352_destroy(cb);
+}
+
 int main(void)
 {
     test_bus_and_pcm();
     test_mulaw_and_loop();
     test_one_shot_and_reset();
     test_interpolation_full_swing();
+    test_block_order_equivalence();
     puts("C352 synthetic tests passed");
     return 0;
 }

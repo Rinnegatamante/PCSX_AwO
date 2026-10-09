@@ -36,6 +36,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+#include <arm_neon.h>
+#endif
 
 enum {
     C352_FLG_BUSY       = 0x8000,
@@ -67,6 +70,51 @@ typedef struct {
     uint16_t freq, flags;
     uint16_t wave_bank, wave_start, wave_end, wave_loop;
 } C352Voice;
+
+#ifdef C352_TRACE
+/* Call trace for tools/c352-replay: C352_TRACE_FILE=path:frames records the
+ * chip's calls until that many output frames, then the output's FNV-1a. */
+#include <stdio.h>
+enum { C352T_WRITE = 1, C352T_READ, C352T_GENERATE, C352T_RESET, C352T_END };
+static FILE *c352t_file;
+static unsigned long long c352t_left, c352t_hash = 0xcbf29ce484222325ull;
+static void c352t_rec(uint32_t tag, uint32_t a, uint32_t b, uint32_t c)
+{
+    uint32_t r[4] = { tag, a, b, c };
+    if (c352t_file) fwrite(r, 4, 4, c352t_file);
+}
+static void c352t_open(const uint8_t *rom, size_t rom_size, uint32_t clock_hz, unsigned divider)
+{
+    const char *env = getenv("C352_TRACE_FILE");
+    char path[512];
+    uint64_t h = 0xcbf29ce484222325ull;
+    size_t i;
+    if (!env || sscanf(env, "%511[^:]:%llu", path, &c352t_left) != 2 ||
+        !(c352t_file = fopen(path, "wb")))
+        return;
+    for (i = 0; i < rom_size; i++)
+        h = (h ^ rom[i]) * 0x100000001b3ull;
+    c352t_rec(0x54323533, clock_hz, divider, (uint32_t)rom_size);
+    c352t_rec((uint32_t)h, (uint32_t)(h >> 32), 0, 0);
+}
+static void c352t_output(const int16_t *out, size_t frames)
+{
+    const uint8_t *b = (const uint8_t *)out;
+    size_t i;
+    if (!c352t_file) return;
+    for (i = 0; i < frames * 8; i++)
+        c352t_hash = (c352t_hash ^ b[i]) * 0x100000001b3ull;
+    if (frames >= c352t_left) {
+        c352t_rec(C352T_END, (uint32_t)c352t_hash, (uint32_t)(c352t_hash >> 32), 0);
+        fclose(c352t_file);
+        c352t_file = NULL;
+    } else
+        c352t_left -= frames;
+}
+#define C352T(x) x
+#else
+#define C352T(x)
+#endif
 
 struct C352 {
     const uint8_t *rom;
@@ -162,6 +210,7 @@ C352 *c352_create(const uint8_t *rom, size_t rom_size,
     }
     for (i = 0; i < 128; ++i)
         c->mulaw[i + 128] = (int16_t)((~(uint16_t)c->mulaw[i]) & 0xffe0u);
+    C352T(c352t_open(rom, rom_size, clock_hz, divider));
     c352_reset(c);
     return c;
 }
@@ -171,6 +220,7 @@ void c352_destroy(C352 *c) { free(c); }
 void c352_reset(C352 *c)
 {
     if (!c) return;
+    C352T(c352t_rec(C352T_RESET, 0, 0, 0));
     memset(c->voice, 0, sizeof(c->voice));
     c->random = 0x1234;
     c->control = 0;
@@ -193,6 +243,7 @@ static uint16_t *voice_register(C352Voice *v, unsigned reg)
 uint16_t c352_read(C352 *c, uint32_t offset)
 {
     if (!c) return 0;
+    C352T(c352t_rec(C352T_READ, offset, 0, 0));
     if (offset < 0x100)
         return *voice_register(&c->voice[offset / 8], offset % 8);
     if (offset == 0x200) return c->control;
@@ -208,6 +259,7 @@ void c352_write(C352 *c, uint32_t offset, uint16_t data, uint16_t mem_mask)
 {
     unsigned i;
     if (!c) return;
+    C352T(c352t_rec(C352T_WRITE, offset, data, mem_mask));
     if (offset < 0x100) {
         uint16_t *reg = voice_register(&c->voice[offset / 8], offset % 8);
         *reg = combine_data(*reg, data, mem_mask);
@@ -234,10 +286,10 @@ void c352_write(C352 *c, uint32_t offset, uint16_t data, uint16_t mem_mask)
 
 unsigned c352_sample_rate(const C352 *c) { return c ? c->sample_rate : 0; }
 
-void c352_generate(C352 *c, int16_t *out, size_t frames)
+/* MAME's order: every voice for one output frame, then the next frame. */
+static void generate_frame_major(C352 *c, int16_t *out, size_t frames)
 {
     size_t i;
-    if (!c || !out) return;
     for (i = 0; i < frames; ++i) {
         int32_t mix[4] = { 0, 0, 0, 0 };
         unsigned j;
@@ -276,4 +328,166 @@ void c352_generate(C352 *c, int16_t *out, size_t frames)
         out[i * 4 + 2] = wrap_s16(mix[2] >> 3);
         out[i * 4 + 3] = wrap_s16(mix[3] >> 3);
     }
+}
+
+#define C352_BLOCK 256
+
+/* The four channel volumes packed in a word (curr_vol[0] lowest), each
+ * stepped by one toward its target, as ramp_volume does. */
+static uint32_t ramp_packed(uint32_t cur, uint32_t target)
+{
+    uint32_t out = 0;
+    unsigned k;
+    for (k = 0; k < 32; k += 8) {
+        uint32_t c8 = (cur >> k) & 0xff, t8 = (target >> k) & 0xff;
+        if (c8 != t8)
+            c8 = (c8 + (c8 > t8 ? 0xff : 1)) & 0xff;
+        out |= c8 << k;
+    }
+    return out;
+}
+
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+/* Each channel's volume times its phase sign: (-s) * v == s * (-v). */
+static int32x4_t signed_volumes(uint32_t packed, int32x4_t sign)
+{
+    uint16x8_t w = vmovl_u8(vreinterpret_u8_u32(vdup_n_u32(packed)));
+    return vmulq_s32(vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(w))), sign);
+}
+#endif
+
+/* The same sums in another order: one voice over the whole block, then the
+ * next voice. Voices interact only through the mix, an integer sum, and
+ * through the noise generator, which this path never runs (see below). A
+ * voice keeps its state in registers for the block. */
+static void generate_voice_major(C352 *c, int16_t *out, size_t frames)
+{
+    int32_t mix[C352_BLOCK * 4] __attribute__((aligned(16)));
+    size_t i;
+    unsigned j;
+    memset(mix, 0, frames * 4 * sizeof(mix[0]));
+    for (j = 0; j < 32; ++j) {
+        C352Voice *v = &c->voice[j];
+        uint16_t flags = v->flags;
+        uint32_t counter, freq, vol, target;
+        int32_t smp, last, sign[4];
+        if (!(flags & C352_FLG_BUSY))
+            continue;
+        counter = v->counter;
+        freq = v->freq;
+        smp = v->sample;
+        last = v->last_sample;
+        sign[0] = (flags & C352_FLG_PHASEFL) ? -1 : 1;
+        sign[1] = (flags & C352_FLG_PHASEFR) ? -1 : 1;
+        sign[2] = (flags & C352_FLG_PHASERL) ? -1 : 1;
+        sign[3] = sign[1];   /* MAME uses the FR phase for RR too */
+        vol = (uint32_t)v->curr_vol[0] | (uint32_t)v->curr_vol[1] << 8 |
+              (uint32_t)v->curr_vol[2] << 16 | (uint32_t)v->curr_vol[3] << 24;
+        target = (uint32_t)(v->vol_f >> 8) | (uint32_t)(v->vol_f & 0xff) << 8 |
+                 (uint32_t)(v->vol_r >> 8) << 16 | (uint32_t)(v->vol_r & 0xff) << 24;
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+        int32x4_t signq = vld1q_s32(sign);
+        int32x4_t svq = signed_volumes(vol, signq);
+#else
+        int32_t sv[4];
+        sv[0] = sign[0] * (int32_t)(vol & 0xff);
+        sv[1] = sign[1] * (int32_t)(vol >> 8 & 0xff);
+        sv[2] = sign[2] * (int32_t)(vol >> 16 & 0xff);
+        sv[3] = sign[3] * (int32_t)(vol >> 24);
+#endif
+        for (i = 0; i < frames; ++i) {
+            int32_t sample;
+            uint32_t next;
+            if (!(flags & C352_FLG_BUSY))
+                break;   /* key-off ended it: silent for the rest */
+            next = counter + freq;
+            if (next & 0x10000u) {
+                uint32_t pos = v->pos;
+                /* fetch_sample's common case inline: no reverse loop, not
+                 * at the wave end. Noise never runs on this path. */
+                if ((flags & C352_FLG_REVLOOP) != C352_FLG_REVLOOP &&
+                    (uint16_t)pos != v->wave_end) {
+                    uint8_t raw = read_byte(c, pos);
+                    last = smp;
+                    smp = (flags & C352_FLG_MULAW) ? c->mulaw[raw]
+                                                   : (int16_t)((int8_t)raw * 256);
+                    v->last_sample = (int16_t)last;
+                    v->sample = (int16_t)smp;
+                    v->pos = pos + ((flags & C352_FLG_REVERSE) ? (uint32_t)-1 : 1);
+                }
+                else {
+                    fetch_sample(c, v);
+                    flags = v->flags;
+                    smp = v->sample;
+                    last = v->last_sample;
+                }
+            }
+            if (((next ^ counter) & 0x18000u) && vol != target) {
+                vol = ramp_packed(vol, target);
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+                svq = signed_volumes(vol, signq);
+#else
+                sv[0] = sign[0] * (int32_t)(vol & 0xff);
+                sv[1] = sign[1] * (int32_t)(vol >> 8 & 0xff);
+                sv[2] = sign[2] * (int32_t)(vol >> 16 & 0xff);
+                sv[3] = sign[3] * (int32_t)(vol >> 24);
+#endif
+            }
+            counter = next & 0xffffu;
+            sample = smp;
+            /* MAME's interpolation: u32 product, stored into s16. */
+            if (!(flags & C352_FLG_FILTER))
+                sample = (int16_t)(uint16_t)((uint32_t)last +
+                    (counter * (uint32_t)(smp - last) >> 16));
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+            {
+                int32_t *m = &mix[i * 4];
+                vst1q_s32(m, vaddq_s32(vld1q_s32(m),
+                    vshrq_n_s32(vmulq_n_s32(svq, sample), 8)));
+            }
+#else
+            mix[i * 4 + 0] += (sample * sv[0]) >> 8;
+            mix[i * 4 + 1] += (sample * sv[1]) >> 8;
+            mix[i * 4 + 2] += (sample * sv[2]) >> 8;
+            mix[i * 4 + 3] += (sample * sv[3]) >> 8;
+#endif
+        }
+        v->counter = counter;
+        v->curr_vol[0] = (uint8_t)vol;
+        v->curr_vol[1] = (uint8_t)(vol >> 8);
+        v->curr_vol[2] = (uint8_t)(vol >> 16);
+        v->curr_vol[3] = (uint8_t)(vol >> 24);
+    }
+#if defined(__ARM_NEON) && !defined(C352_SCALAR)
+    for (i = 0; i < frames; ++i)
+        vst1_s16(out + i * 4, vmovn_s32(vshrq_n_s32(vld1q_s32(&mix[i * 4]), 3)));
+#else
+    for (i = 0; i < frames * 4; ++i)
+        out[i] = wrap_s16(mix[i] >> 3);
+#endif
+}
+
+void c352_generate(C352 *c, int16_t *out, size_t frames)
+{
+    size_t done;
+    unsigned j;
+    int noise = 0;
+    if (!c || !out) return;
+    C352T(c352t_rec(C352T_GENERATE, (uint32_t)frames, 0, 0));
+    /* Noise voices share one generator, advanced in voice order within a
+     * frame: only MAME's order reproduces its sequence. A voice cannot turn
+     * noise on during a call (only register writes change that flag). */
+    for (j = 0; j < 32; ++j)
+        if ((c->voice[j].flags & (C352_FLG_BUSY | C352_FLG_NOISE)) ==
+            (C352_FLG_BUSY | C352_FLG_NOISE))
+            noise = 1;
+    for (done = 0; done < frames; ) {
+        size_t n = frames - done > C352_BLOCK ? C352_BLOCK : frames - done;
+        if (noise || n < 2)
+            generate_frame_major(c, out + done * 4, n);
+        else
+            generate_voice_major(c, out + done * 4, n);
+        done += n;
+    }
+    C352T(c352t_output(out, frames));
 }
