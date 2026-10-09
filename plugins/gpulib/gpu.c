@@ -35,6 +35,9 @@
 struct psx_gpu gpu;
 unsigned gpu_vram_height = GPU_VRAM_ROWS_CONSOLE;
 static int gpu_model = 2;
+#ifdef GPULIB_TRACE
+long GPUfreeze(uint32_t type, GPUFreeze_t *freeze, uint16_t **vram_ptr);
+#endif
 
 int gpu_set_model(int model)
 {
@@ -417,6 +420,114 @@ static int map_vram(void)
   }
 }
 
+
+#ifdef GPULIB_TRACE
+/* GPU command trace for tools/gpu-replay: GPULIB_TRACE_FILE=path:from:to
+ * records every GPU entry call made in emulated frames [from, to), after a
+ * snapshot of VRAM and registers, so the renderer's work can be replayed and
+ * profiled without the rest of the emulator. Format in tools/gpu-replay. */
+#include <stdio.h>
+#include <stdlib.h>
+
+enum {
+  GT_STATUS = 1, GT_DATA_MEM, GT_DATA, GT_CHAIN, GT_CHAIN_PKT, GT_CHAIN_END,
+  GT_READ_MEM, GT_READ, GT_READ_STATUS, GT_VBLANK, GT_END
+};
+
+static struct {
+  FILE *f;
+  unsigned from, to;
+  int state;   /* 0 unparsed, 1 waiting, 2 recording, 3 off */
+  const struct rearmed_cbs *cbs;
+} gtrace;
+
+static void gt_put(const void *p, size_t words)
+{
+  fwrite(p, 4, words, gtrace.f);
+}
+
+static void gt_rec(uint32_t tag, uint32_t a, uint32_t b)
+{
+  uint32_t r[3] = { tag, a, b };
+  gt_put(r, 3);
+}
+
+static void gt_start(void)
+{
+  const struct rearmed_cbs *c = gtrace.cbs;
+  GPUFreeze_t *fz = calloc(1, sizeof(*fz));
+  uint16_t *vram;
+  uint32_t hdr[32] = { 0x52544753, 1, gpu_vram_height, gpu_model, gtrace.from, gtrace.to };
+  if (c) {
+    hdr[6] = c->frameskip; hdr[7] = c->dithering; hdr[8] = c->scale_hires;
+    hdr[9] = c->alt_flip; hdr[10] = c->gpu_hacks;
+    hdr[11] = c->gpu_neon.allow_interlace; hdr[12] = c->gpu_neon.enhancement_enable;
+    hdr[13] = c->gpu_neon.enhancement_no_main; hdr[14] = c->gpu_neon.enhancement_tex_adj;
+    hdr[15] = c->screen_centering_type; hdr[16] = c->screen_centering_type_default;
+    hdr[17] = c->screen_centering_x; hdr[18] = c->screen_centering_y;
+    hdr[19] = c->screen_centering_h_adj; hdr[20] = c->show_overscan;
+    hdr[21] = c->only_16bpp; hdr[22] = c->gpu_caps;
+  }
+  hdr[23] = *gpu.state.frame_count;
+  hdr[24] = GPU_DMA_RAM_MASK + 1;
+  GPUfreeze(1, fz, &vram);
+  gt_put(hdr, 32);
+  gt_put(&fz->ulStatus, 1);
+  gt_put(fz->ulControl, 256);
+  gt_put(vram, 1024 * gpu_vram_height / 2);
+  free(fz);
+  gtrace.state = 2;
+  SysPrintf("gpulib: trace started at frame %u\n", hdr[23]);
+}
+
+/* Whether this call is to be recorded: starts and stops the capture on the
+ * emulated frame counter. */
+static int gt_on(void)
+{
+  if (likely(gtrace.state == 3))
+    return 0;
+  if (gtrace.state == 0) {
+    const char *env = getenv("GPULIB_TRACE_FILE");
+    char path[512];
+    gtrace.state = 3;
+    if (env && sscanf(env, "%511[^:]:%u:%u", path, &gtrace.from, &gtrace.to) == 3 &&
+        (gtrace.f = fopen(path, "wb")) != NULL)
+      gtrace.state = 1;
+    else if (env)
+      SysPrintf("gpulib: bad GPULIB_TRACE_FILE \"%s\" (path:from:to)\n", env);
+  }
+  if (gtrace.state == 1 && *gpu.state.frame_count >= gtrace.from)
+    gt_start();
+  if (gtrace.state == 2 && *gpu.state.frame_count >= gtrace.to) {
+    /* The VRAM the replay must reach: FNV-1a of every byte. */
+    uint64_t h = 0xcbf29ce484222325ull;
+    const uint8_t *v = (const uint8_t *)gpu.vram;
+    size_t i, n = (size_t)1024 * gpu_vram_height * 2;
+    if (gpu.cmd_len > 0)
+      flush_cmd_buffer(&gpu);
+    sync_renderer(&gpu);
+    for (i = 0; i < n; i++)
+      h = (h ^ v[i]) * 0x100000001b3ull;
+    gt_rec(GT_END, (uint32_t)h, (uint32_t)(h >> 32));
+    if (getenv("GPULIB_TRACE_VRAM")) {
+      FILE *vf = fopen(getenv("GPULIB_TRACE_VRAM"), "wb");
+      if (vf) {
+        fwrite(gpu.vram, 2, (size_t)1024 * gpu_vram_height, vf);
+        fclose(vf);
+      }
+    }
+    fclose(gtrace.f);
+    gtrace.f = NULL;
+    gtrace.state = 3;
+    SysPrintf("gpulib: trace done\n");
+  }
+  return gtrace.state == 2;
+}
+#define GT(call) do { if (unlikely(gtrace.state != 3) && gt_on()) { call; } } while (0)
+#else
+#define GT(call) do { } while (0)
+#endif
+
 long GPUinit(void)
 {
   int ret;
@@ -457,6 +568,7 @@ long GPUshutdown(void)
 
 void GPUwriteStatus(uint32_t data)
 {
+  GT(gt_rec(GT_STATUS, data, 0));
   uint32_t cmd = data >> 24;
   uint32_t fb_dirty = 1, frame;
   int src_x, src_y, changed;
@@ -1203,6 +1315,7 @@ void GPUwriteDataMem(uint32_t *mem, int count)
   int dummy = 0, left;
 
   log_io(&gpu, "gpu_dma_write %p %d cached %d\n", mem, count, gpu.cmd_len);
+  GT((gt_rec(GT_DATA_MEM, count, 0), gt_put(mem, count)));
 
   if (unlikely(gpu.cmd_len > 0))
     flush_cmd_buffer(&gpu);
@@ -1217,6 +1330,7 @@ void GPUwriteDataMem(uint32_t *mem, int count)
 void GPUwriteData(uint32_t data)
 {
   log_io(&gpu, "gpu_write %08x\n", data);
+  GT(gt_rec(GT_DATA, data, 0));
   gpu.cmd_buffer[gpu.cmd_len++] = HTOLE32(data);
   if (gpu.cmd_len >= CMD_BUFFER_LEN) {
     flush_cmd_buffer(&gpu);
@@ -1233,6 +1347,10 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
   int cpu_cycles_last = 0;
 
   preload(rambase + (start_addr & GPU_DMA_RAM_MASK) / 4);
+#ifdef GPULIB_TRACE
+  int traced = 0;
+  GT((gt_rec(GT_CHAIN, start_addr, progress_addr != NULL), traced = 1));
+#endif
 
   if (unlikely(gpu.cmd_len > 0))
     flush_cmd_buffer(&gpu);
@@ -1245,6 +1363,12 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
     len = LE32TOH(list[0]) >> 24;
     addr = LE32TOH(list[0]) & 0xffffff;
     preload(rambase + (addr & GPU_DMA_RAM_MASK) / 4);
+#ifdef GPULIB_TRACE
+    if (traced) {
+      gt_rec(GT_CHAIN_PKT, (uint32_t)(list - rambase) * 4, len);
+      gt_put(list, len + 1);
+    }
+#endif
 
     cpu_cycles_sum += 10;
     if (len > 0)
@@ -1290,6 +1414,10 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
   }
 
   sync_ecmds_status_bits(&gpu);
+#ifdef GPULIB_TRACE
+  if (traced)
+    gt_rec(GT_CHAIN_END, 0, 0);
+#endif
 
   //printf(" -> %d %d\n", cpu_cycles_sum, cpu_cycles_last);
   gpu.state.last_list.frame = *gpu.state.frame_count;
@@ -1306,6 +1434,7 @@ long GPUdmaChain(uint32_t *rambase, uint32_t start_addr,
 void GPUreadDataMem(uint32_t *mem, int count)
 {
   log_io(&gpu, "gpu_dma_read  %p %d\n", mem, count);
+  GT(gt_rec(GT_READ_MEM, count, 0));
 
   if (unlikely(gpu.cmd_len > 0)) {
     flush_cmd_buffer(&gpu);
@@ -1320,6 +1449,7 @@ uint32_t GPUreadData(void)
 {
   uint32_t ret;
 
+  GT(gt_rec(GT_READ, 0, 0));
   if (unlikely(gpu.cmd_len > 0)) {
     flush_cmd_buffer(&gpu);
     sync_ecmds_status_bits(&gpu);
@@ -1340,6 +1470,7 @@ uint32_t GPUreadStatus(void)
 {
   uint32_t ret;
 
+  GT(gt_rec(GT_READ_STATUS, 0, 0));
   if (unlikely(gpu.cmd_len > 0)) {
     flush_cmd_buffer(&gpu);
     sync_ecmds_status_bits(&gpu);
@@ -1453,6 +1584,7 @@ static void GPUupdateLace(void)
 void GPUvBlank(int is_vblank, int lcf)
 {
   int interlace;
+  GT((gt_rec(GT_VBLANK, is_vblank | (lcf << 1), *gpu.state.frame_count), gt_put(gpu.state.hcnt, 1)));
   interlace = gpu.state.allow_interlace
     && (gpu.status & PSX_GPU_STATUS_INTERLACE)
     && (gpu.status & PSX_GPU_STATUS_DHEIGHT);
@@ -1491,6 +1623,9 @@ void GPUgetScreenInfo(int *y, int *base_hres)
 
 void GPUrearmedCallbacks(const struct rearmed_cbs *cbs)
 {
+#ifdef GPULIB_TRACE
+  gtrace.cbs = cbs;
+#endif
   gpu.frameskip.set = cbs->frameskip;
   gpu.frameskip.advice = &cbs->fskip_advice;
   gpu.frameskip.force = &cbs->fskip_force;

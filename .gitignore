@@ -19,6 +19,7 @@ cheatpops.db
 !/tools/mac-harness/
 !/tools/vita-harness/
 !/tools/libretro-host/
+!/tools/gpu-replay/
 /build/mac-harness/
 /build/mac-harness-vitagl-like/
 /build/vita-gnet/
