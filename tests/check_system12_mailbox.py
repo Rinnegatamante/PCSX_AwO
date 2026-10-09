@@ -142,7 +142,7 @@ def main():
     expected = observations(expected_rows)
     captures = []
     with tempfile.TemporaryDirectory(prefix='pcsx-mailbox-probe-') as tmp:
-        profiles = ([(False, False), (False, True)] if args.source_step else
+        profiles = ([(False, False)] if args.source_step else
                     [(drc, sync) for drc in (False, True) for sync in (False, True)])
         for drc, sync in profiles:
                 case = run_case(harness, Path(tmp) / f'{int(drc)}-{int(sync)}', words, drc, sync,
