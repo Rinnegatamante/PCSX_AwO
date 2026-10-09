@@ -1582,3 +1582,36 @@ Assembly (`psx_gpu_arm_neon.S`) review, for hardware measurement:
   so stage 2 now prefetches each buffer's framebuffer lines.
 - `texture_blocks_4bpp`: 8 byte loads from the texture cache per block,
   ~0.3 L1 misses per block.
+
+## C352 voice-major mixing (2026-10-10)
+
+`c352_generate` ran all 32 voices for each output frame (88,200 a second),
+reloading each voice's state every time; it was 38% of the Vita board
+thread. Calls of two frames or more now run one voice over the whole block
+with its state in registers, then the next voice. Voices meet only in the
+mix, an integer sum, so the order cannot change it. Two exceptions keep
+MAME's order: single-frame calls, and blocks with a busy noise voice (the
+noise generator is shared and advanced in voice order). Inside the block the
+four channel volumes are packed in a word (a settled ramp costs one compare),
+`fetch_sample`'s common case is inline, and on ARM the mix is one NEON
+multiply by the phase-signed volumes.
+
+`tools/c352-replay` replays a call trace (register writes and reads, resets,
+generate calls with their sizes) recorded by `c352.c` built with
+`-DC352_TRACE` (`C352_TRACE_FILE=path:frames`) against the same wave ROM, and
+checks the output's FNV-1a. Soul Calibur's 4800-frame replay (7.06 M output
+frames; 69% of them in 256-frame calls, 380,000 calls of 1-3 frames):
+
+| ARMv7 (callgrind, chip only) | Instructions |
+| --- | --- |
+| Before | 6.46 G |
+| Voice-major, scalar mix | 5.07 G (-22%) |
+| Voice-major, NEON mix | 3.66 G (-43%) |
+
+Output identical on macOS and ARMv7; full emulation identical in per-frame
+video, RAM and audio, with and without the board thread. A randomized test
+(`tests/test_c352.c`) runs the same voice programs frame by frame and in
+blocks and compares output and registers; a wrong phase or step direction
+makes it fail. Expected on the Vita: about 3 ms less per frame on the board
+thread (C352 was 6.8 ms per frame in the profile build); not measured on
+hardware yet.
