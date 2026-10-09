@@ -22,6 +22,8 @@ struct H8CPU {
     u8 m_CCR=0,m_EXR=0;
     bool m_has_hc=true,m_has_mac=false,m_mode_advanced=true;
     int m_inst_state=STATE_RESET,m_inst_substate=0,m_icount=0,m_bcount=0,m_irq_vector=0,m_taken_irq_vector=0;
+    // Inputs of the last update_irq_filter() result; ~0 forces a recompute.
+    u64 irq_key_pending=~u64(0),irq_key_regs=~u64(0);
     int64_t budget=0;
     bool executing_state=false,in_run=false,deadline_run=false;
     bool m_sleeping=false,halted=false,nmi_level=false;
@@ -40,12 +42,21 @@ struct H8CPU {
         arcade::H8CycleClock::Time expires;
     } sync_timer[2]={{false,0,arcade::H8CycleClock::neverTime()},
                      {false,0,arcade::H8CycleClock::neverTime()}};
+    // Spin detector for h8_run_until's exact idle-loop skip.
+    struct Spin {
+        u32 pc=~0u,address=0;
+        u64 cycles=0,instructions=0,delta=0;
+        int seen=0;
+        bool loop=false,while_zero=false;
+    } spin;
     bool scheduler_time_override=false;
     arcade::H8CycleClock::Time scheduler_time_value{0,0};
     void bind_peripherals();
     void refresh_bcount();
     void internal_update_at(u64 when);
     u64 next_internal_event() const;
+    bool peek(u32 a,u8 *v) const;
+    bool skip_spin(u64 target);
     explicit H8CPU(const H8Config &c):config(c) {}
     u8 bus_read(u32 a);
     void bus_write(u32 a,u8 v);
@@ -207,6 +218,11 @@ static const int vector_slot[64]={
 void H8CPU::update_irq_filter() {
     // Level-triggered requests stay latched until ISR clear or acknowledge.
     io[0xf6] |= irq_lines & u8(~io[0xf4]);
+    // The choice depends only on these inputs; it runs on every instruction.
+    u64 regs=io[0xf2]|(u64(io[0xf5])<<8)|(u64(io[0xf6])<<16)|(u64(io[0xf8])<<24)|
+        (u64(io[0xf9])<<32)|(u64(m_CCR&(F_I|F_UI))<<40);
+    if(pending==irq_key_pending&&regs==irq_key_regs) return;
+    irq_key_pending=pending;irq_key_regs=regs;
     u64 candidates=pending;
     for(unsigned i=0;i<6;i++) if((io[0xf5]&io[0xf6])&(1<<i)) candidates|=u64(1)<<(12+i);
     int filter=0;
@@ -297,6 +313,61 @@ void H8CPU::bus_write(u32 a,u8 v) {
     if(r==0xf2||r==0xf4||r==0xf5||r==0xf6||r==0xf8||r==0xf9)update_irq_filter();
 }
 
+bool H8CPU::peek(u32 a,u8 *v) const {
+    a&=0xffffff;
+    if(a>=0xfffd10&&a<=0xffff0f) {*v=ram[a-0xfffd10];return true;}
+    return a<0xffff20&&config.peek8&&config.peek8(config.opaque,a,v);
+}
+/* At a full instruction boundary, fast-forward whole iterations of
+ *   mov.b @aa:24,rd ; bne/beq back to the mov
+ * while the polled byte keeps the loop going. Only this CPU can change that
+ * byte during the run, and no IRQ is pending, so every skipped iteration
+ * would repeat the same reads, registers and flags. The cost of an iteration
+ * is measured, not modeled: two consecutive equal deltas are required. The
+ * skip stays strictly before the next internal event and the run deadline,
+ * so the remaining iterations reach them exactly as without the skip. */
+bool H8CPU::skip_spin(u64 target) {
+    u8 b[8],value;
+    // Other instructions leave the detector alone: the instruction count
+    // between two arrivals at the loop head proves the path.
+    if((m_PIR&0xfff0)!=0x6a20||!config.peek8) return false;
+    if(cycle_ahead||m_irq_vector) {spin.seen=0;return false;}
+    if(m_NPC!=spin.pc) {
+        unsigned i;
+        spin.pc=m_NPC;spin.seen=0;spin.loop=false;
+        for(i=0;i<8;i++) if(!peek(m_NPC+i,&b[i])) return false;
+        u16 w0=(u16(b[0])<<8)|b[1];
+        if(w0!=m_PIR||(b[6]!=0x46&&b[6]!=0x47)||
+           int8_t(b[7])!=-8) return false;
+        spin.address=((u32(b[3])<<16)|(u32(b[4])<<8)|b[5]);
+        spin.while_zero=b[6]==0x47;
+        spin.loop=true;
+    }
+    if(!spin.loop||!peek(spin.address,&value)||(value==0)!=spin.while_zero) {
+        spin.seen=0;return false;
+    }
+    if(spin.seen&&instructions-spin.instructions==2) {
+        u64 delta=cycles-spin.cycles;
+        if(spin.seen>=2&&delta==spin.delta&&delta) {
+            u64 bound=std::min(target,next_internal_event());
+            u64 k=bound>cycles?(bound-cycles-1)/delta:0;
+            // One tick() of under a second of cycles advances local attotime
+            // exactly like the per-instruction ticks it replaces.
+            k=std::min<u64>(k,(arcade::H8CycleClock::frequency-1)/delta);
+            if(k) {
+                tick(unsigned(k*delta));
+                instructions+=2*k;
+                if(config.account_reads)config.account_reads(config.opaque,spin.address,k);
+                spin.cycles=cycles;spin.instructions=instructions;
+                return true;
+            }
+        }
+        spin.delta=delta;
+        if(spin.seen<2)spin.seen++;
+    } else spin.seen=1;
+    spin.cycles=cycles;spin.instructions=instructions;
+    return false;
+}
 void H8CPU::tick(unsigned elapsed) {
     cycles+=elapsed;
     clock.advance(elapsed);
@@ -431,6 +502,7 @@ int h8_run_until(H8CPU *c,uint64_t target) {
             }
         }
         if(c->m_inst_substate==0&&c->m_inst_state<0x10000) {
+            if(c->skip_spin(target)) continue;
             c->m_PPC=c->m_NPC;c->instructions++;
         }
         c->executing_state=true;

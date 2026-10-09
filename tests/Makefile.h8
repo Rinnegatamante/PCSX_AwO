@@ -6,7 +6,7 @@ PERIPHERAL_HEADERS := $(PERIPHERALS:.cpp=.h)
 TARGET := $(BUILD)/h8-standalone
 TIMESTAMP_TARGET := $(BUILD)/h8-timestamp
 SOFT_RESET_TARGET := $(BUILD)/h8-soft-reset
-.PHONY: all test irq-test rom-test deadline-test deadline-ubsan-test cycle-clock-test cycle-clock-ubsan-test sci-sync-timer-test sci-sync-timer-ubsan-test clean
+.PHONY: all test spin-skip-test spin-skip-ubsan-test irq-test rom-test deadline-test deadline-ubsan-test cycle-clock-test cycle-clock-ubsan-test sci-sync-timer-test sci-sync-timer-ubsan-test clean
 all: $(TARGET)
 $(TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_HEADERS) libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_standalone.cpp
 	@mkdir -p $(BUILD)
@@ -33,7 +33,18 @@ $(SCI_SYNC_TIMER_TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_
 	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8.cpp $(PERIPHERALS) tests/h8_sci_sync_timer.cpp -o $@
 sci-sync-timer-test: $(SCI_SYNC_TIMER_TARGET)
 	$(SCI_SYNC_TIMER_TARGET)
-test: $(TARGET) $(TIMESTAMP_TARGET) $(SOFT_RESET_TARGET) $(DEADLINE_TARGET) $(CYCLE_CLOCK_TARGET) $(SCI_SYNC_TIMER_TARGET)
+SPIN_SKIP_TARGET := $(BUILD)/h8-spin-skip
+$(SPIN_SKIP_TARGET): libpcsxcore/arcade/h8.cpp $(PERIPHERALS) $(PERIPHERAL_HEADERS) libpcsxcore/arcade/h8.h libpcsxcore/arcade/h8_instructions.inc libpcsxcore/arcade/h8_arithmetic.inc tests/h8_spin_skip.cpp
+	@mkdir -p $(BUILD)
+	$(CXX) $(CXXFLAGS) libpcsxcore/arcade/h8.cpp $(PERIPHERALS) tests/h8_spin_skip.cpp -o $@
+spin-skip-test: $(SPIN_SKIP_TARGET)
+	$(SPIN_SKIP_TARGET)
+spin-skip-ubsan-test:
+	@mkdir -p $(BUILD)/ubsan
+	$(CXX) -std=c++11 -O1 -g -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all libpcsxcore/arcade/h8.cpp $(PERIPHERALS) tests/h8_spin_skip.cpp -o $(BUILD)/ubsan/h8-spin-skip
+	$(BUILD)/ubsan/h8-spin-skip
+test: $(TARGET) $(TIMESTAMP_TARGET) $(SOFT_RESET_TARGET) $(DEADLINE_TARGET) $(CYCLE_CLOCK_TARGET) $(SCI_SYNC_TIMER_TARGET) $(SPIN_SKIP_TARGET)
+	$(SPIN_SKIP_TARGET)
 	$(TARGET)
 	$(TIMESTAMP_TARGET)
 	$(SOFT_RESET_TARGET)

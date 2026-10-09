@@ -42,6 +42,13 @@ typedef struct H8Config {
     void (*scheduler_timer_changed)(void *opaque, unsigned channel, int armed,
                                     uint64_t generation, uint64_t seconds,
                                     uint64_t attoseconds);
+    /* Optional exact idle-loop skip. peek8 returns 1 and the byte at an
+     * external address only when reading it has no effect beyond diagnostics
+     * and nothing but this CPU can change it during one h8_run_until call
+     * (code ROM; shared RAM while the other CPU is stopped). account_reads
+     * then receives the byte reads the skip did not perform. */
+    int (*peek8)(void *opaque, uint32_t address, uint8_t *value);
+    void (*account_reads)(void *opaque, uint32_t address, uint64_t count);
 } H8Config;
 typedef struct H8Status {
     uint32_t pc, er[8];

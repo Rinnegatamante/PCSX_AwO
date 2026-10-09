@@ -354,6 +354,29 @@ static void sub_write8(void *opaque, u32 address, u8 value)
     }
 }
 
+/* Side-effect-free H8 reads for the exact idle-loop skip: code ROM, and shared
+ * RAM, which the main CPU cannot change while the H8 runs. Tracing H8 loads
+ * needs every access, so it disables the skip. */
+static int sub_peek8(void *opaque, u32 address, u8 *value)
+{
+    (void)opaque;
+    if (address < board.sub_size) {
+        *value = board.sub[address];
+        return 1;
+    }
+    if (address >= 0x080000 && address < 0x090000 &&
+        !(edge_trace_cb && (edge_trace_shared & SYSTEM12_TRACE_SHARED_LOADS))) {
+        *value = board.shared[(address - 0x080000) ^ 1];
+        return 1;
+    }
+    return 0;
+}
+static void sub_account_reads(void *opaque, u32 address, u64 count)
+{
+    (void)opaque;
+    if (address >= 0x080000 && address < 0x090000)
+        board.sub_reads += count;
+}
 static u16 sub_read16(void *opaque, u32 address)
 {
     if (address >= 0x080000 && address < 0x08ffff) {
@@ -799,6 +822,7 @@ int system12_load(const char *directory)
     h8config.serial_clk_pin = sub_serial_clk_pin;
     h8config.serial_external_period_as[0] = UINT64_C(542534722222);
     h8config.port_read = sub_port_read; h8config.port_write = sub_port_write;
+    h8config.peek8 = sub_peek8; h8config.account_reads = sub_account_reads;
     board.h8 = h8_create(&h8config);
     if (!board.pcm || !board.h8 || !board.eeprom) { system12_unload(); return -1; }
     rtc4543_datetime_t epoch = {2026, 10, 4, 7, 12, 0, 0};
