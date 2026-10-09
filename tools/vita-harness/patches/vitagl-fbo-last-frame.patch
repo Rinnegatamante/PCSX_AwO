@@ -1,0 +1,14 @@
+diff --git a/source/gxm.c b/source/gxm.c
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -640,6 +640,10 @@
+ 			if (sceGxmColorSurfaceGetData(&active_write_fb->colorbuffer) != active_write_fb->tex->data) {
+ 				_glFramebufferTexture2D(active_write_fb, GL_COLOR_ATTACHMENT0, active_write_fb->tex, 1);
+ 			}
++			// The scene writes into this texture: count that as a use, so a
++			// reallocation defers freeing the store while the GPU may still
++			// be rendering into it (sampling alone used to set last_frame).
++			active_write_fb->tex->last_frame = vgl_framecount;
+ 			
+ 			// If the depthbuffer is dirty, we re-gen it
+ 			if (!(active_write_fb->depthbuffer_state & DEPTHBUFFER_READY)) {
