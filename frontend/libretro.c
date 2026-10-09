@@ -443,6 +443,13 @@ static void CrosshairDimensions(int port, struct CrosshairInfo *info) {
    info->size_y = psx_h * (pl_rearmed_cbs.gpu_neon.enhancement_enable ? 2 : 1) * (4.0f / 3.0f) / 40.0f;
 }
 
+/* Optional frontend hook: take the displayed 15-bit VRAM rectangle as it is
+ * (e.g. to scale it on a GPU) instead of the converted frame. Rows start
+ * `stride` bytes apart, byte offsets wrap at `mask` and a row wraps within
+ * its 2048-byte VRAM line. Return nonzero when the frame was consumed. */
+int (*pcsx_raw_frame_cb)(const void *vram, int ofs, int stride, unsigned mask,
+      int w, int h);
+
 static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
       int x, int y, int w, int h, int dims_changed)
 {
@@ -477,6 +484,10 @@ static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
       h /= 2;
    }
    h = min(h, vout_height);
+   if (pcsx_raw_frame_cb && !bgr24 && !enhres &&
+       in_enable_crosshair[0] + in_enable_crosshair[1] <= 0 &&
+       pcsx_raw_frame_cb(vram, vram_ofs, sstride, vram_mask, w, h))
+      goto out;
    dest += x * bytes_pp + y * dstride;
 
    for (h1 = h; h1-- > 0; dest += dstride) {

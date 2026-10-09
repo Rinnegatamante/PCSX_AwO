@@ -19,6 +19,7 @@
 #include <psp2/kernel/threadmgr.h>
 
 #include <arm_neon.h>
+#include <vita2d.h>
 #include <SDL3/SDL.h>
 #include <libretro.h>
 #include "validation.h"
@@ -134,6 +135,8 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
 
 static bool g_gpu_thread;
 static bool g_board_thread;
+static bool g_fb_main; /* framebuffers in main memory instead of CDRAM */
+static bool g_gxm;     /* present through GXM: the GPU scales raw VRAM */
 
 static const char *option_value(const char *key)
 {
@@ -272,6 +275,90 @@ static void rebuild_scale_map(unsigned width, unsigned height)
     g_map_h = (int)height;
 }
 
+/* GXM presentation. The PSX 15-bit pixel (R low, bit 15 = mask) is GXM's
+ * X1U5U5U5_1BGR texture format, so the displayed VRAM rows are copied as
+ * they are into an uncached texture and the GPU scales them to the screen:
+ * no CPU color conversion, and 245 KB written per frame instead of 1.6 MB. */
+extern int (*pcsx_raw_frame_cb)(const void *vram, int ofs, int stride, unsigned mask,
+    int w, int h);
+static vita2d_texture *g_gxm_tex[2];
+static int g_gxm_next, g_gxm_ready = -1, g_gxm_w, g_gxm_h;
+
+static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, int w, int h)
+{
+    const uint8_t *vram = vram_;
+    vita2d_texture *t = g_gxm_tex[g_gxm_next];
+    uint8_t *dst = vita2d_texture_get_datap(t);
+    unsigned dst_stride = vita2d_texture_get_stride(t), bytes, r;
+    uint64_t copy_started;
+    if (w <= 0 || h <= 0) return 0;
+    if (w > 1024) w = 1024;
+    if (h > 512) h = 512;
+    bytes = (unsigned)w * 2;
+    copy_started = pcsx_profile_begin(PCSX_PROF_PRESENT_COPY, 1);
+    /* This texture was drawn two frames ago; the GPU may still read it. */
+    vita2d_wait_rendering_done();
+    for (r = 0; r < (unsigned)h; r++) {
+        unsigned row = ((unsigned)ofs + r * (unsigned)stride) & mask;
+        unsigned col = row & 2047u;
+        uint8_t *out = dst + r * dst_stride;
+        if (col + bytes <= 2048)
+            memcpy(out, vram + row, bytes);
+        else {
+            memcpy(out, vram + row, 2048 - col);
+            memcpy(out + 2048 - col, vram + (row - col), bytes - (2048 - col));
+        }
+    }
+    pcsx_profile_end(PCSX_PROF_PRESENT_COPY, copy_started);
+    g_gxm_w = w;
+    g_gxm_h = h;
+    g_gxm_ready = g_gxm_next;
+    g_gxm_next ^= 1;
+    return 1;
+}
+
+static void gxm_present(void)
+{
+    if (g_gxm_ready < 0)
+        return;
+    vita2d_start_drawing();
+    vita2d_clear_screen();
+    vita2d_draw_texture_part_scale(g_gxm_tex[g_gxm_ready], GAME_X, 0, 0, 0,
+        g_gxm_w, g_gxm_h, (float)GAME_W / g_gxm_w, (float)DISPLAY_H / g_gxm_h);
+    vita2d_end_drawing();
+    vita2d_swap_buffers();
+    g_gxm_ready = -1;
+}
+
+static int gxm_init(void)
+{
+    int i;
+    if (vita2d_init() < 0)
+        return -1;
+    vita2d_set_clear_color(0xff000000u);
+    vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE);
+    for (i = 0; i < 2; i++) {
+        g_gxm_tex[i] = vita2d_create_empty_texture_format(1024, 512,
+            SCE_GXM_TEXTURE_FORMAT_X1U5U5U5_1BGR);
+        if (!g_gxm_tex[i])
+            return -1;
+        vita2d_texture_set_filters(g_gxm_tex[i], SCE_GXM_TEXTURE_FILTER_POINT,
+            SCE_GXM_TEXTURE_FILTER_POINT);
+    }
+    pcsx_raw_frame_cb = gxm_raw_frame;
+    return 0;
+}
+
+static void gxm_finish(void)
+{
+    int i;
+    pcsx_raw_frame_cb = NULL;
+    vita2d_wait_rendering_done();
+    for (i = 0; i < 2; i++)
+        if (g_gxm_tex[i]) vita2d_free_texture(g_gxm_tex[i]);
+    vita2d_fini();
+}
+
 static void video_cb(const void *data, unsigned width, unsigned height, size_t pitch)
 {
     SceDisplayFrameBuf frame;
@@ -279,6 +366,10 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     int back;
     int y, x;
 
+    if (g_gxm) {
+        gxm_present();
+        return;
+    }
     if (!data || width == 0 || height == 0)
         return;
 
@@ -664,9 +755,12 @@ static int display_init(void)
     SceDisplayFrameBuf frame;
     int i;
 
+    if (g_gxm)
+        return gxm_init();
     for (i = 0; i < 2; i++) {
         g_fb_uid[i] = sceKernelAllocMemBlock(i ? "pcsx-fb1" : "pcsx-fb0",
-            SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, DISPLAY_MEM_SIZE, NULL);
+            g_fb_main ? SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW
+                      : SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, DISPLAY_MEM_SIZE, NULL);
         if (g_fb_uid[i] < 0)
             return g_fb_uid[i];
         if (sceKernelGetMemBlockBase(g_fb_uid[i], (void **)&g_fb[i]) < 0)
@@ -687,6 +781,10 @@ static int display_init(void)
 static void display_finish(void)
 {
     int i;
+    if (g_gxm) {
+        gxm_finish();
+        return;
+    }
     /* The display retains a framebuffer after the last video callback. Stop
      * scanout and wait for that update before releasing its backing blocks. */
     int ret = sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_NEXTFRAME);
@@ -919,6 +1017,8 @@ int main(int argc, char **argv)
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
+        if (!strcmp(argv[ret], "--fb-main")) { g_fb_main = true; continue; }
+        if (!strcmp(argv[ret], "--gxm")) { g_gxm = true; continue; }
         if (!strcmp(argv[ret], "--verify-system12-vram-pattern")) {
             verify_system12_vram = true;
             verify_system12_vram_pattern = true;
@@ -1047,6 +1147,9 @@ int main(int argc, char **argv)
              (g_capture_path[profile_len] == '/' || g_capture_path[profile_len] == '\\')))
             return 4;
     }
+    /* PPM captures validate the CPU presentation path. */
+    if (g_capture_path[0])
+        g_gxm = false;
     if (g_inputs_path[0] && load_replay_inputs(g_inputs_path, validation_frames))
         return 4;
 #ifndef ARCADE_SYSTEM12
