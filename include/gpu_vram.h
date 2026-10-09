@@ -19,7 +19,13 @@ unsigned gpu_get_vram_height(void);
  * a 1024-row diagnostic geometry; board profiles should call
  * gpu_set_vram_height() with the physical VRAM geometry they declare. */
 int gpu_set_model(int model);
-int gpu_get_model(void);
+/* Inline: the renderer asks for every primitive and state command. */
+#ifdef PCSX_SYSTEM12
+extern int gpu_model;
+static inline int gpu_get_model(void) { return gpu_model; }
+#else
+static inline int gpu_get_model(void) { return 2; }
+#endif
 
 /* Map TPAGE fields to GPU_NEON's type-2/console renderer convention. */
 static inline uint32_t gpu_tpage_to_renderer(uint32_t tpage)

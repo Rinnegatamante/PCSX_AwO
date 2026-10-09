@@ -34,7 +34,11 @@
 
 struct psx_gpu gpu;
 unsigned gpu_vram_height = GPU_VRAM_ROWS_CONSOLE;
-static int gpu_model = 2;
+#ifdef PCSX_SYSTEM12
+int gpu_model = 2;
+#else
+static const int gpu_model = 2;
+#endif
 #ifdef GPULIB_TRACE
 long GPUfreeze(uint32_t type, GPUFreeze_t *freeze, uint16_t **vram_ptr);
 #endif
@@ -49,15 +53,11 @@ int gpu_set_model(int model)
 #else
   if (model == 1)
     gpu_vram_height = GPU_VRAM_ROWS_SYSTEM12;
-#endif
   gpu_model = model;
+#endif
   return 0;
 }
 
-int gpu_get_model(void)
-{
-  return gpu_model;
-}
 
 int gpu_set_vram_height(unsigned rows)
 {

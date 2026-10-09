@@ -208,36 +208,27 @@ s32 triangle_signed_area_x2(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2)
 	return ((x1 - x0) * (y2 - y1)) - ((x2 - x1) * (y1 - y0));
 }
 
+static inline u32 clamp_page_index(s32 value, s32 last)
+{
+  return value < 0 ? 0 : value > last ? last : value;
+}
+
+/* Texture pages touched by a VRAM rectangle (16 pages of 64 halfwords per
+ * 256-row band; first > last wraps around). The page columns and the bands
+ * are 4-bit/16-bit sets, and multiplying the 16-bit column set by one bit per
+ * band replicates it into each band without 64-bit shifts, which ARM32 does
+ * slowly: this runs for every primitive. */
 texture_page_mask_t texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2)
 {
-  s32 x_first = x1 >> 6, x_last = x2 >> 6;
-  s32 y_first = y1 >> 8, y_last = y2 >> 8;
-  u64 x_mask, mask = 0;
-  if (x_first < 0) x_first = 0;
-  if (x_first > 15) x_first = 15;
-  if (x_last < 0) x_last = 0;
-  if (x_last > 15) x_last = 15;
-  if (y_first < 0) y_first = 0;
-  if (y_first > 3) y_first = 3;
-  if (y_last < 0) y_last = 0;
-  if (y_last > 3) y_last = 3;
-  if (x_last < x_first) {
-    x_mask = (0xffffULL << x_first) | ((1ULL << (x_last + 1)) - 1);
-  } else {
-    x_mask = ((1ULL << (x_last + 1)) - 1) & (0xffffULL << x_first);
-  }
-  if (y_last < y_first) {
-    s32 row;
-    for (row = y_first; row < 4; ++row)
-      mask |= x_mask << (row * 16);
-    for (row = 0; row <= y_last; ++row)
-      mask |= x_mask << (row * 16);
-  } else {
-    s32 row;
-    for (row = y_first; row <= y_last; ++row)
-      mask |= x_mask << (row * 16);
-  }
-  return mask;
+  u32 x_first = clamp_page_index(x1 >> 6, 15), x_last = clamp_page_index(x2 >> 6, 15);
+  u32 y_first = clamp_page_index(y1 >> 8, 3), y_last = clamp_page_index(y2 >> 8, 3);
+  u32 x_from = (0xffffu << x_first) & 0xffffu, x_upto = (2u << x_last) - 1;
+  u32 y_from = (0xfu << y_first) & 0xfu, y_upto = (2u << y_last) - 1;
+  u32 columns = x_last < x_first ? (x_from | x_upto) : (x_from & x_upto);
+  u32 bands = y_last < y_first ? (y_from | y_upto) : (y_from & y_upto);
+  u32 lo = columns * ((bands & 1) | ((bands & 2) << 15));
+  u32 hi = columns * (((bands >> 2) & 1) | ((bands & 8) << 13));
+  return (texture_page_mask_t)(lo | ((u64)hi << 32));
 }
 
 texture_page_mask_t invalidate_texture_cache_region(psx_gpu_struct *psx_gpu, u32 x1, u32 y1,
@@ -337,38 +328,30 @@ static void update_texture_cache_region_(psx_gpu_struct *psx_gpu,
   psx_gpu->dirty_textures_8bpp_mask |= mask;
   psx_gpu->dirty_textures_8bpp_alternate_mask |= mask;
 
+  /* A small write into clean 4bpp pages (palette animation copies 16x1
+   * rows into texture pages every frame) patches the cached texels in place,
+   * as a full rebuild of those pages would write them; anything larger
+   * leaves the pages to be rebuilt on next use. A page caches 16x16 tiles
+   * of 16x16 texels, one byte each; a halfword holds 4 texels. */
   if ((psx_gpu->dirty_textures_4bpp_mask & mask) == 0 &&
-      (x1 & 3) == 0 && (y1 & 15) == 0 && x2 - x1 < 4 && y2 - y1 < 16)
+      (x2 - x1 + 1) * (y2 - y1 + 1) <= 1024)
   {
-    texture_page = ((x1 / 64) & 15) + (y1 / 256) * 16;
-    texture_page_ptr = psx_gpu->texture_4bpp_cache[texture_page];
-    texture_page_ptr += (x1 / 4 & 15) * 16*16 + (y1 / 16 & 15) * 16*16*16;
-    vram_ptr = psx_gpu->vram_ptr + x1 + y1 * 1024;
-    sub_x = 4;
-    sub_y = 16;
-
-    while(sub_y)
+    for (sub_y = y1; sub_y <= y2; sub_y++)
     {
-      while(sub_x)
+      vram_ptr = psx_gpu->vram_ptr + sub_y * 1024;
+      for (sub_x = x1; sub_x <= x2; sub_x++)
       {
-        texel_block = *vram_ptr;
+        texture_page = (sub_x >> 6) + (sub_y >> 8) * 16;
+        texture_page_ptr = psx_gpu->texture_4bpp_cache[texture_page] +
+         ((sub_x >> 2) & 15) * 16*16 + ((sub_y >> 4) & 15) * 16*16*16 +
+         (sub_y & 15) * 16 + (sub_x & 3) * 4;
+        texel_block = vram_ptr[sub_x];
 
         texture_page_ptr[0] = texel_block & 0xF;
         texture_page_ptr[1] = (texel_block >> 4) & 0xF;
         texture_page_ptr[2] = (texel_block >> 8) & 0xF;
         texture_page_ptr[3] = texel_block >> 12;
-        
-        vram_ptr++;
-        texture_page_ptr += 4;
-
-        sub_x--;          
       }
-
-      vram_ptr -= 4;
-      sub_x = 4;
-
-      sub_y--;
-      vram_ptr += 1024;
     }
   }
   else
