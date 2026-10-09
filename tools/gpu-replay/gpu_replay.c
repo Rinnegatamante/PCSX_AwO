@@ -17,6 +17,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef __vita__
+#include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/clib.h>
+#include <psp2/power.h>
+#define VITA_DIR "ux0:data/pcsx-rearmed/"
+#define VLOG(...) sceClibPrintf("gpu-replay: " __VA_ARGS__)
+#else
+#define VLOG(...)
+#endif
 
 #include "../../plugins/gpulib/gpu.h"
 #include "../../libpcsxcore/gpu.h"
@@ -113,13 +123,46 @@ static uint32_t *load(const char *path, size_t *words)
 
 static double now(void)
 {
+#ifdef __vita__
+  return sceKernelGetProcessTimeWide() * 1e-6;
+#else
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return ts.tv_sec + ts.tv_nsec * 1e-9;
+#endif
 }
+
+#ifdef __vita__
+/* Launched as an app: arguments come from a file, output goes to one, and
+ * the replay runs on core 1 like the emulator's GPU thread. */
+static int vita_args(char ***argv_out)
+{
+  static char buf[1024], *argv[32];
+  FILE *f = fopen(VITA_DIR "replay-args.txt", "r");
+  int argc = 0;
+  char *p;
+  argv[argc++] = "gpu-replay";
+  if (f) {
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    for (p = strtok(buf, " \t\r\n"); p && argc < 31; p = strtok(NULL, " \t\r\n"))
+      argv[argc++] = p;
+  }
+  argv[argc] = NULL;
+  *argv_out = argv;
+  sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_1);
+  return argc;
+}
+#endif
 
 int main(int argc, char **argv)
 {
+#ifdef __vita__
+  VLOG("start\n");
+  argc = vita_args(&argv);
+  VLOG("args %d: %s\n", argc, argc > 1 ? argv[1] : "-");
+#endif
   size_t words, pos, vram_words;
   uint32_t *t, *hdr, *ram;
   int loops = 1, loop, i;
@@ -149,6 +192,7 @@ int main(int argc, char **argv)
       dump_path = argv[++i];
   }
   t = load(argv[1], &words);
+  VLOG("trace %u words\n", (unsigned)words);
   hdr = t;
   if (words < 32 + 257 || hdr[0] != 0x52544753 || hdr[1] != 1) {
     fprintf(stderr, "not a version 1 GPU trace\n");
@@ -187,10 +231,17 @@ int main(int argc, char **argv)
   frame_count = hdr[23];
 
   GPUinit();
+  VLOG("GPUinit\n");
   GPUrearmedCallbacks(&cbs);
+  VLOG("callbacks\n");
 
+  double best = 1e30, t_loop;
   t0 = now();
   for (loop = 0; loop < loops; loop++) {
+#ifdef __vita__
+    sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);   /* keep the console awake */
+#endif
+    t_loop = now();
     /* Snapshot: VRAM first, then the registers through GPUfreeze's load
      * path, which also rebuilds the renderer's caches from that VRAM. */
     GPUfreeze(1, fz, &vram);
@@ -252,6 +303,9 @@ int main(int argc, char **argv)
       fclose(hash_out);
       hash_out = NULL;
     }
+    t_loop = now() - t_loop;
+    if (t_loop < best)
+      best = t_loop;
   }
   double ms = (now() - t0) * 1000.0 / loops;
 #ifdef PSX_GPU_PIPELINE_STATS
@@ -270,5 +324,24 @@ int main(int argc, char **argv)
   printf("gpu-replay: loops=%d flips=%u frames=%016llx vram=%016llx %s %.3f ms/loop\n",
          loops, flips, (unsigned long long)frame_hash, (unsigned long long)vram_hash,
          !have_end ? "(no recorded VRAM)" : vram_hash == end_hash ? "MATCH" : "MISMATCH", ms);
+  if (loops > 1)
+    printf("gpu-replay: best loop %.3f ms (%.3f ms per flip)\n", best * 1000.0,
+           flips ? best * 1000.0 / flips : 0.0);
+#ifdef __vita__
+  {
+    FILE *f = fopen(VITA_DIR "replay-out.txt", "w");
+    char line[256];
+    snprintf(line, sizeof(line), "gpu-replay: loops=%d flips=%u vram=%016llx %s %.3f ms/loop best %.3f ms (%.3f ms per flip)\n",
+             loops, flips, (unsigned long long)vram_hash,
+             !have_end ? "(no recorded VRAM)" : vram_hash == end_hash ? "MATCH" : "MISMATCH",
+             ms, best * 1000.0, flips ? best * 1000.0 / flips : 0.0);
+    VLOG("%s", line + 12);
+    if (f) {
+      fputs(line, f);
+      fclose(f);
+    }
+  }
+  sceKernelExitProcess(0);
+#endif
   return have_end && vram_hash != end_hash;
 }
