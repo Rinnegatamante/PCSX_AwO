@@ -1615,3 +1615,26 @@ blocks and compares output and registers; a wrong phase or step direction
 makes it fail. Expected on the Vita: about 3 ms less per frame on the board
 thread (C352 was 6.8 ms per frame in the profile build); not measured on
 hardware yet.
+
+## Vita measurements after the GPU and C352 changes (2026-10-10)
+
+Same replay, frames 3000-4800, `--gpu-thread --board-thread`, GXM present:
+
+| ms per frame | 2026-10-09 (GXM) | Now | + `--gpu2` | `--gpu2-core 2` | `--gpu2-core 0` |
+| --- | --- | --- | --- | --- | --- |
+| fps (profile build) | 47.3 | 49.3 | 40.0 | 30.3 | 33.3 |
+| GPU thread (`gpu_list`) | 23.16 | 19.27 | 20.38 | 21.86 | 27.99 |
+| main thread (`cpu_inclusive`) | 20.25 | 19.35 | 24.04 | 32.10 | 29.08 |
+| H8 | 12.80 | 11.48 | 11.47 | 11.26 | 11.28 |
+| C352 | 6.92 | 4.35 | 4.39 | 4.32 | 4.35 |
+
+The non-profile build runs 50.5 fps in the same frames. The GPU-thread
+changes gave 17% on hardware (callgrind estimated 4%: the avoided 64 KB cache
+rebuilds cost more on the Vita than in the cache model); the C352 dropped
+37%, as estimated. The reports are identical in every configuration.
+
+The two-stage renderer loses on the Vita whatever the core: core 1 (GPU
+thread) is the one near 100%, but cores 0 and 2 have too little room for
+~7 ms of stage 2, and sharing a core makes stage 1 wait on the scheduler
+around its ~1100 hand-offs a frame. It stays off; `--gpu2-core N` pins it
+for experiments. To reach 60 fps the GPU thread has to drop below ~16.7 ms.

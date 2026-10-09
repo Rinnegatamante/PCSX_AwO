@@ -13,6 +13,8 @@ enum pcsxr_thread_type
 };
 
 extern int pcsxr_sthread_core_count;
+/* Vita: core for PCSXRT_GPU2 (0-2), -1 to leave it to the scheduler. */
+extern int pcsxr_gpu2_core;
 
 void pcsxr_sthread_init(void);
 

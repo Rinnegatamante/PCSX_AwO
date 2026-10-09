@@ -12,6 +12,7 @@ static bool is_new_3ds;
 #include "pcsxr-threads.h"
 
 int pcsxr_sthread_core_count;
+int pcsxr_gpu2_core = -1;
 
 // pcsxr "extensions"
 extern void SysPrintf(const char *fmt, ...);
@@ -100,6 +101,10 @@ sthread_t *pcsxr_sthread_create(void (*thread_func)(void *),
 	if (h && (type == PCSXRT_GPU || type == PCSXRT_BOARD))
 		sceKernelChangeThreadCpuAffinityMask(h->id, type == PCSXRT_GPU
 			? SCE_KERNEL_CPU_MASK_USER_1 : SCE_KERNEL_CPU_MASK_USER_2);
+	/* gpu_neon's second render stage: the frontend picks the core. */
+	if (h && type == PCSXRT_GPU2 && pcsxr_gpu2_core >= 0 && pcsxr_gpu2_core <= 2)
+		sceKernelChangeThreadCpuAffinityMask(h->id,
+			SCE_KERNEL_CPU_MASK_USER_0 << pcsxr_gpu2_core);
  #endif
  #if defined(__GLIBC__) || \
     (defined(__ANDROID_API__) && __ANDROID_API__ >= 26)

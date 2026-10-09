@@ -1037,6 +1037,11 @@ int main(int argc, char **argv)
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
         if (!strcmp(argv[ret], "--gpu2")) { g_gpu2 = true; continue; }
+        if (!strcmp(argv[ret], "--gpu2-core") && ret + 1 < argc) {
+            extern int pcsxr_gpu2_core;
+            pcsxr_gpu2_core = atoi(argv[++ret]);
+            continue;
+        }
         if (!strcmp(argv[ret], "--fb-main")) { g_fb_main = true; continue; }
 #ifndef STANDALONE_VITAGL
         if (!strcmp(argv[ret], "--gxm")) { g_gxm = true; continue; }
