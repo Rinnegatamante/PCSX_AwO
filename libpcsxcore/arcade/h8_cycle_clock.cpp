@@ -46,6 +46,16 @@ H8CycleClock::Time H8CycleClock::addTime(Time first, Time delta) {
 void H8CycleClock::advance(uint64_t cycles) {
     // Match local_time() / scheduler accounting: per-slice from_ticks, then
     // accumulate attotime, rather than round the aggregate cycle count.
+    if(cycles<frequency) {
+        // from_ticks() of less than one second, without the 64-bit division
+        // (a library call on the Vita's CPU) on this per-instruction path.
+        m_time.attoseconds += cycles*period;
+        if(m_time.attoseconds >= second) {
+            m_time.attoseconds -= second;
+            m_time.seconds++;
+        }
+        return;
+    }
     m_time = add(m_time,fromTicks(cycles));
 }
 void H8CycleClock::resetAtCycle(uint64_t old_cycle,uint64_t new_cycle) {

@@ -51,6 +51,7 @@ void H8Timer16::reset(uint64_t cycle) noexcept
         ch.tgr_clearing = kClearNone;
         ch.active = false;
     }
+    m_next_deadline = kNoDeadline;
 }
 
 int H8Timer16::channelForOffset(uint16_t offset) const noexcept
@@ -373,11 +374,11 @@ void H8Timer16::recalcEvent(unsigned index, uint64_t cycle, bool request_resched
     Channel &ch = m_channel[index];
     const uint64_t old_event_time = ch.event_time;
     if (!ch.active) {
-        ch.event_time = 0;
+        setEventTime(ch, 0);
         return;
     }
     if (ch.clock_divider < 0) {
-        ch.event_time = 0;
+        setEventTime(ch, 0);
         if (old_event_time && request_reschedule && m_reschedule)
             m_reschedule(m_opaque);
         return;
@@ -412,14 +413,14 @@ void H8Timer16::recalcEvent(unsigned index, uint64_t cycle, bool request_resched
     }
 
     if (event_delay == 0xffffffff) {
-        ch.event_time = 0;
+        setEventTime(ch, 0);
         if (old_event_time && request_reschedule && m_reschedule)
             m_reschedule(m_opaque);
         return;
     }
     const uint64_t divisor = uint64_t(1) << ch.clock_divider;
-    ch.event_time = ((((cycle + divisor - ch.phase) >> ch.clock_divider) +
-                      event_delay - 1) << ch.clock_divider) + ch.phase;
+    setEventTime(ch, ((((cycle + divisor - ch.phase) >> ch.clock_divider) +
+                      event_delay - 1) << ch.clock_divider) + ch.phase);
     if (old_event_time != ch.event_time && request_reschedule && m_reschedule)
         m_reschedule(m_opaque);
 }
@@ -438,14 +439,19 @@ void H8Timer16::update(uint64_t cycle)
     }
 }
 
+void H8Timer16::setEventTime(Channel &channel, uint64_t when) noexcept
+{
+    channel.event_time = when;
+    m_next_deadline = kNoDeadline;
+    for (unsigned i = 0; i < 5; ++i) {
+        if (m_channel[i].event_time && m_channel[i].event_time < m_next_deadline)
+            m_next_deadline = m_channel[i].event_time;
+    }
+}
+
 uint64_t H8Timer16::nextDeadline() const noexcept
 {
-    uint64_t deadline = kNoDeadline;
-    for (unsigned i = 0; i < 5; ++i) {
-        if (m_channel[i].event_time && m_channel[i].event_time < deadline)
-            deadline = m_channel[i].event_time;
-    }
-    return deadline;
+    return m_next_deadline;
 }
 
 } // namespace arcade

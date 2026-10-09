@@ -49,6 +49,7 @@ private:
         bool active;
     };
 
+    void setEventTime(Channel &channel, uint64_t when) noexcept;
     void updateCounter(unsigned channel, uint64_t cycle);
     void recalcEvent(unsigned channel, uint64_t cycle, bool request_reschedule);
     void setEnable(unsigned channel, bool enable, uint64_t cycle);
@@ -65,6 +66,9 @@ private:
     RescheduleCallback m_reschedule;
     uint8_t m_tstr;
     Channel m_channel[5];
+    /* Earliest channel event_time, kept current by setEventTime() because the
+     * H8 core queries it on every instruction. */
+    uint64_t m_next_deadline;
 };
 
 } // namespace arcade
