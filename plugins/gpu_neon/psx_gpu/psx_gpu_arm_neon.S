@@ -16,9 +16,27 @@
 #define RENDER_INTERLACE_ENABLED                          0x1
 
 #include "psx_gpu.h"
+#ifdef PCSX_SYSTEM12
+#include "psx_gpu_offsets_system12.h"
+#else
 #include "psx_gpu_offsets.h"
+#endif
 
 #define psx_gpu_b_dx_offset (psx_gpu_b_block_span_offset + 4)
+
+/* Texture page masks are 32 bits on console and 64 bits on arcade. Each
+ * dirty test first tests the low words; on arcade, test_texture_mask_high
+ * follows it and tests the high words if the low words do not intersect,
+ * leaving NE when the current page is dirty. On console it is empty, so the
+ * console code is unchanged. */
+#ifdef PCSX_SYSTEM12
+#define test_texture_mask_high(current, dirty, dirty_offset)                   \
+  ldreq current, [psx_gpu, #(psx_gpu_current_texture_mask_offset + 4)];        \
+  ldreq dirty, [psx_gpu, #(dirty_offset + 4)];                                 \
+  tsteq current, dirty
+#else
+#define test_texture_mask_high(current, dirty, dirty_offset)
+#endif
 
 #define edge_data_left_x_offset                           0
 #define edge_data_num_blocks_offset                       2
@@ -2734,6 +2752,8 @@ function(texture_blocks_4bpp)
 
   ldr dirty_textures_mask, [psx_gpu, #psx_gpu_dirty_textures_4bpp_mask_offset]
   tst dirty_textures_mask, current_texture_mask
+  test_texture_mask_high(current_texture_mask, dirty_textures_mask,
+   psx_gpu_dirty_textures_4bpp_mask_offset)
 
   bne 1f
   mov c_64, #64
@@ -2808,6 +2828,8 @@ function(texture_blocks_8bpp)
 
   ldr dirty_textures_mask, [psx_gpu, #psx_gpu_dirty_textures_8bpp_mask_offset]
   tst dirty_textures_mask, current_texture_mask
+  test_texture_mask_high(current_texture_mask, dirty_textures_mask,
+   psx_gpu_dirty_textures_8bpp_mask_offset)
 
   bne 1f
   nop
@@ -4558,6 +4580,8 @@ setup_sprite_update_texture_8bpp_cache:
   vld1.u32 { clut_a, clut_b }, [clut_ptr, :128];                               \
                                                                                \
   tst current_texture_mask, dirty_textures_mask;                               \
+  test_texture_mask_high(current_texture_mask, dirty_textures_mask,            \
+   psx_gpu_dirty_textures_4bpp_mask_offset);                                   \
   vuzp.u8 clut_a, clut_b;                                                      \
                                                                                \
   blne setup_sprite_update_texture_4bpp_cache                                  \
@@ -4568,6 +4592,8 @@ setup_sprite_update_texture_8bpp_cache:
   ldr current_texture_mask, [psx_gpu, #psx_gpu_current_texture_mask_offset];   \
                                                                                \
   tst current_texture_mask, dirty_textures_mask;                               \
+  test_texture_mask_high(current_texture_mask, dirty_textures_mask,            \
+   psx_gpu_dirty_textures_8bpp_mask_offset);                                   \
   blne setup_sprite_update_texture_8bpp_cache                                  \
 
 
@@ -5957,6 +5983,15 @@ function(update_texture_4bpp_cache)
   push  { r3 - r11, r14 }
   vpush { q0 - q3 }
 
+#ifdef PCSX_SYSTEM12
+  /* Model 1 interleaved textures (TPAGE bit 13 after the renderer mapping)
+   * are swizzled in VRAM; let C rebuild that cache. */
+  ldrh r4, [psx_gpu, #psx_gpu_texture_settings_offset]
+  tst r4, #0x2000
+  bne 99f
+98:
+#endif
+
   ldrb current_texture_page, [psx_gpu, #psx_gpu_current_texture_page_offset]
 
   ldr texture_page_ptr, [psx_gpu, #psx_gpu_texture_page_base_offset]
@@ -5976,6 +6011,13 @@ function(update_texture_4bpp_cache)
   
   mov tile_x, #16
   str dirty_textures_mask, [psx_gpu, #psx_gpu_dirty_textures_4bpp_mask_offset]
+
+#ifdef PCSX_SYSTEM12
+  ldr current_texture_mask, [psx_gpu, #psx_gpu_current_texture_mask_offset + 4]
+  ldr dirty_textures_mask, [psx_gpu, #psx_gpu_dirty_textures_4bpp_mask_offset + 4]
+  bic dirty_textures_mask, current_texture_mask
+  str dirty_textures_mask, [psx_gpu, #psx_gpu_dirty_textures_4bpp_mask_offset + 4]
+#endif
 
   mov sub_y, #8
   movw c_4096, #4096
@@ -6029,6 +6071,21 @@ function(update_texture_4bpp_cache)
 
   vpop { q0 - q3 }
   pop  { r3 - r11, pc }
+
+#ifdef PCSX_SYSTEM12
+99:
+  /* Callers keep values in q8-q15 and r0; the C helper may clobber them. */
+  vpush { q8 - q15 }
+  push { r0, r1 }
+  bl update_texture_4bpp_cache_type1
+  mov r4, r0
+  pop { r0, r1 }
+  vpop { q8 - q15 }
+  cmp r4, #0
+  beq 98b
+  vpop { q0 - q3 }
+  pop  { r3 - r11, pc }
+#endif
 
 
 #undef current_texture_page

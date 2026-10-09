@@ -24,7 +24,11 @@
 #include "vector_ops.h"
 #endif
 #include "psx_gpu_simd.h"
+#ifdef PCSX_SYSTEM12
+#include "psx_gpu_offsets_system12.h"
+#else
 #include "psx_gpu_offsets.h"
+#endif
 #include "../../../include/compiler_features.h"
 
 #if 0
@@ -297,6 +301,20 @@ void update_type1_interleaved_texture_cache(psx_gpu_struct *psx_gpu, int depth)
     }
   }
 }
+
+#if defined(PCSX_SYSTEM12) && defined(NEON_BUILD) && !defined(SIMD_BUILD)
+/* The ARM32 assembly update_texture_4bpp_cache calls this when TPAGE bit 13
+ * is set, as the C version does. Returns 0 if it is not a model 1 texture,
+ * so the assembly does its normal update. */
+int update_texture_4bpp_cache_type1(psx_gpu_struct *psx_gpu)
+{
+  if (gpu_get_model() != 1)
+    return 0;
+  psx_gpu->dirty_textures_4bpp_mask &= ~(psx_gpu->current_texture_mask);
+  update_type1_interleaved_texture_cache(psx_gpu, 4);
+  return 1;
+}
+#endif
 
 static void update_texture_cache_region_(psx_gpu_struct *psx_gpu,
  u32 x1, u32 y1, u32 x2, u32 y2)
@@ -5159,7 +5177,7 @@ void initialize_psx_gpu(psx_gpu_struct *psx_gpu, u16 *vram)
   psx_gpu->hacks_active = 0;
 
   // 32-bit ARM assembly relies on these offsets. Native SIMD layouts differ.
-#if !defined(PCSX_SYSTEM12) && !defined(SIMD_BUILD)
+#if !defined(SIMD_BUILD) && (!defined(PCSX_SYSTEM12) || defined(__arm__))
   psx_gpu->reserved_a[(offsetof(psx_gpu_struct, test_mask) == 0) - 1] = 0;
   psx_gpu->reserved_a[(offsetof(psx_gpu_struct, blocks) == psx_gpu_blocks_offset) - 1] = 0;
 #endif

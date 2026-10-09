@@ -80,18 +80,16 @@ typedef enum
   RENDER_INTERLACE_ODD         = 0x2,
 } render_mode_enum;
 
-#if defined(PCSX_SYSTEM12) && defined(NEON_BUILD) && !defined(SIMD_BUILD)
-#error Arcade NEON GPU requires SIMD_BUILD; ARM32 assembly uses console cache offsets
-#endif
-
 #ifdef PCSX_SYSTEM12
 typedef u64 texture_page_mask_t;
 #define TEXTURE_PAGE_COUNT 64
 #define TEXTURE_PAGE_ROW_COUNT 32
+#define PSX_GPU_ARCADE_MASK_BYTES 20
 #else
 typedef u32 texture_page_mask_t;
 #define TEXTURE_PAGE_COUNT 32
 #define TEXTURE_PAGE_ROW_COUNT 16
+#define PSX_GPU_ARCADE_MASK_BYTES 0
 #endif
 
 typedef struct
@@ -136,6 +134,13 @@ typedef struct
 
 typedef struct render_block_handler_struct render_block_handler_struct;
 
+#define PSX_GPU_TEXTURE_PAGE_MASKS                                             \
+  texture_page_mask_t current_texture_mask;                                    \
+  texture_page_mask_t viewport_mask;                                           \
+  texture_page_mask_t dirty_textures_4bpp_mask;                                \
+  texture_page_mask_t dirty_textures_8bpp_mask;                                \
+  texture_page_mask_t dirty_textures_8bpp_alternate_mask;
+
 typedef struct
 {
   // 144 bytes
@@ -157,11 +162,9 @@ typedef struct
   u32 triangle_area;
 
   u32 texture_window_settings;
-  texture_page_mask_t current_texture_mask;
-  texture_page_mask_t viewport_mask;
-  texture_page_mask_t dirty_textures_4bpp_mask;
-  texture_page_mask_t dirty_textures_8bpp_mask;
-  texture_page_mask_t dirty_textures_8bpp_alternate_mask;
+#ifndef PCSX_SYSTEM12
+  PSX_GPU_TEXTURE_PAGE_MASKS
+#endif
 
   u32 triangle_color;
   u32 dither_table[4];
@@ -231,9 +234,16 @@ typedef struct
   u32 hack_disable_main:1;
   u32 hack_texture_adj:1;
 
+#ifdef PCSX_SYSTEM12
+  // Arcade's 64-bit page masks live here: earlier, they would push the
+  // fields above beyond the 8-bit offsets of ARM32 ldrh/ldrsh.
+  PSX_GPU_TEXTURE_PAGE_MASKS
+#endif
+
   // Align up to 64 byte boundary to keep the upcoming buffers cache line
-  // aligned, also make reachable with single immediate addition
-  u8 reserved_a[68 + 9*4 - 9*sizeof(void *)];
+  // aligned, also make reachable with single immediate addition.
+  // Arcade's page masks take PSX_GPU_ARCADE_MASK_BYTES more bytes.
+  u8 reserved_a[68 + 9*4 - 9*sizeof(void *) - PSX_GPU_ARCADE_MASK_BYTES];
 
   // space for saving regs on c call to flush_render_block_buffer() and asm
   u32 saved_tmp[48 / sizeof(u32)];

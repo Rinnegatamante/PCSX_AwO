@@ -3,6 +3,16 @@
 
 #include "common.h"
 
+/* Arcade builds (PCSX_SYSTEM12) have 64 texture pages and 64-bit page
+ * masks, so their layout gets its own header. */
+#ifdef PCSX_SYSTEM12
+#define OFFSETS_FILE "psx_gpu_offsets_system12.h"
+#define OFFSETS_GUARD "__P_PSX_GPU_OFFSETS_SYSTEM12_H__"
+#else
+#define OFFSETS_FILE "psx_gpu_offsets.h"
+#define OFFSETS_GUARD "__P_PSX_GPU_OFFSETS_H__"
+#endif
+
 #define WRITE_OFFSET(f, member) \
 	fprintf(f, "#define %-50s0x%zx\n", \
 		"psx_gpu_" #member "_offset", \
@@ -17,13 +27,13 @@ int main()
 		return 1;
 	}
 
-	f = fopen("psx_gpu_offsets.h", "w");
+	f = fopen(OFFSETS_FILE, "w");
 	if (f == NULL) {
 		perror("fopen");
 		return 1;
 	}
-	fputs("#ifndef __P_PSX_GPU_OFFSETS_H__\n", f);
-	fputs("#define __P_PSX_GPU_OFFSETS_H__\n\n", f);
+	fputs("#ifndef " OFFSETS_GUARD "\n", f);
+	fputs("#define " OFFSETS_GUARD "\n\n", f);
 
 	//WRITE_OFFSET(f, test_mask);
 	WRITE_OFFSET(f, uvrg);
@@ -74,7 +84,7 @@ int main()
 	//WRITE_OFFSET(f, offset_x);
 	//WRITE_OFFSET(f, offset_y);
 	//WRITE_OFFSET(f, clut_settings);
-	//WRITE_OFFSET(f, texture_settings);
+	WRITE_OFFSET(f, texture_settings);
 	WRITE_OFFSET(f, reciprocal_table_ptr);
 	WRITE_OFFSET(f, hacks_active);
 	WRITE_OFFSET(f, saved_tmp);
@@ -87,7 +97,7 @@ int main()
 	//WRITE_OFFSET(f, texture_8bpp_even_cache);
 	//WRITE_OFFSET(f, texture_8bpp_odd_cache);
 
-	fputs("\n#endif /* __P_PSX_GPU_OFFSETS_H__ */\n", f);
+	fputs("\n#endif /* " OFFSETS_GUARD " */\n", f);
 	fclose(f);
 
 	return 0;
