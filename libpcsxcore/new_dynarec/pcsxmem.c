@@ -109,9 +109,13 @@ static void io_write_sio16(u32 value)
 
 #if !defined(DRC_DBG) && defined(__arm__)
 
+/* The asm m1 readers assume console clocks: rcnt1 divides by the NTSC line
+ * period and rcnt0 approximates /5. Under arcade source timing (System 12 at
+ * 50 MHz) the line period differs, so use the exact C readers like the other
+ * backends do. */
 static void map_rcnt_rcount0(u32 mode)
 {
-	if (mode & 0x001) { // sync mode
+	if ((mode & 0x001) || ((mode & 0x100) && psxArcadeSourceTimingActive())) { // sync mode, or m1 with source timing
 		map_item(&mem_iortab[IOMEM32(0x1100)], psxRcntRcount0, 1);
 		map_item(&mem_iortab[IOMEM16(0x1100)], psxRcntRcount0, 1);
 	}
@@ -127,7 +131,7 @@ static void map_rcnt_rcount0(u32 mode)
 
 static void map_rcnt_rcount1(u32 mode)
 {
-	if (mode & 0x001) { // sync mode
+	if ((mode & 0x001) || ((mode & 0x100) && psxArcadeSourceTimingActive())) { // sync mode, or m1 with source timing
 		map_item(&mem_iortab[IOMEM32(0x1110)], psxRcntRcount1, 1);
 		map_item(&mem_iortab[IOMEM16(0x1110)], psxRcntRcount1, 1);
 	}
