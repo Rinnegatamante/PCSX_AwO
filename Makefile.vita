@@ -18,6 +18,7 @@ BUILTIN_VITA_GPU := neon
 DEFAULT_TITLE_ID := PCSXN0012
 else ifeq ($(VITA_GPU),vitagl)
 BUILTIN_VITA_GPU := vita_ctr
+CFLAGS_GPU := -DSTANDALONE_VITAGL
 DEFAULT_TITLE_ID := PCSXG0012
 else
 $(error VITA_GPU must be neon or vitagl)
@@ -46,6 +47,7 @@ LIBS := -lSDL3 -lvita2d $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -l
 	-lSceCamera_stub -lSceCtrl_stub -lSceTouch_stub -lSceMotion_stub -lm \
 	-lSceAppMgr_stub -lSceHid_stub -lSceAppUtil_stub -lScePgf_stub -ljpeg \
 	-lSceRtc_stub -lScePower_stub -lSceIofilemgr_stub -lcurl -lssl -lcrypto -lz
+CFLAGS += $(CFLAGS_GPU)
 ifeq ($(ARCADE_SYSTEM12),1)
 CFLAGS += -DARCADE_SYSTEM12
 endif

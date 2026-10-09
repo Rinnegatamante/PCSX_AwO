@@ -135,8 +135,15 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
 
 static bool g_gpu_thread;
 static bool g_board_thread;
+static bool g_gpu2;   /* gpu_neon's second render stage */
 static bool g_fb_main; /* framebuffers in main memory instead of CDRAM */
-static bool g_gxm;     /* present through GXM: the GPU scales raw VRAM */
+/* Present through GXM (the GPU scales raw VRAM). Not with the vitaGL
+ * renderer, which owns GXM and the display itself. */
+#ifdef STANDALONE_VITAGL
+static bool g_gxm = false;
+#else
+static bool g_gxm = true;
+#endif
 
 static const char *option_value(const char *key)
 {
@@ -144,6 +151,8 @@ static const char *option_value(const char *key)
         return g_gpu_thread ? "enabled" : "disabled";
     if (strcmp(key, "pcsx_rearmed_system12_board_thread") == 0)
         return g_board_thread ? "enabled" : "disabled";
+    if (strcmp(key, "pcsx_rearmed_neon_two_stage") == 0)
+        return g_gpu2 ? "enabled" : "disabled";
     static const struct {
         const char *key;
         const char *value;
@@ -1017,8 +1026,12 @@ int main(int argc, char **argv)
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
+        if (!strcmp(argv[ret], "--gpu2")) { g_gpu2 = true; continue; }
         if (!strcmp(argv[ret], "--fb-main")) { g_fb_main = true; continue; }
+#ifndef STANDALONE_VITAGL
         if (!strcmp(argv[ret], "--gxm")) { g_gxm = true; continue; }
+#endif
+        if (!strcmp(argv[ret], "--cpu-present")) { g_gxm = false; continue; }
         if (!strcmp(argv[ret], "--verify-system12-vram-pattern")) {
             verify_system12_vram = true;
             verify_system12_vram_pattern = true;
