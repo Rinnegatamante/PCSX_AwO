@@ -1179,6 +1179,24 @@ elapsed 257.5 s (46.6 fps average; the 6,000-frame 2026-10-05 replay measured
 32.6 fps). Vita3K translates ARMv7 on the host, so neither figure predicts the
 Cortex-A9; a physical Vita measurement is still required.
 
+Vita3K profiler VPK, 6,000-frame replay (same scopes as the 2026-10-05 table):
+
+| Scope | 2026-10-05 | 2026-10-09 |
+| --- | ---: | ---: |
+| Guest elapsed | 188.9 s | 124.7 s |
+| H8, inside CPU | 89.8 s | 37.2 s |
+| GPU lists, sampled estimate | 21.7 s | 14.5 s |
+| C352, inside CPU | 6.9 s | 5.1 s |
+| Vblank wait, inside video | 45.7 s | 36.3 s |
+| Audio queue wait, inside board audio | 7.0 s | 36.4 s |
+
+Excluding both waits, work is about 52 s, 8.7 ms per frame. The 48 fps in
+Vita3K is pacing: one thread blocks on the audio queue and again on vblank.
+Vita3K's CPU speed is not the Cortex-A9's, so this does not bound the
+physical Vita either way, but the double wait is a frontend design issue
+independent of emulation cost (see "Current cost and architecture
+recommendation", point 3).
+
 ### Recorded option: H8 DRC
 
 After the skip, the H8 still executes 150 M instructions per 200 emulated
