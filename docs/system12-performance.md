@@ -1300,3 +1300,56 @@ same work pcsx_rearmed performs for console games, and the ARMv7/A9 factor,
 which only a physical Vita can measure. Further single-thread options: the
 ARMv7 NEON assembly GPU renderer (`GPU_NEON_USE_C=0`, needs hardware to
 measure), NEON mixing of several C352 voices, and the remaining H8 bodies.
+
+## ARMv7 DRC equal to ARM64: game clock fix (2026-10-09)
+
+In Vita3K the Soul Calibur round clock advanced 6.1-6.4 game seconds per 300
+emulated frames; the Mac (DRC or interpreter) and the Vita interpreter build
+advanced 5.00. The emulated frame and cycle counts were identical, so the
+ARMv7 DRC computed different values, not more cycles.
+
+`tools/libretro-host/build_armv7_core.sh` builds the libretro core for Linux
+ARMv7 (Cortex-A9 flags, the ari64 ARM32 backend, `GPU_NEON_USE_C=1` like the
+Vita) and runs it in Docker through qemu. It reproduced the fast clock
+without Vita3K, so the fault was ARM32 code, not the emulator. The host's new
+`--hash-ram FILE` writes one FNV-1a hash of main RAM per frame (the BIOS
+kernel's first 64 KiB are excluded: exception handlers save dead registers
+that the dynarec leaves stale, and those values differ between backends
+without effect). The first differing frame plus traces of `gen_interupt`,
+board I/O, GPU DMA and GPUSTAT reads located two causes:
+
+1. ARM32-only root counter readers. With `__arm__`, `pcsxmem.c` maps root
+   counter reads to assembly fast paths. `rcnt1_read_count_m1` (hblank mode)
+   divides by the NTSC console line period (multiplier `0x1e6cde`, about 2154
+   cycles). System 12 lines are `frameCycles() / hsyncTotal()`, about 3178
+   cycles at 50 MHz, which the C reader uses. The game measures frame time in
+   hblanks, so on ARMv7 it saw 1.475 times more lines (stack counters were
+   0x917 against 0x62a) and advanced its clock faster. `rcnt0_read_count_m1`
+   approximates /5 and also differs from C. Under arcade source timing both
+   modes now map to the exact C readers. Console behavior is unchanged.
+2. Register-dependent stall timing. `multdiv_do_stall` and
+   `cop2_do_stall_check` skipped the MULT/DIV or GTE stall when no free host
+   register remained. ARMv7 has fewer registers: in 12,000 frames it skipped 5
+   MULT/DIV and 7 GTE stalls that ARM64 counted (for example 42 cycles in the
+   block at 0x800ad0fc). The new `emit_busy_stall()` uses only `HOST_TEMPREG`
+   (`d = busy - adj - cc; if (d >= limit) d = 0; cc += d`). That is the same
+   arithmetic, now on every backend.
+
+Validation, replay of 12,000 frames:
+
+| Check | Result |
+| --- | --- |
+| ARMv7 (qemu) and ARM64 RAM hash, per frame | identical in all 12,000 frames |
+| ARMv7 and ARM64 final PPM and WAV | byte-identical |
+| ARM64 PPM, WAV and System 12 report against the previous reference | byte-identical |
+| Vita3K VPK, clock at frames 3000/3300/3600 | 04"34, 09"34, 14"34 (+5.00 s per 300 frames) |
+| Vita3K frames 3000/3300/3600 against the Mac ARM64 core | equal at 15-bit color (the hosts' PPM writers expand 5 to 8 bits differently) |
+
+Before the fix, the first differing frame was 385. With only the root counter
+fix it was 1741, and that case was the stall difference. Evidence:
+`artifacts/validation/armv7-clock-20261009/`.
+
+The ARMv7 GTE (`gte_arm`/`gte_neon`) and the ARMv7 inline readers did not
+cause differences in this replay. The per-frame hash comparison with
+`build_armv7_core.sh` is the check to repeat after ARM32 DRC or assembly
+changes.
