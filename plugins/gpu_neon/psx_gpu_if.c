@@ -84,6 +84,7 @@ static struct {
 #ifdef PSX_GPU_PIPELINE_STATS
 /* Why stage 1 waited for stage 2: tools/gpu-replay builds print these. */
 static unsigned pl_stats[PLS_COUNT], pl_stats_waited[PLS_COUNT];
+static unsigned long long pl_stats_blocks;
 static int pl_reason = PLS_DIRECT;
 static void pipeline_stat(int reason)
 {
@@ -96,6 +97,7 @@ void psx_gpu_pipeline_print_stats(void)
   int i;
   for (i = 0; i < PLS_COUNT; i++)
     SysPrintf("gpu_neon pipeline: %-9s %7u calls, %7u waited\n", names[i], pl_stats[i], pl_stats_waited[i]);
+  SysPrintf("gpu_neon pipeline: %llu blocks queued\n", pl_stats_blocks);
 }
 #endif
 #define pl_load(v) __atomic_load_n(&(v), __ATOMIC_SEQ_CST)
@@ -104,6 +106,11 @@ void psx_gpu_pipeline_print_stats(void)
 static void pipeline_run_slot(psx_gpu_struct *g)
 {
   render_block_handler_struct *h = g->render_block_handler;
+  int i;
+  /* Shading and blending read each block's framebuffer pixels; setup's
+   * prefetch of them ran on stage 1's core. */
+  for (i = 0; i < g->num_blocks; i++)
+    __builtin_prefetch(g->blocks[i].fb_ptr, 1);
 #if defined(__arm__) && defined(NEON_BUILD) && !defined(SIMD_BUILD)
   __asm__ __volatile__("":::"q4","q5","q6","q7");
 #endif
@@ -221,6 +228,7 @@ static int pipeline_submit(psx_gpu_struct *psx_gpu)
 {
   texture_blocks_function_type *texture_blocks;
   unsigned head;
+  u8 *slot;
 
   if (!pl.active || psx_gpu != &egpu)
     return 0;
@@ -242,8 +250,15 @@ static int pipeline_submit(psx_gpu_struct *psx_gpu)
     PL_STAT(PLS_FULL);
     pipeline_wait_done(head - PIPELINE_SLOTS + 1);
   }
-  memcpy(pl.slots + (head % PIPELINE_SLOTS) * PIPELINE_SLOT_BYTES, psx_gpu,
-         offsetof(psx_gpu_struct, blocks) + psx_gpu->num_blocks * sizeof(block_struct));
+#ifdef PSX_GPU_PIPELINE_STATS
+  pl_stats_blocks += psx_gpu->num_blocks;
+#endif
+  slot = pl.slots + (head % PIPELINE_SLOTS) * PIPELINE_SLOT_BYTES;
+  /* The state up to the padding (the handlers' scratch space follows it),
+   * then the blocks: about 2 KB a buffer, 1100 buffers a frame. */
+  memcpy(slot, psx_gpu, offsetof(psx_gpu_struct, reserved_a));
+  memcpy(slot + offsetof(psx_gpu_struct, blocks), psx_gpu->blocks,
+         psx_gpu->num_blocks * sizeof(block_struct));
   if (!pl.pend_any) {
     pl.pend_any = 1;
     pl.pend_x0 = psx_gpu->viewport_start_x;
