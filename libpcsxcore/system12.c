@@ -73,6 +73,10 @@ static struct {
     u32 alt_bank_offset, tektagt_dma_offset;
     const char *profile, *machine, *state, *unsupported;
     int boot_hack, alt_bank, tektagt_dma, has_tektagt_dma;
+    /* Tekken Tag protection (MAME tektagt_state): two 32-bit values written
+     * through 0x1fb00000 after a 0x1fb80000 write select a reply. */
+    int ttt_cnt;
+    u32 ttt_val[2];
     int profile_owned;
     u64 shared_reads, shared_writes, bank_writes, dma_transfers, dma_bytes;
     u64 unknown_reads, unknown_writes, dma_truncations;
@@ -1102,13 +1106,14 @@ static int load_profile(const char *directory)
     }
     if ((strcmp(board.machine, "coh700") && strcmp(board.machine, "coh700b") &&
          strcmp(board.machine, "coh716")) ||
-        (strcmp(board.state, "namcos12_state") && strcmp(board.state, "namcos12_altbank_state"))) {
+        (strcmp(board.state, "namcos12_state") && strcmp(board.state, "namcos12_altbank_state") &&
+         strcmp(board.state, "tektagt_state"))) {
         SysPrintf("System12: profile %s/%s requires an unimplemented game-specific board state\n",
             board.machine, board.state);
         return -2;
     }
     if (board.alt_bank != !strcmp(board.state, "namcos12_altbank_state") ||
-        board.tektagt_dma ||
+        board.tektagt_dma != !strcmp(board.state, "tektagt_state") ||
         board.boot_hack != (!strcmp(board.machine, "coh700b") || !strcmp(board.machine, "coh716")) ||
         board.ram_size != (!strcmp(board.machine, "coh716") ? 0x1000000 : 0x400000))
         return -1;
@@ -1209,6 +1214,10 @@ static void map_bank(unsigned bank)
                 ? (uintptr_t)(board.banked + bank * WINDOW_SIZE) - bases[segment]
                 : INVALID_PTR_VAL;
             psxRegs.ptrs.memWLUT[address >> PSXM_SHIFT] = INVALID_PTR_VAL;
+            /* Tekken Tag's protection registers sit in the banked window:
+             * reads of their pages go through system12_read. */
+            if (board.tektagt_dma && (page == 0x100000 || page == 0x180000))
+                psxRegs.ptrs.memRLUT[address >> PSXM_SHIFT] = INVALID_PTR_VAL;
         }
 }
 
@@ -1250,6 +1259,10 @@ void system12_reset(void)
             SysPrintf("System12: H8 soft reset outside a quiescent boundary\n");
     }
     board.has_tektagt_dma = 0;
+    if (!board.booted) {   /* MAME: machine_start state, not reset */
+        board.ttt_cnt = 0;
+        board.ttt_val[0] = board.ttt_val[1] = 0;
+    }
     board.last_cycle = psxRegs.cycle;
     board.pcm_epoch_frames = board.pcm_frames;
     board.pcm_peak = 0;
@@ -1276,6 +1289,70 @@ void system12_reset(void)
     psxRegs.biosFuncsHooked = 0;
 }
 
+/* Tekken Tag protection, from MAME's tektagt_state (namcos12.cpp): 16-bit
+ * registers on the 32-bit bus, offset 0 at bits 0-15, offset 1 at 16-31. */
+static void tektagt_protection_1_w(unsigned offset, u16 data)
+{
+    if (offset == 0) {
+        board.tektagt_dma_offset = data;
+        if (board.ttt_cnt != 2)
+            board.ttt_val[board.ttt_cnt] = data;
+    } else {
+        board.tektagt_dma_offset |= (u32)data << 16;
+        if (board.ttt_cnt != 2)
+            board.ttt_val[board.ttt_cnt++] |= (u32)data << 16;
+    }
+}
+
+static u16 tektagt_protection_1_r(unsigned offset)
+{
+    return offset == 0 ? 0x8000 : 0;   /* bit 15: ready */
+}
+
+static void tektagt_protection_2_w(unsigned offset, u16 data)
+{
+    (void)data;
+    if (offset == 0)
+        board.ttt_cnt = 0;   /* start of a new pair of values */
+}
+
+static u16 tektagt_protection_2_r(unsigned offset)
+{
+    if (board.ttt_cnt != 2)
+        return 0;
+    if (board.ttt_val[0] == 0x806d2c24 && board.ttt_val[1] == 0xd5545715)
+        return offset == 0 ? 0x36e2 : 0;
+    if (board.ttt_val[0] == 0x804c2c84 && board.ttt_val[1] == 0xd5545615)
+        return offset == 0 ? 0x2651 : 0;
+    if (board.ttt_val[0] == 0x2aaba8e6 && board.ttt_val[1] == 0x00820040)
+        return offset == 1 ? 0x4186 : 0;
+    if (board.ttt_val[0] == 0x2aaba592 && board.ttt_val[1] == 0x01780544)
+        return offset == 1 ? 0x3c7d : 0;
+    if (((board.ttt_val[1] >> 16) & 0xff) == 0xa9)
+        return 0x552e;
+    return 0;
+}
+
+/* Byte/halfword/word accesses split into the 16-bit lanes they touch, low
+ * lane first, as MAME's 32-bit bus calls a 16-bit handler. */
+static u32 tektagt_protection_read(u32 a, unsigned width, u16 (*r)(unsigned))
+{
+    u32 v = 0;
+    unsigned lane;
+    for (lane = (a & 2) >> 1; lane < 2 && (lane * 2) < (a & 3) + width; lane++)
+        v |= (u32)r(lane) << (lane * 16);
+    return v >> ((a & 3) * 8);
+}
+
+static void tektagt_protection_write(u32 a, unsigned width, u32 value,
+    void (*w)(unsigned, u16))
+{
+    u32 bus = value << ((a & 3) * 8);
+    unsigned lane;
+    for (lane = (a & 2) >> 1; lane < 2 && (lane * 2) < (a & 3) + width; lane++)
+        w(lane, (u16)(bus >> (lane * 16)));
+}
+
 int system12_read(u32 address, unsigned width, u32 *value)
 {
     u32 a = physical(address), v = 0;
@@ -1290,8 +1367,19 @@ int system12_read(u32 address, unsigned width, u32 *value)
         trace_bus(a, width, 0, 0);
         return 1;
     }
-    /* Non-LUT fallback also permits execution from valid banked ROM. */
-    if (DISABLE_MEM_LUTS && a >= 0x1fa00000 && a < 0x1fc00000) {
+    if (board.tektagt_dma && (a & ~3u) == 0x1fb00000) {
+        *value = tektagt_protection_read(a, width, tektagt_protection_1_r);
+        trace_bus(a, width, 0, *value);
+        return 1;
+    }
+    if (board.tektagt_dma && (a & ~3u) == 0x1fb80000) {
+        *value = tektagt_protection_read(a, width, tektagt_protection_2_r);
+        trace_bus(a, width, 0, *value);
+        return 1;
+    }
+    /* Non-LUT fallback also permits execution from valid banked ROM; the
+     * rest of Tekken Tag's protection pages reads the window the same way. */
+    if ((DISABLE_MEM_LUTS || board.tektagt_dma) && a >= 0x1fa00000 && a < 0x1fc00000) {
         for (i = 0; i < width; i++)
             v |= (u32)(board.bank < board.banked_size / WINDOW_SIZE
                 ? board.banked[board.bank * WINDOW_SIZE + ((a + i) & (WINDOW_SIZE - 1))]
@@ -1337,9 +1425,13 @@ int system12_write(u32 address, unsigned width, u32 value)
     unsigned i;
     if (!board.active)
         return 0;
-    if (board.tektagt_dma && a >= 0x1fb00000 && a < 0x1fb00004) {
-        if (!(a & 2)) board.tektagt_dma_offset = value & 0xffff;
-        else board.tektagt_dma_offset |= (value & 0xffff) << 16;
+    if (board.tektagt_dma && (a & ~3u) == 0x1fb00000) {
+        tektagt_protection_write(a, width, value, tektagt_protection_1_w);
+        trace_bus(a, width, 1, value);
+        return 1;
+    }
+    if (board.tektagt_dma && (a & ~3u) == 0x1fb80000) {
+        tektagt_protection_write(a, width, value, tektagt_protection_2_w);
         trace_bus(a, width, 1, value);
         return 1;
     }
@@ -1379,9 +1471,10 @@ int system12_write(u32 address, unsigned width, u32 value)
                 }
     }
     else if (a >= 0x1f700000 && a < 0x1f710000) {
-        /* The low address bits supply the low half of the DMA source. */
-        if (board.tektagt_dma) board.tektagt_dma_offset = ((a - 0x1f700000) & ~1u) | ((value & 0xffff) << 16);
-        else board.dma_offset = ((a - 0x1f700000) & ~1u) | ((value & 0xffff) << 16);
+        /* The low address bits supply the low half of the DMA source. MAME's
+         * dmaoffset_w on every board; Tekken Tag's second offset comes from
+         * its protection register instead. */
+        board.dma_offset = ((a - 0x1f700000) & ~1u) | ((value & 0xffff) << 16);
     }
     else if ((a >= 0x1f008000 && a < 0x1f008004) ||
              (a >= 0x1f010000 && a < 0x1f010004) ||

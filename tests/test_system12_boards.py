@@ -28,7 +28,8 @@ class System12BoardProfiles(unittest.TestCase):
         self.assertEqual({p["set"] for p in profiles if p["alt_bank"]}, {"mdhorse", "kaiunqz", "sws2001"})
         for profile in profiles:
             self.assertEqual(profile["tektagt_dma"], profile["state"] == "tektagt_state")
-        self.assertIn("tektagt_protection", next(p for p in profiles if p["set"] == "tektagt")["unsupported"])
+        # The protection is emulated (MAME tektagt_state): no set needs anything else.
+        self.assertEqual(next(p for p in profiles if p["set"] == "tektagt")["unsupported"], [])
         self.assertIn("gun_io", next(p for p in profiles if p["set"] == "ptblank2")["unsupported"])
         self.assertIn("link_lan", next(p for p in profiles if p["set"] == "kartduel")["unsupported"])
 

@@ -549,9 +549,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtc1a",
@@ -566,9 +564,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtub",
@@ -583,9 +579,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtuc1",
@@ -600,9 +594,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtja3",
@@ -617,9 +609,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtjb",
@@ -634,9 +624,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "tektagtjc1",
@@ -651,9 +639,7 @@
       "boot_hack": true,
       "alt_bank": false,
       "tektagt_dma": true,
-      "unsupported": [
-        "tektagt_protection"
-      ]
+      "unsupported": []
     },
     {
       "set": "ghlpanic",
