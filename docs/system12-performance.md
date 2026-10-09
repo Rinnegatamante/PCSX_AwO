@@ -1218,3 +1218,35 @@ make -f tests/Makefile.h8 test spin-skip-ubsan-test
 ```
 
 Evidence: ignored `artifacts/validation/system12-perf-20261009/`.
+
+### Vita presentation: one pacing clock (2026-10-09)
+
+The NEON standalone frontend queued each frame with `SETBUF_NEXTFRAME` and then
+always blocked in `sceDisplayWaitVblankStart()`, while `audio_batch_cb` blocks
+whenever more than 2,048 source frames are queued. With both on one thread, a
+frame whose audio wait carried it past a vblank cost two vblanks. The frontend
+now calls `sceDisplayWaitSetFrameBuf()` just before writing the back buffer:
+it returns at once when a vblank has passed since the previous queue, so it
+only waits when two frames would be presented within one vblank. The audio
+queue is the only pacing clock. The vitaGL path already swaps without vblank
+waits.
+
+Vita3K, profiler VPK, same 6,000-frame replay:
+
+| Scope | Before | After | Diagnostic: no audio backpressure |
+| --- | ---: | ---: | ---: |
+| Guest elapsed | 124.7 s | 119.1 s | 84.0 s (71 fps) |
+| Vblank wait | 36.3 s | 4.1 s | 29.6 s |
+| Audio queue wait | 36.4 s | 37.9 s | 0.3 s |
+
+Vita3K drains audio at about 88% of real time: the replay generates 100.3 s of
+audio, takes 119 s, and still waits 38 s for the queue. Without backpressure
+(diagnostic build only, not committed) the same guest runs faster than real
+time. The remaining Vita3K cap is therefore its audio emulation; on hardware,
+`sceAudioOutOutput` drains in real time. Vita3K compute scopes varied by about
+30% between identical-core runs, so they are not used as costs here.
+
+Normal VPK, 12,000-frame replay: console smoke PASS, 177/177 events, no
+unmapped accesses, H8 report identical to the previous Vita3K run (same
+instructions 593,505,145), guest elapsed 257.5 s to 215.7 s (46.6 to 55.6 fps).
+A physical Vita must confirm pacing and cost; Vita3K establishes behavior only.

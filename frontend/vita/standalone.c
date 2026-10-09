@@ -252,6 +252,16 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     if (g_map_w != (int)width || g_map_h != (int)height)
         rebuild_scale_map(width, height);
 
+    /* The back buffer is scanned out until the frame queued last time is
+     * latched at the next vblank. Wait for that only here, before writing:
+     * when a vblank has passed since that queue, this returns at once, and
+     * the audio queue stays the only pacing clock. Waiting for a vblank after
+     * every queue as well made a frame delayed past one by the audio wait
+     * cost two vblanks. */
+    uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_PRESENT_WAIT, 1);
+    sceDisplayWaitSetFrameBuf();
+    pcsx_profile_end(PCSX_PROF_PRESENT_WAIT, wait_started);
+
     back = g_front ^ 1;
     dst = g_fb[back];
 
@@ -270,9 +280,6 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     frame.width = DISPLAY_W;
     frame.height = DISPLAY_H;
     sceDisplaySetFrameBuf(&frame, SCE_DISPLAY_SETBUF_NEXTFRAME);
-    uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_PRESENT_WAIT, 1);
-    sceDisplayWaitVblankStart();
-    pcsx_profile_end(PCSX_PROF_PRESENT_WAIT, wait_started);
     g_front = back;
 }
 
