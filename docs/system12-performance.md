@@ -1019,3 +1019,63 @@ python3 tests/check_system12_psx_instruction_timing.py --harness build/mac-syste
 ```
 
 The last command deliberately exits nonzero while exact timing differs.
+
+## PSX source instruction step and MAME timeslice order (2026-10-09)
+
+`intExecuteSourceStep()` is an opt-in interpreter step that follows the MAME
+`psxcpu_device` model: exactly one instruction per call, one 40 ns MAME cycle
+(two 50 MHz native cycles) per instruction, and memory accesses timestamped at
+instruction start (the cost is charged after execution). A branch and its delay
+slot are separate steps; the pending branch is kept in interpreter-private
+state, so `psxRegisters`' assembly/savestate layout is unchanged, and reset and
+state load clear it. A branch in a taken delay slot is relative to the outer
+target, links write through the load-delay cancel path, and a misaligned jump
+target faults at its fetch with EPC equal to that address, as in MAME. Events
+and interrupts are tested after every instruction except between a branch and
+its slot. The harness flag `--system12-source-step` selects it with precise
+load/store exceptions and without MULT/DIV/GTE stalls, which MAME does not
+charge. Every step yields to the board coordinator. Regular interpreter and
+ARI64 paths are unchanged. Interrupt entry is not yet compared: MAME executes
+one more instruction before taking `EXC_INT` from `update_cop0`.
+
+| Gate | Result |
+| --- | --- |
+| Instruction timing markers (MULT, DIV, RTPS, BEQ) | **8/8 exact** reset-relative times (was 8/8 interpreter, 7/8 ARI64 different) |
+| MAME step cases: taken/not-taken branch, load delay, SYSCALL in taken/not-taken slot, branch in slot | **6/6 exact**, 18 stores including Cause `c0000020`/`80000020` and EPC |
+| Default interpreter/ARI64 timing and mailbox observations | unchanged from 2026-10-05 |
+| PSX/H8 mailbox, source step | **4/7** (was 5/7 interpreter, 3/7 ARI64 different) |
+
+The step oracle template previously substituted its placeholders into Lua
+identifiers and its reset parser failed; both are fixed. Its exception vector
+now places a NOP after each MFC0, since MFC0 has a load delay and the original
+stores captured stale registers instead of Cause/EPC.
+
+The three remaining mailbox differences are not instruction timing. In MAME
+the PSX polls shared RAM continuously until 16 666 520 ns, before the H8 runs
+at all, although the H8 response is stamped at 2 007.748 ns. MAME's scheduler
+(`device_scheduler::timeslice`) runs each CPU in order to a common target equal
+to `min(basetime + quantum, next global timer)`. The default quantum is 1/60 s
+and no System 12 interleave is configured, so the PSX sees the response only in
+its next slice, at 16 666 680 ns. Per-instruction catch-up is therefore
+*more* interleaved than MAME. Diagnostic confirmation: source step with
+`--system12-vblank-sync-only` reproduces the same one-slice shape, offset by
+the native vblank boundary (16 715 160 ns versus 16 666 680 ns).
+
+Next work: a coordinator that reproduces MAME timeslice targets, the
+"move target up" rule when a CPU stops short, and the global timer list (PSX
+root counters, screen, DMA, SCI sync timers, etc.) as slice boundaries. That
+also defines how large native slices may be, which bounds performance work.
+
+Soul Calibur (`artifacts/system12`, 300 frames, Mac): ARI64 5.04 s, interpreter
+4.99 s, source step 10.28 s, with identical H8 instruction and shared-access
+counts. Evidence: ignored `artifacts/validation/psx-source-step-20261009/`.
+
+```sh
+make -f Makefile.mac-harness BUILD=build/mac-psx-source-step-20261009 DRC=1 SYSTEM12_TIMING=1 -j8
+python3 tests/check_system12_psx_instruction_timing.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-psx-timing.json --output native-source.json --log native-source.log --source-step
+python3 tests/check_mame_psx_step.py --output mame-step.json --log mame-step.log
+python3 tests/check_system12_psx_step.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-step.json --output native-step.json
+python3 tests/check_system12_mailbox.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-mailbox.json --output native-mailbox.json --source-step
+```
+
+The mailbox command deliberately exits nonzero while the slice order differs.
