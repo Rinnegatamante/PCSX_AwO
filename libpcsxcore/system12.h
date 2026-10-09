@@ -42,6 +42,10 @@ void system12_mem_reset(void);
 void system12_pre_reset(void);
 void system12_reset(void);
 void system12_sync(u32 psx_cycle);
+/* MAME-ordered timeslice for the source instruction step: begin returns how
+ * many 40 ns main instructions run before end catches the H8 up. */
+u32 system12_slice_begin(void);
+void system12_slice_end(void);
 void system12_vblank(int level);
 /* Source screen edge at its scheduled absolute time, even if MIPS is late. */
 void system12_vblank_at(int level, const psx_screen_time *time);

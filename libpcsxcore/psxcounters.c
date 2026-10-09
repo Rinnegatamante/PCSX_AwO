@@ -540,6 +540,22 @@ void psxRcntSourceScreenReset(int cold, u32 gpu_status)
     psxRcntSet();
 }
 
+/* Absolute source time of the main CPU, on the screen timeline's epoch. */
+psx_screen_time psxRcntSourceTime(void)
+{
+    return sourceScreenTime();
+}
+
+/* Next armed screen timer, a MAME global scheduling boundary. */
+int psxRcntSourceScreenNext(psx_screen_time *when)
+{
+    psx_screen_event next;
+    if (!sourceScreenActive() || !psx_screen_clock_next_deadline(&source_screen, &next))
+        return 0;
+    *when = next.time;
+    return 1;
+}
+
 void psxRcntSourceScreenUnload(void)
 {
     psx_screen_clock_init(&source_screen);

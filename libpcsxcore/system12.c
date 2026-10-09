@@ -74,6 +74,9 @@ static struct {
     u32 last_shared_address, last_shared_pc, last_shared_value;
     u32 last_unknown_address, last_unknown_pc;
     int active, booted;
+    /* MAME timeslice order for the source instruction step profile. */
+    psx_screen_time slice_base, slice_target;
+    int slice_open, slice_ran;
 } board;
 static void pcm_sync_h8(void);
 static system12_bus_trace_cb bus_trace_cb;
@@ -471,7 +474,7 @@ static void pcm_sync_h8(void)
         pcm_generate_to(target);
 }
 
-static void sync_to(u32 psx_cycle, int force)
+static void sync_devices(u32 psx_cycle, int force, int run_h8)
 {
     u32 elapsed;
     if (!board.active || !board.h8) return;
@@ -491,7 +494,8 @@ static void sync_to(u32 psx_cycle, int force)
     u32 requested = board.h8_fraction / PSXCLK;
     board.h8_requested += requested;
     uint64_t h8_started = pcsx_profile_begin(PCSX_PROF_H8, 1);
-    if (psxArcadeSourceTimingActive()) h8_run_until(board.h8, board.h8_requested);
+    if (!run_h8) ;
+    else if (psxArcadeSourceTimingActive()) h8_run_until(board.h8, board.h8_requested);
     else h8_run_cycles(board.h8, requested);
     pcsx_profile_end(PCSX_PROF_H8, h8_started);
     board.h8_fraction %= PSXCLK;
@@ -500,6 +504,11 @@ static void sync_to(u32 psx_cycle, int force)
     board.pcm_fraction %= PSXCLK;
     /* MAME's stream includes the sample at the current nonzero time. */
     pcm_generate_to(board.pcm_due + 1);
+}
+
+static void sync_to(u32 psx_cycle, int force)
+{
+    sync_devices(psx_cycle, force, 1);
 }
 
 void system12_sync(u32 psx_cycle)
@@ -540,17 +549,22 @@ void system12_vblank(int level)
     trace_edge(SYSTEM12_EDGE_VBLANK, level);
 }
 
-void system12_vblank_at(int level, const psx_screen_time *time)
+/* CPU execution before a global timer is bounded by floor, not ceil.
+ * Preserve the H8's truncated attosecond clock instead of rounding the
+ * edge through a main-CPU instruction/block endpoint. */
+static u64 h8_cycle_at(const psx_screen_time *time)
 {
     const u64 period = UINT64_C(1000000000000000000) / 16934400;
     const u64 remainder = UINT64_C(1000000000000000000) - period * 16934400;
-    u64 seconds, target;
+    u64 seconds = (u64)time->seconds;
+    return seconds * 16934400 + (time->attoseconds + seconds * remainder) / period;
+}
+
+void system12_vblank_at(int level, const psx_screen_time *time)
+{
+    u64 target;
     if (!board.active || !board.h8 || !time || time->seconds < 0) return;
-    seconds = (u64)time->seconds;
-    /* CPU execution before a global timer is bounded by floor, not ceil.
-     * Preserve the H8's truncated attosecond clock instead of rounding the
-     * edge through a main-CPU instruction/block endpoint. */
-    target = seconds * 16934400 + (time->attoseconds + seconds * remainder) / period;
+    target = h8_cycle_at(time);
     uint64_t started = pcsx_profile_begin(PCSX_PROF_H8, 1);
     if (h8_run_until(board.h8, target))
         SysPrintf("System12: invalid H8 screen deadline\n");
@@ -559,6 +573,88 @@ void system12_vblank_at(int level, const psx_screen_time *time)
     h8_adc_trigger(board.h8, level);
     board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
     trace_edge(SYSTEM12_EDGE_VBLANK, level);
+}
+
+/* MAME device_scheduler timeslices (source instruction step profile only).
+ * Each slice targets min(base + quantum, next global timer). The main CPU runs
+ * first; if it stops short, the target moves up to its local time (never before
+ * the base), then the H8 and board devices catch up to that target. */
+#define SLICE_QUANTUM_AS UINT64_C(16666666666666666) /* attotime::from_hz(60) */
+#define SLICE_MAIN_CYCLE_AS UINT64_C(40000000000)    /* 25 MHz MAME PSX cycle */
+
+static int slice_time_cmp(psx_screen_time a, psx_screen_time b)
+{
+    if (a.seconds != b.seconds) return a.seconds < b.seconds ? -1 : 1;
+    return a.attoseconds < b.attoseconds ? -1 : a.attoseconds > b.attoseconds;
+}
+
+static void slice_bound(psx_screen_time *target, psx_screen_time when)
+{
+    if (slice_time_cmp(when, board.slice_base) > 0 && slice_time_cmp(when, *target) < 0)
+        *target = when;
+}
+
+u32 system12_slice_begin(void)
+{
+    psx_screen_time now, when, target;
+    H8SyncTimer timer;
+    unsigned channel;
+    u64 delta;
+    if (!board.active || !board.h8) return 0;
+    now = psxRcntSourceTime();
+    if (!board.slice_open) {
+        board.slice_base = now;
+        board.slice_open = 1;
+    }
+    target = board.slice_base;
+    target.attoseconds += SLICE_QUANTUM_AS;
+    if (target.attoseconds >= PSX_SCREEN_ATTOSECONDS_PER_SECOND) {
+        target.attoseconds -= PSX_SCREEN_ATTOSECONDS_PER_SECOND;
+        target.seconds++;
+    }
+    if (psxRcntSourceScreenNext(&when)) slice_bound(&target, when);
+    if (h8_peek_next_sync_timer(board.h8, &channel, &timer) == 0) {
+        when.seconds = (int64_t)timer.expires.seconds;
+        when.attoseconds = timer.expires.attoseconds;
+        slice_bound(&target, when);
+    }
+    board.slice_target = target;
+    board.slice_ran = 0;
+    if (slice_time_cmp(target, now) <= 0) return 0;
+    /* Below one second apart: the target is at most one quantum past base. */
+    delta = (u64)(target.seconds - now.seconds) * PSX_SCREEN_ATTOSECONDS_PER_SECOND +
+        target.attoseconds - now.attoseconds;
+    board.slice_ran = delta >= SLICE_MAIN_CYCLE_AS;
+    return (u32)(delta / SLICE_MAIN_CYCLE_AS);
+}
+
+void system12_slice_end(void)
+{
+    psx_screen_time now, target, when;
+    H8SyncTimer timer;
+    unsigned channel;
+    u64 h8_target;
+    if (!board.active || !board.h8 || !board.slice_open) return;
+    now = psxRcntSourceTime();
+    target = board.slice_target;
+    if (board.slice_ran && slice_time_cmp(now, target) < 0)
+        target = slice_time_cmp(now, board.slice_base) > 0 ? now : board.slice_base;
+    h8_target = h8_cycle_at(&target);
+    if (h8_target > h8_current_cycle(board.h8)) {
+        uint64_t started = pcsx_profile_begin(PCSX_PROF_H8, 1);
+        h8_run_until(board.h8, h8_target);
+        pcsx_profile_end(PCSX_PROF_H8, started);
+    }
+    sync_devices(psxRegs.cycle, 1, 0);
+    board.slice_base = target;
+    /* SCI sync timer callbacks are empty; firing only retires the boundary. */
+    while (h8_peek_next_sync_timer(board.h8, &channel, &timer) == 0) {
+        when.seconds = (int64_t)timer.expires.seconds;
+        when.attoseconds = timer.expires.attoseconds;
+        if (slice_time_cmp(when, board.slice_base) > 0 ||
+            h8_fire_sync_timer(board.h8, channel, timer.generation) <= 0)
+            break;
+    }
 }
 
 static int load_region(const char *directory, const char *name, size_t size, u8 **out)
@@ -786,6 +882,7 @@ void system12_mem_reset(void)
 void system12_reset(void)
 {
     pcsx_profile_reset();
+    board.slice_open = 0;
     if (!board.booted) {
         board.dma_offset = board.alt_bank_offset = board.tektagt_dma_offset = 0;
         board.h8_fraction = board.h8_requested = 0;

@@ -42,11 +42,14 @@ extern Rcnt rcnts[];
 void psxRcntInit();
 void psxRcntUpdate();
 #ifdef PCSX_SYSTEM12
+#include "arcade/psx_screen_clock.h"
 /* Source screen timeline for System12; survives main-counter soft resets. */
 void psxRcntSourceScreenReset(int cold, u32 gpu_status);
 void psxRcntSourceScreenUnload(void);
 void psxRcntSourceScreenUpdate(void);
 void psxRcntSourceScreenConfigure(u32 gpu_status);
+psx_screen_time psxRcntSourceTime(void);
+int psxRcntSourceScreenNext(psx_screen_time *when);
 #endif
 
 void psxRcntWcount(u32 index, u32 value);

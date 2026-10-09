@@ -520,6 +520,8 @@ int main(int argc, char **argv)
   int interactive = 0;
   int vblank_sync_only = 0;
   int source_step = 0;
+  uint32_t slice_steps = 0;
+  int slice_started = 0;
   int max_blocks_requested = 0;
   uint64_t reset_at_cycle = 0;
   int reset_performed = 0;
@@ -1051,8 +1053,18 @@ int main(int argc, char **argv)
     }
     /* Use the public interpreter step to cap otherwise branchless blocks.
      * It preserves the core's branch and pending load-delay semantics. */
-    if (source_step)
+    if (source_step) {
+#ifdef PCSX_SYSTEM12
+      /* MAME order: the main CPU runs a whole slice, then the H8 catches up. */
+      while (!slice_steps) {
+        if (slice_started) system12_slice_end();
+        slice_steps = system12_slice_begin();
+        slice_started = 1;
+      }
+      slice_steps--;
+#endif
       intExecuteSourceStep(&psxRegs);
+    }
     else if (use_drc)
       psxCpu->ExecuteBlock(&psxRegs, EXEC_CALLER_BOOT);
     else {
@@ -1081,10 +1093,11 @@ int main(int argc, char **argv)
         start_frame = frame_counter - elapsed_frames;
         prev_cycle = psxRegs.cycle;
         reset_performed = 1;
+        slice_steps = 0; slice_started = 0;
       }
       /* Diagnostic control for frontends whose board catch-up is driven by
        * core vblank events rather than this harness's block loop. */
-      int sync_result = vblank_sync_only ? 0 : selected_board->sync(psxRegs.cycle);
+      int sync_result = vblank_sync_only || source_step ? 0 : selected_board->sync(psxRegs.cycle);
       if (sync_result < 0) {
         fprintf(stderr, "%s: device or bus fault during execution\n", selected_board->name);
         result = 1;
@@ -1096,6 +1109,7 @@ int main(int argc, char **argv)
         psxReset();
         start_frame = frame_counter - elapsed_frames;
         prev_cycle = psxRegs.cycle;
+        slice_steps = 0; slice_started = 0;
       }
     }
 #endif
