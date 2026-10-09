@@ -54,7 +54,7 @@ def observations(rows):
                 h8_response=writes[1], main_response=new[0], main_ack=writes[2])
 
 
-def run_case(harness, directory, words, drc, vblank_only):
+def run_case(harness, directory, words, drc, vblank_only, source_step=False):
     directory.mkdir()
     prepare(directory, False)
     for name, offset, fmt in [('main', 0, 'I'), ('sub', 0x100, 'H')]:
@@ -67,6 +67,8 @@ def run_case(harness, directory, words, drc, vblank_only):
         common.append('--drc')
     if vblank_only:
         common.append('--system12-vblank-sync-only')
+    if source_step:
+        common.append('--system12-source-step')
     command = common + ['--system12-edge-trace', str(directory / 'edges.csv'),
                         '--system12-trace-shared-accesses', '--output',
                         str(directory / 'frame.ppm')]
@@ -98,7 +100,8 @@ def run_case(harness, directory, words, drc, vblank_only):
                                time_as=row['main_cycle'] * MAIN_PERIOD_AS if cpu == 'main'
                                else row['h8_cycle'] * H8_PERIOD_AS))
     assert 'shared r=2 w=2' in result.stderr, result.stderr
-    return dict(cpu='drc' if drc else 'interpreter', vblank_sync_only=vblank_only,
+    return dict(cpu='source-interpreter' if source_step else 'drc' if drc else 'interpreter',
+                vblank_sync_only=vblank_only,
                 command=command, control_command=control_command,
                 observer_control_equal=True, fixture_passed=True, rows=rows,
                 observations=observations(normalized), stderr=result.stderr)
@@ -109,6 +112,8 @@ def main():
     parser.add_argument('--harness', type=Path, required=True)
     parser.add_argument('--mame', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--source-step', action='store_true',
+                        help='compare only the opt-in source interpreter instruction step')
     args = parser.parse_args()
     harness = args.harness.resolve()
     oracle = json.loads(args.mame.read_text())
@@ -137,9 +142,11 @@ def main():
     expected = observations(expected_rows)
     captures = []
     with tempfile.TemporaryDirectory(prefix='pcsx-mailbox-probe-') as tmp:
-        for drc in (False, True):
-            for sync in (False, True):
-                case = run_case(harness, Path(tmp) / f'{int(drc)}-{int(sync)}', words, drc, sync)
+        profiles = ([(False, False), (False, True)] if args.source_step else
+                    [(drc, sync) for drc in (False, True) for sync in (False, True)])
+        for drc, sync in profiles:
+                case = run_case(harness, Path(tmp) / f'{int(drc)}-{int(sync)}', words, drc, sync,
+                                args.source_step)
                 case['differences'] = [dict(observation=key, mame=want,
                                            native=case['observations'][key],
                                            time_delta_as=case['observations'][key]['time_as'] -

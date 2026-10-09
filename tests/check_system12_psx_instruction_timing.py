@@ -51,16 +51,22 @@ def prepare_fixture(directory: Path, main_words: list[int]) -> None:
         stream.write(struct.pack(">H", 0x0180))
 
 
-def run_case(harness: Path, directory: Path, main_words: list[int], drc: bool) -> dict:
+def run_case(harness: Path, directory: Path, main_words: list[int], drc: bool,
+             source_step: bool = False, store_limit: int = 0x1F08000E) -> dict:
     directory.mkdir(parents=True)
     prepare_fixture(directory, main_words)
     common = [str(harness), "--system12", str(directory), "--frames", "1"]
     if drc:
         common.append("--drc")
+    if source_step:
+        common.append("--system12-source-step")
     observed_command = common + ["--system12-edge-trace", str(directory / "edges.csv"),
                                  "--system12-trace-shared-accesses", "--output",
                                  str(directory / "observed.ppm")]
     control_command = common + ["--output", str(directory / "control.ppm")]
+    if source_step:
+        observed_command += ["--trace", str(directory / "instructions.csv"),
+                             "--trace-blocks", "1000"]
     observed = subprocess.run(observed_command, capture_output=True, text=True, timeout=60)
     control = subprocess.run(control_command, capture_output=True, text=True, timeout=60)
     for run in (observed, control):
@@ -87,16 +93,23 @@ def run_case(harness: Path, directory: Path, main_words: list[int], drc: bool) -
         raise RuntimeError(f"native observer sequence is not monotonic: {rows!r}")
     stores = []
     for row in rows:
-        if row["event"] != "main_shared_store" or not (0x1F080000 <= row["address"] <= 0x1F08000E):
+        if row["event"] != "main_shared_store" or not (0x1F080000 <= row["address"] <= store_limit):
             continue
         stores.append({"sequence": row["sequence"], "address": row["address"],
                        "value": row["value"], "width": row["width"],
                        "main_cycle": row["main_cycle"],
                        "time_as": row["main_cycle"] * NATIVE_MAIN_PERIOD_AS})
-    return {"cpu": "drc" if drc else "interpreter", "command": observed_command,
+    instructions = []
+    if source_step:
+        with (directory / "instructions.csv").open(newline="") as stream:
+            instructions = [{key: int(value, 16 if key in ("pc", "opcode") or key.startswith("r") else 10)
+                             for key, value in row.items()} for row in csv.DictReader(stream)]
+        if not instructions or any(row['cycle'] != 2*i for i, row in enumerate(instructions)):
+            raise RuntimeError("source steps did not advance exactly one 40 ns instruction")
+    return {"cpu": "source-interpreter" if source_step else "drc" if drc else "interpreter", "command": observed_command,
             "control_command": control_command, "observer_control_equal": True,
             "board_report": report(observed), "stderr": observed.stderr,
-            "trace_rows": rows, "stores": stores,
+            "trace_rows": rows, "stores": stores, "instruction_rows": instructions,
             "observed_ppm_sha256": digest(directory / "observed.ppm"),
             "control_ppm_sha256": digest(directory / "control.ppm")}
 
@@ -107,6 +120,8 @@ def main() -> int:
     parser.add_argument("--mame", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--log", type=Path, required=True)
+    parser.add_argument("--source-step", action="store_true",
+                        help="compare only the opt-in source interpreter instruction step")
     args = parser.parse_args()
     harness = args.harness.resolve()
     if not harness.is_file():
@@ -138,8 +153,9 @@ def main() -> int:
     logs = []
     with tempfile.TemporaryDirectory(prefix="native-system12-psx-timing-") as temporary:
         base = Path(temporary)
-        for drc in (False, True):
-            case = run_case(harness, base / ("drc" if drc else "interpreter"), words["main"], drc)
+        for drc in ((False,) if args.source_step else (False, True)):
+            case = run_case(harness, base / ("drc" if drc else "interpreter"), words["main"], drc,
+                            args.source_step)
             native_rows = case["stores"]
             actual_identity = [(row["address"], row["value"]) for row in native_rows]
             if actual_identity != expected_identity or any(row["width"] != 16 for row in native_rows):
