@@ -221,9 +221,11 @@ static void add_draw_area(struct psx_gpu_async *agpu, uint32_t pos, int force,
 static void add_draw_area_e(struct psx_gpu_async *agpu, uint32_t pos, int force,
     const uint32_t *ex_regs)
 {
+  // Decode E3/E4 as the renderer does, for the actual VRAM geometry.
+  int yshift = gpu_get_model() == 1 ? 12 : 10;
   add_draw_area(agpu, pos, force,
-       ex_regs[3] & 0x3ff,       (ex_regs[3] >> 10) & 0x1ff,
-      (ex_regs[4] & 0x3ff) + 1, ((ex_regs[4] >> 10) & 0x1ff) + 1);
+       ex_regs[3] & 0x3ff,       (ex_regs[3] >> yshift) & GPU_VRAM_Y_MASK,
+      (ex_regs[4] & 0x3ff) + 1, ((ex_regs[4] >> yshift) & GPU_VRAM_Y_MASK) + 1);
 }
 
 int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int list_len,
@@ -251,6 +253,7 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
       if (gpu->ex_regs[cmd & 7] == ecmd)
         continue;
       gpu->ex_regs[cmd & 7] = ecmd;
+      gput_ecmd(&gpu->timing, ecmd);
       if (cmd == 0xe3 || cmd == 0xe4)
         add_draw_area_e(agpu, pos_added, 0, gpu->ex_regs);
     }
@@ -274,10 +277,16 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
       break; // incomplete cmd
     }
 
+    // Same timing as the direct path; see struct gput_state.
+    if ((cmd & 0xf8) != 0x48 && (cmd & 0xf8) != 0x58)
+      gput_cmd(&gpu->timing, list, cmd, &cyc_sum, &cyc);
+    if (cmd >= 0xe3 && cmd <= 0xe5)
+      gput_ecmd(&gpu->timing, LE32TOH(list[0]));
+
     switch (cmd) {
       case 0x02:
         x =  (LE16TOH(slist[2]) & 0x3ff) & ~0xf;
-        y =   LE16TOH(slist[3]) & 0x1ff;
+        y =   LE16TOH(slist[3]) & GPU_VRAM_Y_MASK;
         w = ((LE16TOH(slist[4]) & 0x3ff) + 0xf) & ~0xf;
         h =   LE16TOH(slist[5]) & 0x1ff;
         darea = &agpu->draw_areas[agpu->pos_area];
@@ -288,39 +297,44 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
           add_draw_area(agpu, pos_added, 1, x, y, x + w, y + h);
           add_draw_area_e(agpu, pos_added + 1, 1, gpu->ex_regs);
         }
-        gput_sum(cyc_sum, cyc, gput_fill(w, h));
         break;
       case 0x1f: // irq?
         goto breakloop;
-      case 0x20 ... 0x23: gput_sum(cyc_sum, cyc, gput_poly_base());    break;
-      case 0x24 ... 0x27: gput_sum(cyc_sum, cyc, gput_poly_base_t());  goto do_texpage;
-      case 0x28 ... 0x2b: gput_sum(cyc_sum, cyc, gput_quad_base());    break;
-      case 0x2c ... 0x2f: gput_sum(cyc_sum, cyc, gput_quad_base_t());  goto do_texpage;
-      case 0x30 ... 0x33: gput_sum(cyc_sum, cyc, gput_poly_base_g());  break;
-      case 0x34 ... 0x37: gput_sum(cyc_sum, cyc, gput_poly_base_gt()); goto do_texpage;
-      case 0x38 ... 0x3b: gput_sum(cyc_sum, cyc, gput_quad_base_g());  break;
-      case 0x3c ... 0x3f: gput_sum(cyc_sum, cyc, gput_quad_base_gt());
-      do_texpage:
+      case 0x20 ... 0x23:
+      case 0x28 ... 0x2b:
+      case 0x30 ... 0x33:
+      case 0x38 ... 0x3b:
+        break;
+      case 0x24 ... 0x27:
+      case 0x2c ... 0x2f:
+      case 0x34 ... 0x37:
+      case 0x3c ... 0x3f:
 #ifdef PCSX_SYSTEM12
-        if (gpu_get_model() == 1) {
-          uint32_t tpage = LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16;
-          gpu->ex_regs[1] = (gpu->ex_regs[1] & ~0x3fffu) | (tpage & 0x3fffu);
-          gpu->type1_status = (gpu->type1_status & ~0x1fffu) | (tpage & 0x1fffu);
-        }
-        else
-#endif
+        // Keep the texture page bits the renderer keeps (psx_gpu_if.c), as
+        // the direct and frameskip paths do; 0x1ff would drop VRAM y >= 512.
         {
+          uint32_t tpage = LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16;
+          if (gpu_get_model() == 1) {
+            gpu->ex_regs[1] = (gpu->ex_regs[1] & ~0x3fffu) | (tpage & 0x3fffu);
+            gpu->type1_status = (gpu->type1_status & ~0x1fffu) | (tpage & 0x1fffu);
+          }
+          else {
+            gpu->ex_regs[1] &= ~0x1fff;
+            gpu->ex_regs[1] |= tpage & 0x1fff;
+          }
+        }
+#else
         gpu->ex_regs[1] &= ~0x1ff;
         gpu->ex_regs[1] |= (LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16) & 0x1ff;
-        }
+#endif
         break;
       case 0x40 ... 0x47:
-        gput_sum(cyc_sum, cyc, gput_line(0));
-        break;
+      case 0x50 ... 0x57:
+      case 0x60 ... 0x7f:
+        break;  // timing above; drawn by the thread
       case 0x48 ... 0x4F:
         for (num_vertexes = 2; ; num_vertexes++)
         {
-          gput_sum(cyc_sum, cyc, gput_line(0));
           if (pos + num_vertexes + 1 >= list_len) {
             cmd = -1;
             goto breakloop;
@@ -328,15 +342,14 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
           if ((list[num_vertexes + 1] & LE32TOH(0xf000f000)) == LE32TOH(0x50005000))
             break;
         }
+        // Counted once complete, as the direct path does.
+        for (w = 1; w < num_vertexes; w++)
+          gput_sum(cyc_sum, cyc, gput_line(0));
         len += (num_vertexes - 2);
-        break;
-      case 0x50 ... 0x57:
-        gput_sum(cyc_sum, cyc, gput_line(0));
         break;
       case 0x58 ... 0x5f:
         for (num_vertexes = 2; ; num_vertexes++)
         {
-          gput_sum(cyc_sum, cyc, gput_line(0));
           if (pos + num_vertexes*2 >= list_len) {
             cmd = -1;
             goto breakloop;
@@ -344,23 +357,11 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
           if ((list[num_vertexes * 2] & LE32TOH(0xf000f000)) == LE32TOH(0x50005000))
             break;
         }
+        // Counted once complete, as the direct path does.
+        for (w = 1; w < num_vertexes; w++)
+          gput_sum(cyc_sum, cyc, gput_line(0));
         len += (num_vertexes - 2) * 2;
         break;
-      case 0x60 ... 0x63:
-        w = LE16TOH(slist[4]) & 0x3FF;
-        h = LE16TOH(slist[5]) & 0x1FF;
-        gput_sum(cyc_sum, cyc, gput_sprite(w, h));
-        break;
-      case 0x64 ... 0x67:
-        w = LE16TOH(slist[6]) & 0x3FF;
-        h = LE16TOH(slist[7]) & 0x1FF;
-        gput_sum(cyc_sum, cyc, gput_sprite(w, h));
-        break;
-      case 0x68 ... 0x6b: gput_sum(cyc_sum, cyc, gput_sprite(1, 1));   break;
-      case 0x70 ... 0x73:
-      case 0x74 ... 0x77: gput_sum(cyc_sum, cyc, gput_sprite(8, 8));   break;
-      case 0x78 ... 0x7b:
-      case 0x7C ... 0x7f: gput_sum(cyc_sum, cyc, gput_sprite(16, 16)); break;
       case 0x80 ... 0x9f: // vid -> vid
         rendered = do_vram_copy_pre(gpu, list, &cyc_tmp);
         gput_sum(cyc_sum, cyc, cyc_tmp);
@@ -369,9 +370,9 @@ int gpu_async_do_cmd_list(struct psx_gpu *gpu, const uint32_t *list_data, int li
           break;
         }
         x =   LE16TOH(slist[4]) & 0x3ff;
-        y =   LE16TOH(slist[5]) & 0x1ff;
+        y =   LE16TOH(slist[5]) & GPU_VRAM_Y_MASK;
         w = ((LE16TOH(slist[6]) - 1) & 0x3ff) + 1;
-        h = ((LE16TOH(slist[7]) - 1) & 0x1ff) + 1;
+        h = ((LE16TOH(slist[7]) - 1) & GPU_VRAM_Y_MASK) + 1;
         darea = &agpu->draw_areas[agpu->pos_area];
         if ((w > 2 || h > 1) &&
             (x < darea->x0 || x + w > darea->x1 || y < darea->y0 || y + h > darea->y1))
@@ -659,7 +660,7 @@ static int do_dma_write(struct psx_gpu *gpu,
       pos = 0;
     }
 
-    y &= 511;
+    y &= GPU_VRAM_Y_MASK;  // as the direct path: arcade VRAM has 1024 rows
     do_vram_line(vram, x, y, (uint16_t *)&agpu->cmd_buffer[pos], w, 0, r6);
     pos += stride;
     done += stride;
@@ -722,7 +723,7 @@ static int calc_scanout_wait(struct psx_gpu *gpu, int so_x0, int so_y0,
   if (agpu->idle)
     // unlikely but possible - do a full sync
     return -1;
-  if (so_x1 > 1024 || so_y1 > 512) {
+  if (so_x1 > 1024 || so_y1 > (int)GPU_VRAM_HEIGHT) {
     agpu_log(gpu, "agpu: wrap %d,%d %dx%d\n",
       so_x0, so_y0, so_x1 - so_x0, so_y1 - so_y0);
     return -1;

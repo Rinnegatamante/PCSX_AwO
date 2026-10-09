@@ -67,6 +67,17 @@ struct psx_gpu_screen {
   short src_x, src_y;
 };
 
+/* GP0 command timing shared by every renderer and by the threaded,
+ * frameskip and direct paths, so emulated timing never depends on how
+ * commands are drawn. It follows the gpu_neon cost model exactly: sprite
+ * sizes after its drawing-area clip, including its texture-page overlap
+ * test, with drawing area/offset updated by the same E3/E4/E5 rules. */
+struct gput_state {
+  int16_t x0, y0, x1, y1;       /* drawing area, as gpu_neon's viewport */
+  int32_t offset_x, offset_y;   /* drawing offset */
+  uint64_t area_mask;           /* texture pages the drawing area covers */
+};
+
 struct psx_gpu {
   uint32_t regs[16];
   uint16_t *vram;
@@ -134,9 +145,21 @@ struct psx_gpu {
   void *(*mmap)(unsigned int size);
   void  (*munmap)(void *ptr, unsigned int size);
   void  (*gpu_state_change)(int what, int cycles); // psx_gpu_state
+  struct gput_state timing;
 };
 
 extern struct psx_gpu gpu;
+
+void gput_reset(struct gput_state *t);
+void gput_ecmd(struct gput_state *t, uint32_t word);
+void gput_sync(struct gput_state *t, const uint32_t *ex_regs);
+/* Cost of one complete drawing command 0x02..0x7f (polylines excluded:
+ * callers add gput_line(0) per segment), via gput_sum(). */
+void gput_cmd(const struct gput_state *t, const uint32_t *list, int cmd,
+    int *cyc_sum, int *cyc);
+/* Timing of `count` words of complete commands already consumed. */
+void gput_scan(struct gput_state *t, const uint32_t *list, int count,
+    int *cyc_sum, int *cyc);
 
 extern const unsigned char cmd_lengths[256];
 

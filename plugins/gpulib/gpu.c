@@ -92,6 +92,7 @@ static void sync_renderer(struct psx_gpu *gpu)
 
 static void sync_renderer_ecmds(struct psx_gpu *gpu)
 {
+  gput_sync(&gpu->timing, gpu->ex_regs);
   if (gpu_async_enabled(gpu))
     gpu_async_sync_ecmds(gpu);
   else
@@ -165,6 +166,7 @@ static noinline void do_reset(struct psx_gpu *gpu)
   gpu->screen.x = gpu->screen.y = 0;
   gpu->screen.x1 = 0x200, gpu->screen.x2 = 0x200+256*10;
   gpu->screen.y1 = 0x010, gpu->screen.y2 = 0x010+240;
+  gput_sync(&gpu->timing, gpu->ex_regs);
   renderer_sync_ecmds(gpu->ex_regs);
   renderer_notify_screen_change(&gpu->screen);
   gpu_async_sync_ecmds(gpu);
@@ -420,6 +422,7 @@ long GPUinit(void)
   int ret;
   ret  = vout_init();
   ret |= renderer_init();
+  gput_reset(&gpu.timing);
 
   memset(&gpu.state, 0, sizeof(gpu.state));
   memset(&gpu.frameskip, 0, sizeof(gpu.frameskip));
@@ -777,6 +780,177 @@ int do_vram_copy(uint16_t *vram, const uint32_t *ex_regs, const uint32_t *params
   return 4;
 }
 
+#define gput_se11(v) (((int32_t)((uint32_t)(v) << 21)) >> 21)
+
+/* gpu_neon texture_region_mask(): 64x256 pages, 16 columns, 4 rows. */
+static uint64_t gput_region_mask(int32_t x1, int32_t y1, int32_t x2, int32_t y2)
+{
+  int32_t x_first = x1 >> 6, x_last = x2 >> 6;
+  int32_t y_first = y1 >> 8, y_last = y2 >> 8;
+  uint64_t x_mask, mask = 0;
+  int32_t row;
+  if (x_first < 0) x_first = 0;
+  if (x_first > 15) x_first = 15;
+  if (x_last < 0) x_last = 0;
+  if (x_last > 15) x_last = 15;
+  if (y_first < 0) y_first = 0;
+  if (y_first > 3) y_first = 3;
+  if (y_last < 0) y_last = 0;
+  if (y_last > 3) y_last = 3;
+  if (x_last < x_first)
+    x_mask = (0xffffULL << x_first) | ((1ULL << (x_last + 1)) - 1);
+  else
+    x_mask = ((1ULL << (x_last + 1)) - 1) & (0xffffULL << x_first);
+  if (y_last < y_first) {
+    for (row = y_first; row < 4; ++row)
+      mask |= x_mask << (row * 16);
+    for (row = 0; row <= y_last; ++row)
+      mask |= x_mask << (row * 16);
+  } else {
+    for (row = y_first; row <= y_last; ++row)
+      mask |= x_mask << (row * 16);
+  }
+  return mask;
+}
+
+/* gpu_neon's initial state: area (0,0)-(0,0) without a page mask. */
+void gput_reset(struct gput_state *t)
+{
+  memset(t, 0, sizeof(*t));
+}
+
+/* E3/E4 update the area (and its page mask) only when the decoded corner
+ * changes, E5 always sets the offset: gpu_neon gpu_parse() rules. */
+void gput_ecmd(struct gput_state *t, uint32_t word)
+{
+  int yshift = gpu_get_model() == 1 ? 12 : 10;
+  int16_t x = word & 0x3ff, y = (word >> yshift) & GPU_VRAM_Y_MASK;
+  switch (word >> 24) {
+    case 0xe3:
+      if (x == t->x0 && y == t->y0)
+        return;
+      t->x0 = x; t->y0 = y;
+      t->area_mask = gput_region_mask(t->x0, t->y0, t->x1, t->y1);
+      break;
+    case 0xe4:
+      if (x == t->x1 && y == t->y1)
+        return;
+      t->x1 = x; t->y1 = y;
+      t->area_mask = gput_region_mask(t->x0, t->y0, t->x1, t->y1);
+      break;
+    case 0xe5:
+      t->offset_x = gput_se11(word);
+      t->offset_y = gput_se11(word >> (gpu_get_model() == 1 ? 12 : 11));
+      break;
+  }
+}
+
+/* renderer_sync_ecmds(): E1..E6 replayed in order. */
+void gput_sync(struct gput_state *t, const uint32_t *ex_regs)
+{
+  gput_ecmd(t, ex_regs[3]);
+  gput_ecmd(t, ex_regs[4]);
+  gput_ecmd(t, ex_regs[5]);
+}
+
+/* gpu_neon render_sprite() size after its clip to the drawing area. */
+static int gput_clipped_sprite(const struct gput_state *t, int32_t x, int32_t y,
+    int32_t w, int32_t h)
+{
+  int32_t x_right = x + w - 1, y_bottom = y + h - 1;
+  if (!(gput_region_mask(x, y, x_right, y_bottom) & t->area_mask))
+    return gput_sprite(0, 0);
+  if (x < t->x0) w -= t->x0 - x;
+  if (y < t->y0) h -= t->y0 - y;
+  if (x_right > t->x1) w -= x_right - t->x1;
+  if (y_bottom > t->y1) h -= y_bottom - t->y1;
+  if (w <= 0 || h <= 0)
+    return gput_sprite(0, 0);
+  return gput_sprite(w, h);
+}
+
+void gput_cmd(const struct gput_state *t, const uint32_t *list, int cmd,
+    int *cyc_sum, int *cyc)
+{
+  const int16_t *slist = (const void *)list;
+  int32_t x, y, w, h;
+  int c;
+
+  switch (cmd) {
+    case 0x02:
+      c = gput_fill(LE16TOH(slist[4]) & 0x3ff, LE16TOH(slist[5]) & 0x1ff);
+      break;
+    case 0x20 ... 0x23: c = gput_poly_base();    break;
+    case 0x24 ... 0x27: c = gput_poly_base_t();  break;
+    case 0x28 ... 0x2b: c = gput_quad_base();    break;
+    case 0x2c ... 0x2f: c = gput_quad_base_t();  break;
+    case 0x30 ... 0x33: c = gput_poly_base_g();  break;
+    case 0x34 ... 0x37: c = gput_poly_base_gt(); break;
+    case 0x38 ... 0x3b: c = gput_quad_base_g();  break;
+    case 0x3c ... 0x3f: c = gput_quad_base_gt(); break;
+    case 0x40 ... 0x47:
+    case 0x50 ... 0x57: c = gput_line(0);        break;
+    case 0x60 ... 0x63:
+    case 0x70 ... 0x73:
+    case 0x78 ... 0x7b:
+      x = gput_se11((int16_t)LE16TOH(slist[2]) + t->offset_x);
+      y = gput_se11((int16_t)LE16TOH(slist[3]) + t->offset_y);
+      w = cmd < 0x70 ? (LE16TOH(slist[4]) & 0x3ff) : cmd < 0x78 ? 8 : 16;
+      h = cmd < 0x70 ? (LE16TOH(slist[5]) & 0x1ff) : cmd < 0x78 ? 8 : 16;
+      c = gput_clipped_sprite(t, x, y, w, h);
+      break;
+    case 0x64 ... 0x67:
+    case 0x74 ... 0x77:
+    case 0x7c ... 0x7f:
+      x = gput_se11(LE32TOH(list[1]) + t->offset_x);
+      y = gput_se11((LE32TOH(list[1]) >> 16) + t->offset_y);
+      w = cmd < 0x70 ? (LE32TOH(list[3]) & 0x3ff) : cmd < 0x78 ? 8 : 16;
+      h = cmd < 0x70 ? ((LE32TOH(list[3]) >> 16) & GPU_VRAM_Y_MASK) : cmd < 0x78 ? 8 : 16;
+      c = gput_clipped_sprite(t, x, y, w, h);
+      break;
+    case 0x68 ... 0x6b: c = gput_sprite(1, 1);   break;
+    default:
+      return;
+  }
+  gput_sum(*cyc_sum, *cyc, c);
+}
+
+void gput_scan(struct gput_state *t, const uint32_t *list, int count,
+    int *cyc_sum, int *cyc)
+{
+  int pos, len, n;
+  for (pos = 0; pos < count; pos += len) {
+    int cmd = LE32TOH(list[pos]) >> 24;
+    len = 1 + cmd_lengths[cmd];
+    switch (cmd) {
+      case 0x48 ... 0x4f:  /* polyline: one segment per vertex pair */
+        for (n = 2; ; n++) {
+          gput_sum(*cyc_sum, *cyc, gput_line(0));
+          if (pos + n + 1 >= count ||
+              (LE32TOH(list[pos + n + 1]) & 0xf000f000) == 0x50005000)
+            break;
+        }
+        len += n - 2;
+        break;
+      case 0x58 ... 0x5f:
+        for (n = 2; ; n++) {
+          gput_sum(*cyc_sum, *cyc, gput_line(0));
+          if (pos + n * 2 >= count ||
+              (LE32TOH(list[pos + n * 2]) & 0xf000f000) == 0x50005000)
+            break;
+        }
+        len += (n - 2) * 2;
+        break;
+      case 0xe3 ... 0xe5:
+        gput_ecmd(t, LE32TOH(list[pos]));
+        break;
+      default:
+        gput_cmd(t, list + pos, cmd, cyc_sum, cyc);
+        break;
+    }
+  }
+}
+
 static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int list_len,
     int *cpu_cycles_sum_out, int *cpu_cycles_last, int *last_cmd)
 {
@@ -799,6 +973,11 @@ static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int li
       break; // incomplete cmd
     }
 
+    if ((cmd & 0xf8) != 0x48 && (cmd & 0xf8) != 0x58)
+      gput_cmd(&gpu->timing, list, cmd, (int *)&cyc_sum, (int *)&cyc);
+    if (cmd >= 0xe3 && cmd <= 0xe5)
+      gput_ecmd(&gpu->timing, LE32TOH(list[0]));
+
     switch (cmd) {
       case 0x02:
         w = ((LE16TOH(slist[4]) & 0x3ff) + 0xf) & ~0xf;
@@ -813,19 +992,18 @@ static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int li
         }
         else
           memcpy(gpu->frameskip.pending_fill, list, 3 * 4);
-        gput_sum(cyc_sum, cyc, gput_fill(w, h));
         break;
       case 0x1f: // irq?
         goto breakloop;
-      case 0x20 ... 0x23: gput_sum(cyc_sum, cyc, gput_poly_base());    break;
-      case 0x24 ... 0x27: gput_sum(cyc_sum, cyc, gput_poly_base_t());  goto do_texpage;
-      case 0x28 ... 0x2b: gput_sum(cyc_sum, cyc, gput_quad_base());    break;
-      case 0x2c ... 0x2f: gput_sum(cyc_sum, cyc, gput_quad_base_t());  goto do_texpage;
-      case 0x30 ... 0x33: gput_sum(cyc_sum, cyc, gput_poly_base_g());  break;
-      case 0x34 ... 0x37: gput_sum(cyc_sum, cyc, gput_poly_base_gt()); goto do_texpage;
-      case 0x38 ... 0x3b: gput_sum(cyc_sum, cyc, gput_quad_base_g());  break;
-      case 0x3c ... 0x3f: gput_sum(cyc_sum, cyc, gput_quad_base_gt());
-      do_texpage:
+      case 0x20 ... 0x23:
+      case 0x28 ... 0x2b:
+      case 0x30 ... 0x33:
+      case 0x38 ... 0x3b:
+        break;
+      case 0x24 ... 0x27:
+      case 0x2c ... 0x2f:
+      case 0x34 ... 0x37:
+      case 0x3c ... 0x3f:
 #ifdef PCSX_SYSTEM12
         {
           uint32_t tpage = (LE32TOH(list[4 + ((cmd >> 4) & 1)]) >> 16);
@@ -844,13 +1022,9 @@ static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int li
 #endif
         gpu->frameskip.ecmds_dirty_renderer = 1;
         break;
-      case 0x40 ... 0x47:
-        gput_sum(cyc_sum, cyc, gput_line(0));
-        break;
       case 0x48 ... 0x4F:
         for (num_vertexes = 2; ; num_vertexes++)
         {
-          gput_sum(cyc_sum, cyc, gput_line(0));
           if (pos + num_vertexes + 1 >= list_len) {
             cmd = -1;
             goto breakloop;
@@ -858,15 +1032,14 @@ static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int li
           if ((list[num_vertexes + 1] & LE32TOH(0xf000f000)) == LE32TOH(0x50005000))
             break;
         }
+        // Counted once complete, as the direct path does.
+        for (w = 1; w < num_vertexes; w++)
+          gput_sum(cyc_sum, cyc, gput_line(0));
         len += (num_vertexes - 2);
-        break;
-      case 0x50 ... 0x57:
-        gput_sum(cyc_sum, cyc, gput_line(0));
         break;
       case 0x58 ... 0x5f:
         for (num_vertexes = 2; ; num_vertexes++)
         {
-          gput_sum(cyc_sum, cyc, gput_line(0));
           if (pos + num_vertexes*2 >= list_len) {
             cmd = -1;
             goto breakloop;
@@ -874,23 +1047,11 @@ static noinline int do_cmd_list_skip(struct psx_gpu *gpu, uint32_t *data, int li
           if ((list[num_vertexes * 2] & LE32TOH(0xf000f000)) == LE32TOH(0x50005000))
             break;
         }
+        // Counted once complete, as the direct path does.
+        for (w = 1; w < num_vertexes; w++)
+          gput_sum(cyc_sum, cyc, gput_line(0));
         len += (num_vertexes - 2) * 2;
         break;
-      case 0x60 ... 0x63:
-        w = LE16TOH(slist[4]) & 0x3FF;
-        h = LE16TOH(slist[5]) & GPU_VRAM_Y_MASK;
-        gput_sum(cyc_sum, cyc, gput_sprite(w, h));
-        break;
-      case 0x64 ... 0x67:
-        w = LE16TOH(slist[6]) & 0x3FF;
-        h = LE16TOH(slist[7]) & GPU_VRAM_Y_MASK;
-        gput_sum(cyc_sum, cyc, gput_sprite(w, h));
-        break;
-      case 0x68 ... 0x6b: gput_sum(cyc_sum, cyc, gput_sprite(1, 1));   break;
-      case 0x70 ... 0x73:
-      case 0x74 ... 0x77: gput_sum(cyc_sum, cyc, gput_sprite(8, 8));   break;
-      case 0x78 ... 0x7b:
-      case 0x7C ... 0x7f: gput_sum(cyc_sum, cyc, gput_sprite(16, 16)); break;
       case 0x80 ... 0x9f: // vid -> vid
         w = ((LE16TOH(slist[6]) - 1) & 0x3ff) + 1;
         h = ((LE16TOH(slist[7]) - 1) & GPU_VRAM_Y_MASK) + 1;
@@ -994,10 +1155,17 @@ static noinline int do_cmd_buffer(struct psx_gpu *gpu, uint32_t *data, int count
     else if (gpu_async_enabled(gpu)) {
       pos += gpu_async_do_cmd_list(gpu, data + pos, count - pos,
                cycles_sum, cycles_last, &cmd, &vram_dirty);
+      // Mark as the direct path does for any renderer list, so both
+      // modes present at the same vblanks.
+      vram_dirty = 1;
     }
     else {
-      pos += renderer_do_cmd_list(data + pos, count - pos, gpu->ex_regs,
-               cycles_sum, cycles_last, &cmd);
+      int dummy_sum = 0, dummy_last = 0;
+      int done = renderer_do_cmd_list(data + pos, count - pos, gpu->ex_regs,
+               &dummy_sum, &dummy_last, &cmd);
+      // Timing does not come from the renderer: see struct gput_state.
+      gput_scan(&gpu->timing, data + pos, done, cycles_sum, cycles_last);
+      pos += done;
       vram_dirty = 1;
     }
 
@@ -1209,6 +1377,7 @@ long GPUfreeze(uint32_t type, GPUFreeze_t *freeze, uint16_t **vram_ptr)
       gpu.cmd_len = 0;
       for (i = 8; i > 1; i--)
         GPUwriteStatus((i << 24) | freeze->ulControl[i]);
+      gput_sync(&gpu.timing, gpu.ex_regs);
       renderer_sync_ecmds(gpu.ex_regs);
       renderer_update_caches(0, 0, 1024, gpu_vram_height, 0);
       gpu_async_sync_ecmds(&gpu);
