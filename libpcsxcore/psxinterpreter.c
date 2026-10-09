@@ -47,6 +47,12 @@
 static void (INT_ATTR *psxBSC[64])(psxRegisters *regs_, u32 code);
 static void (INT_ATTR *psxSPC[64])(psxRegisters *regs_, u32 code);
 
+// pending branch of intExecuteSourceStep(); outside psxRegisters' layout
+static struct {
+	u8 branching;	/* R3000A_BRANCH_TAKEN/NOT_TAKEN for the next (delay slot) step */
+	u32 target;
+} srcStep;
+
 // load delay
 static void doLoad(psxRegisters *regs, u32 r, u32 val)
 {
@@ -1181,6 +1187,7 @@ static int intInit() {
 static void intReset() {
 	dloadClear(&psxRegs);
 	psxRegs.subCycle = 0;
+	srcStep.branching = 0;
 }
 
 static inline void execI_(
@@ -1252,6 +1259,92 @@ static void intExecuteBlockBp(psxRegisters *regs, enum blockExecCaller caller) {
 		execIbp(fetch, memRLUT, regs);
 }
 
+/*
+ * Source-compatible single instruction step (MAME psxcpu_device model).
+ * Exactly one instruction runs per call, including a branch and its delay
+ * slot, which execute in separate calls. Memory accesses observe the cycle at
+ * instruction start; the cost of one instruction is charged afterwards.
+ * The caller selects non-stalling MULT/DIV/GTE handlers (Config.DisableStalls),
+ * as the MAME source charges no latency for them.
+ * Pending branch state is kept here so psxRegisters' asm/savestate layout is
+ * unchanged; it is cleared on reset and state load.
+ */
+static int srcStepBranch(psxRegisters *regs_, u32 code, u32 base, u32 *tar)
+{
+	u32 rs = _rRs_;
+
+	switch (code >> 26) {
+	case 0x00: // JR, JALR
+		*tar = rs;
+		if (_Funct_ == 0x09)
+			dloadRt(regs_, _Rd_, base + 4);
+		return 1;
+	case 0x01: // REGIMM
+		if ((_Rt_ & 0x1e) == 0x10)
+			dloadRt(regs_, 31, base + 4);
+		*tar = base + _Imm_ * 4;
+		return (_Rt_ & 1) ? (s32)rs >= 0 : (s32)rs < 0;
+	case 0x03: // JAL
+		dloadRt(regs_, 31, base + 4);
+		// fallthrough
+	case 0x02: // J
+		*tar = (base & 0xf0000000u) + _Target_ * 4;
+		return 1;
+	}
+	*tar = base + _Imm_ * 4;
+	switch (code >> 26) {
+	case 0x04: return rs == _rRt_;
+	case 0x05: return rs != _rRt_;
+	case 0x06: return (s32)rs <= 0;
+	default:   return (s32)rs > 0;
+	}
+}
+
+void intExecuteSourceStep(psxRegisters *regs) {
+	u32 pc = regs->pc, base, tar, code;
+	int slot = srcStep.branching;
+	u32 slot_target = srcStep.target;
+
+	srcStep.branching = 0;
+	regs->branchSeen = 0;
+	if (unlikely(pc & 3)) {
+		// MAME faults at fetch of the misaligned target, EPC = that address
+		regs->CP0.n.BadVAddr = pc;
+		regs->branching = 0;
+		intException(regs, pc, R3000E_AdEL << 2);
+		addCycle(regs);
+		return;
+	}
+	dloadStep(regs);
+	regs->pc = pc + 4;
+	regs->code = code = regs->ptrs.intFetch(regs, regs->ptrs.memRLUT, pc);
+	regs->branching = slot;
+
+	if (isBranch(code)) {
+		// A branch in a taken delay slot is relative to the outer target
+		base = slot == R3000A_BRANCH_TAKEN ? slot_target : pc + 4;
+		srcStep.branching = srcStepBranch(regs, code, base, &tar)
+			? R3000A_BRANCH_TAKEN : R3000A_BRANCH_NOT_TAKEN;
+		srcStep.target = tar;	// a misaligned JR target faults at its fetch
+		regs->pc = base;
+		regs->branchSeen = 1;
+		regs->branching = 0;
+		addCycle(regs);
+		return;
+	}
+
+	psxBSC[code >> 26](regs, code);
+	if (slot) {
+		if (regs->branching != R3000A_BRANCH_NONE_OR_EXCEPTION)
+			regs->pc = slot == R3000A_BRANCH_TAKEN ? slot_target : pc + 4;
+		else
+			regs->CP0.n.Target = slot == R3000A_BRANCH_TAKEN ? slot_target : pc + 4;
+	}
+	regs->branching = 0;
+	addCycle(regs);
+	psxBranchTest(regs);
+}
+
 static void intClear(u32 Addr, u32 Size) {
 }
 
@@ -1278,6 +1371,7 @@ static void intNotify(enum R3000Anote note, void *data) {
 	case R3000ACPU_NOTIFY_AFTER_LOAD_STATE:
 		dloadClear(&psxRegs);
 		psxRegs.subCycle = 0;
+		srcStep.branching = 0;
 		setupCop(psxRegs.CP0.n.SR);
 		// fallthrough
 	case R3000ACPU_NOTIFY_CACHE_ISOLATED: // Armored Core?

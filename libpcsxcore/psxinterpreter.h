@@ -9,6 +9,8 @@ u32 intFakeFetch(u32 pc);
 
 // called by "new_dynarec"
 void execI(struct psxRegisters *regs);
+// one source-model instruction; a branch and its delay slot are separate steps
+void intExecuteSourceStep(struct psxRegisters *regs);
 void intApplyConfig();
 void MTC0(struct psxRegisters *regs, int reg, u32 val);
 
