@@ -1353,3 +1353,48 @@ The ARMv7 GTE (`gte_arm`/`gte_neon`) and the ARMv7 inline readers did not
 cause differences in this replay. The per-frame hash comparison with
 `build_armv7_core.sh` is the check to repeat after ARM32 DRC or assembly
 changes.
+
+## Audio against MAME 0.287, and limits of MAME as reference (2026-10-09)
+
+First whole-game audio comparison. MAME 0.287 (`soulclbrac`, empty NVRAM,
+`-samplerate 88200 -wavwrite`) and the libretro core recorded the first
+1,800 frames (30.09 s) without input.
+
+| Result | Value |
+| --- | --- |
+| Before the fix | identical up to 0.507 s, then clicks of 1-3 samples (L/R off by 3008/3136) |
+| C352 interpolation fix | identical up to 1.781 s; left channel identical up to 20 s |
+| Right channel after 1.78 s | 49,000 samples differ by 1-3 (inaudible) |
+| C352 register writes in 400 frames | 10,376 in both, same order and data; MAME often writes 228-240 H8 cycles later |
+
+The fix: MAME interpolates with a `u32` counter product stored in `s16`; the
+port used a signed product that overflows for large steps and kept 32 bits,
+so samples moved by 65,536 times the volume. In the 200 s replay, audio
+changed in 177 seconds and the peak fell from 5398 to 4089. The video is
+unchanged.
+
+The remaining differences come from game and H8 timing, not the C352:
+the right-channel 1-3 LSB differences follow the later register writes, and
+from about 20 s the streams differ because MAME's first-boot sequence is
+about 200-400 frames shorter ("FIRST POWER ON" at frame 600 in MAME, about
+800 here and longer; see `boot-mame-vs-ours.png`). That backup-memory
+initialisation timing (EEPROM/RTC) is open.
+
+MAME is not a reliable reference for two System 12 timings:
+
+- Root counter 1 in hblank mode divides by a fixed 2150 CPU cycles
+  (`psx/rcnt.cpp`), the console line period. At 50 MHz, System 12 lines
+  last about 3178 cycles (15.73 kHz from the GPU), so MAME counts lines 1.48
+  times too fast. This is the same fault as the ARMv7 assembly reader fixed
+  above, and it explains MAME's round clock (+6.8 s per 300 frames against
+  +5.0 s here and in real time).
+- The C352 rate, 25.4016 MHz / 288 = 88.2 kHz, is copied from System 11.
+  There, MAME notes that it matches the pitch of a real Tekken PCB although
+  the measured C352 clock is 20.0132 MHz. MAME's own System 12 hardware notes
+  give a 29.168 MHz C352 clock. The System 12 output rate, and therefore
+  pitch, is unverified.
+
+The C352 implementation itself (superctr, also used by libvgm) is the best
+available model and now matches bit for bit where the game streams agree. A
+direct-feed recording of a real System 12 PCB is the only better reference
+for pitch and boot timing. Evidence: `artifacts/validation/c352-mame-20261009/`.
