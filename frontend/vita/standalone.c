@@ -14,9 +14,11 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 
+#include <arm_neon.h>
 #include <SDL3/SDL.h>
 #include <libretro.h>
 #include "validation.h"
@@ -95,6 +97,27 @@ int getVMBlock(void)
     return g_vm_block;
 }
 
+/* On hardware there is no attached console: the log also goes to
+ * APP_ROOT/log.txt, so a run launched remotely can be read back by FTP. */
+static SceUID g_log_fd = -1;
+
+static void log_text(const char *text)
+{
+    sceClibPrintf("%s", text);
+    if (g_log_fd >= 0)
+        sceIoWrite(g_log_fd, text, strlen(text));
+}
+
+static void vita_logf(const char *fmt, ...)
+{
+    char buf[768];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    log_text(buf);
+}
+
 static void vita_log(enum retro_log_level level, const char *fmt, ...)
 {
     char buf[768];
@@ -104,15 +127,20 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    sceClibPrintf("%s", buf);
+    log_text(buf);
 }
+/* Every later message of this file goes through the same log. */
+#define sceClibPrintf vita_logf
 
 static bool g_gpu_thread;
+static bool g_board_thread;
 
 static const char *option_value(const char *key)
 {
     if (strcmp(key, "pcsx_rearmed_gpu_thread_rendering") == 0)
         return g_gpu_thread ? "enabled" : "disabled";
+    if (strcmp(key, "pcsx_rearmed_system12_board_thread") == 0)
+        return g_board_thread ? "enabled" : "disabled";
     static const struct {
         const char *key;
         const char *value;
@@ -207,6 +235,32 @@ static uint32_t rgb565_to_abgr8888(uint16_t p)
     return 0xff000000u | (b << 16) | (g << 8) | r;
 }
 
+/* Presentation works per source row: each one is converted once (NEON, into
+ * cached memory) and scaled horizontally, then copied to the 2-3 display rows
+ * that show it. Same pixels as converting every display pixel, which cost
+ * 17 ms per frame on hardware. */
+static uint32_t g_row_abgr[1024];
+static uint32_t g_row_scaled[GAME_W];
+
+static void convert_row(const uint16_t *src, unsigned width)
+{
+    unsigned x = 0;
+    for (; x + 8 <= width; x += 8) {
+        uint16x8_t p = vld1q_u16(src + x);
+        uint8x8_t r5 = vmovn_u16(vshrq_n_u16(p, 11));
+        uint8x8_t g6 = vmovn_u16(vandq_u16(vshrq_n_u16(p, 5), vdupq_n_u16(63)));
+        uint8x8_t b5 = vmovn_u16(vandq_u16(p, vdupq_n_u16(31)));
+        uint8x8x4_t out;
+        out.val[0] = vorr_u8(vshl_n_u8(r5, 3), vshr_n_u8(r5, 2));
+        out.val[1] = vorr_u8(vshl_n_u8(g6, 2), vshr_n_u8(g6, 4));
+        out.val[2] = vorr_u8(vshl_n_u8(b5, 3), vshr_n_u8(b5, 2));
+        out.val[3] = vdup_n_u8(0xff);
+        vst4_u8((uint8_t *)(g_row_abgr + x), out);
+    }
+    for (; x < width; x++)
+        g_row_abgr[x] = rgb565_to_abgr8888(src[x]);
+}
+
 static void rebuild_scale_map(unsigned width, unsigned height)
 {
     int x, y;
@@ -268,11 +322,18 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     back = g_front ^ 1;
     dst = g_fb[back];
 
-    for (y = 0; y < DISPLAY_H; y++) {
-        const uint16_t *src = (const uint16_t *)((const uint8_t *)data + (size_t)g_ymap[y] * pitch);
-        uint32_t *out = dst + y * DISPLAY_PITCH + GAME_X;
-        for (x = 0; x < GAME_W; x++)
-            out[x] = rgb565_to_abgr8888(src[g_xmap[x]]);
+    {
+        int source_row = -1;
+        for (y = 0; y < DISPLAY_H; y++) {
+            if (g_ymap[y] != source_row) {
+                source_row = g_ymap[y];
+                convert_row((const uint16_t *)((const uint8_t *)data +
+                    (size_t)source_row * pitch), width > 1024 ? 1024 : width);
+                for (x = 0; x < GAME_W; x++)
+                    g_row_scaled[x] = g_row_abgr[g_xmap[x]];
+            }
+            memcpy(dst + y * DISPLAY_PITCH + GAME_X, g_row_scaled, sizeof(g_row_scaled));
+        }
     }
 
     pcsx_profile_end(PCSX_PROF_PRESENT_COPY, copy_started);
@@ -793,6 +854,36 @@ static void make_dirs(void)
     sceIoMkdir(SAVE_DIR, 0777);
 }
 
+/* Launched from the shell (e.g. by vitacompanion) the app has no arguments:
+ * read whitespace-separated ones from APP_ROOT/args.txt instead. */
+static char g_args_text[2048];
+static char *g_args_argv[64];
+
+static void load_args_file(int *argc, char ***argv)
+{
+    SceUID fd = sceIoOpen(APP_ROOT "/args.txt", SCE_O_RDONLY, 0);
+    int n, count = 0;
+    char *p;
+    if (fd < 0)
+        return;
+    n = sceIoRead(fd, g_args_text, sizeof(g_args_text) - 1);
+    sceIoClose(fd);
+    if (n <= 0)
+        return;
+    g_args_text[n] = '\0';
+    g_args_argv[count++] = *argc > 0 ? (*argv)[0] : "eboot.bin";
+    for (p = g_args_text; *p && count < (int)(sizeof(g_args_argv) / sizeof(g_args_argv[0])) - 1;) {
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (!*p) break;
+        g_args_argv[count++] = p;
+        while (*p && !isspace((unsigned char)*p)) p++;
+        if (*p) *p++ = '\0';
+    }
+    g_args_argv[count] = NULL;
+    *argc = count;
+    *argv = g_args_argv;
+}
+
 int main(int argc, char **argv)
 {
     struct retro_game_info game;
@@ -812,10 +903,22 @@ int main(int argc, char **argv)
     struct retro_system_av_info av;
 
     game_path[0] = '\0';
+    /* Main CPU on core 0; the GPU and board threads take cores 1 and 2. */
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_0);
+    make_dirs();
+    g_log_fd = sceIoOpen(APP_ROOT "/log.txt", SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+#ifdef PCSX_SYSTEM12_PROFILE
+    pcsx_profile_log = log_text;
+#endif
+    if (argc <= 1)
+        load_args_file(&argc, &argv);
+    for (ret = 1; ret < argc; ret++)
+        sceClibPrintf("pcsx-vita: arg[%d]=%s\n", ret, argv[ret]);
     for (ret = 1; ret < argc; ret++) {
         if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
+        if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
         if (!strcmp(argv[ret], "--verify-system12-vram-pattern")) {
             verify_system12_vram = true;
             verify_system12_vram_pattern = true;
@@ -1013,6 +1116,10 @@ int main(int argc, char **argv)
     sceClibPrintf("pcsx-vita: cpu_driver=%s\n", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter");
     while (!g_exit_requested && (!validation_frames || runs < validation_frames)) {
         retro_run(); ++runs;
+        /* Keep the console awake: no auto suspend or screen off while
+         * emulating (input from the replay never touches the system). */
+        if (runs % 60 == 0)
+            sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
 #ifdef ARCADE_SYSTEM12
         if (report_progress && (runs % 600 == 0 || runs == validation_frames))
             sceClibPrintf("pcsx-vita: system12-progress frames=%u/%u elapsed_ms=%llu inputs=%u/%u\n",

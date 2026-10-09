@@ -12,9 +12,6 @@ ifeq ($(VITA_GPU_THREAD),1)
 ifneq ($(VITA_GPU),neon)
 $(error VITA_GPU_THREAD=1 requires VITA_GPU=neon)
 endif
-ifeq ($(SYSTEM12_PROFILE),1)
-$(error VITA_GPU_THREAD=1 is incompatible with SYSTEM12_PROFILE=1)
-endif
 endif
 ifeq ($(VITA_GPU),neon)
 BUILTIN_VITA_GPU := neon
@@ -59,7 +56,7 @@ BUILD_DIR := build-vita/$(VITA_GPU)$(if $(filter 1,$(ARCADE_SYSTEM12)),-system12
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
 CORE_ARGS := platform=vita ARCADE_SYSTEM12=$(ARCADE_SYSTEM12) SYSTEM12_PROFILE=$(SYSTEM12_PROFILE) VITA_CTR_GPU_TRACE=$(VITA_CTR_GPU_TRACE) TARGET_NAME=$(CORE_NAME) BUILTIN_GPU=$(BUILTIN_VITA_GPU) GPU_NEON_USE_C=$(VITA_GPU_NEON_C) VITAGL_DIR=$(VITAGL_DIR) GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=$(VITA_GPU_THREAD) USE_ASYNC_SPU=0 \
-	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke pcsx_vita_read_system12_drc pcsx_vita_write_system12_report $(if $(filter 1,$(SYSTEM12_PROFILE)),pcsx_profile_begin pcsx_profile_end,)'
+	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke pcsx_vita_read_system12_drc pcsx_vita_write_system12_report $(if $(filter 1,$(SYSTEM12_PROFILE)),pcsx_profile_begin pcsx_profile_end pcsx_profile_log,)'
 
 .PHONY: all core clean vita-gl
 all: $(TARGET).vpk
