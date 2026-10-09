@@ -1113,3 +1113,90 @@ counts.
 ```sh
 python3 tests/check_system12_mailbox.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-mailbox.json --output native-mailbox.json --source-step
 ```
+
+## Real libretro core on macOS and exact H8/C352 work reductions (2026-10-09)
+
+Mac measurements now use the libretro core itself (`frontend/libretro.c`, the
+code the Vita runs) through `tools/libretro-host/s12_libretro_host.c`: a
+headless host with the Vita standalone core options and replay semantics, no
+display, vsync or audio pacing. `tools/libretro-host/build_mac_core.sh` builds
+the core in an isolated copy with ari64, GPU NEON, `SYSTEM12_PROFILE=1` and
+`NDRC_THREAD=0`, as on the Vita. With the DRC compiler thread enabled, two
+identical macOS runs already diverged by 300 frames; without it, runs are
+byte-identical. The Mac harness also gained `--frontend-loop` (whole
+`psxCpu->Execute` frames, board advanced only by core events); its default
+per-block board sync is not what libretro does and inflated measured sync cost.
+
+Workload: the audited 12,000-frame, 177-event gameplay replay on
+`artifacts/system12-profile` (Soul Calibur play, final frame "YOU LOSE!!").
+Apple M1 Pro, minimum of three runs, profiler scopes in microseconds:
+
+| | Baseline | After |
+| --- | ---: | ---: |
+| Total elapsed | 26.44 s | 12.79 s |
+| H8 | 19.35 s (73%) | 5.89 s |
+| C352 | 2.03 s | 1.87 s |
+| GPU lists (sampled) | 3.45 s | 3.42 s |
+
+The final PPM, 88.2 kHz WAV and full System12 report are byte-identical to the
+baseline, including H8 cycles 3,396,724,964 and instructions 593,033,367. The
+Mac harness per-block path (62.2 s to 53.2 s) also keeps its PPM and report.
+
+Changes, all exact:
+
+- **H8 idle-loop skip.** 442.6 M of 592.3 M H8 instructions were the two at
+  0x16ca/0x16d0: `mov.b @0x084050,r0l; bne` waiting for a shared-RAM flag the
+  H8 set itself. During one `h8_run_until` call the main CPU is stopped, so
+  only the H8 can change that byte. `h8_run_until` measures an iteration (two
+  equal consecutive deltas) and fast-forwards whole iterations strictly before
+  the next internal event and the deadline, with no IRQ pending, and below one
+  second of cycles so local attotime advances exactly as per-instruction ticks.
+  New optional `H8Config.peek8`/`account_reads` declare side-effect-free memory
+  and keep diagnostic read counts; System 12 supplies them for code ROM and
+  shared RAM, and disables them while H8 loads are traced.
+- **H8 per-instruction bookkeeping.** Timer16 keeps its earliest deadline
+  current on every `event_time` change; `update_irq_filter()` recomputes only
+  when pending requests, IER/ISR/ICR/SYSCR or CCR I/UI change;
+  `H8CycleClock::advance()` adds `cycles * period` for under one second
+  without the 64-bit division, which is a library call on the Cortex-A9.
+- **C352 idle voices.** Idle voices output zero and are skipped. Play averages
+  18.21 busy of 32 voices. VitaSDK `-O3 -mcpu=cortex-a9` code drops from 27
+  instructions (5 loads, 4 multiplies) to 7 per idle voice, about 24 M
+  instructions per emulated second; on the M1 the scope falls only 7%.
+
+Validation: `tests/h8_spin_skip.cpp` runs a spinning program with IRQ edges, ADC
+conversions and runs over one second, with and without the skip, and compares
+full CPU state, memory and read counts after each of 4,000 deadlines (also
+UBSan). The H8 suite, IRQ filter, deadline and sync-timer UBSan tests, C352 and
+C352 timing tests, all MAME gates above (source-step timing, steps, mailbox,
+RTC, audio, vblank) and 108 Python tests pass; default mailbox observations
+are unchanged.
+
+Vita3K functional run (`check_system12_gameplay_vita3k.py --gameplay-replay`,
+NEON VPK `73887bae…`): console smoke PASS, 12,000 frames, 177/177 events, no
+unmapped accesses or unsupported H8 instructions, gameplay screenshots. Guest
+elapsed 257.5 s (46.6 fps average; the 6,000-frame 2026-10-05 replay measured
+32.6 fps). Vita3K translates ARMv7 on the host, so neither figure predicts the
+Cortex-A9; a physical Vita measurement is still required.
+
+### Recorded option: H8 DRC
+
+After the skip, the H8 still executes 150 M instructions per 200 emulated
+seconds (0.75 M/s) at about 39 ns each on the M1: generated MAME states with
+per-bus-operation deadline checks, peripheral deadline checks and IRQ
+filtering on every instruction. No other loop dominates (the hottest remaining
+routines run ~64 times per frame). A DRC is the remaining large reduction for
+this CPU. Decide on it with a physical Vita profile: if the H8 scope stays
+above about a quarter of frame time once video pacing is excluded, a DRC that
+keeps `h8_run_until` deadlines, bus-operation checkpoints and IRQ boundaries
+is worth its cost; otherwise GPU and C352 come first.
+
+```sh
+tools/libretro-host/build_mac_core.sh build/mac-libretro
+build/mac-libretro/s12-libretro-host --core build/mac-libretro/src/pcsx_rearmed_libretro.dylib \
+  --system12 artifacts/system12-profile --frames 12000 --inputs replay-12000.csv \
+  --capture-ppm final.ppm --wav final.wav --report-system12 final.txt
+make -f tests/Makefile.h8 test spin-skip-ubsan-test
+```
+
+Evidence: ignored `artifacts/validation/system12-perf-20261009/`.
