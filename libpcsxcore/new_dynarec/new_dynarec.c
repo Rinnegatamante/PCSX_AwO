@@ -3406,15 +3406,6 @@ static u_int reglist_exclude(u_int reglist, int r1, int r2)
   return reglist;
 }
 
-// find a temp caller-saved register not in reglist (so assumed to be free)
-static int reglist_find_free(u_int reglist)
-{
-  u_int free_regs = ~reglist & CALLER_SAVE_REGS;
-  if (free_regs == 0)
-    return -1;
-  return __builtin_ctz(free_regs);
-}
-
 static void do_load_word(int a, int rt, int offset_reg)
 {
   if (offset_reg >= 0)
@@ -4121,11 +4112,26 @@ static void emit_log_gte_stall(int i, int stall, u_int reglist)
 }
 #endif
 
+// Wait until *busy_cycle if it is less than limit cycles away:
+// d = busy - (cc + adj); if (d < limit) cc += d.
+// Uses only HOST_TEMPREG, so the stall never depends on a free host
+// register and every backend counts the same cycles.
+static void emit_busy_stall(u_int *busy_cycle, int ccadj_, int limit)
+{
+  host_tempreg_acquire();
+  emit_readword(busy_cycle, HOST_TEMPREG);
+  emit_addimm(HOST_TEMPREG, -ccadj_, HOST_TEMPREG);
+  emit_sub(HOST_TEMPREG, HOST_CCREG, HOST_TEMPREG);
+  emit_cmpimm(HOST_TEMPREG, limit);
+  emit_cmovae_imm(0, HOST_TEMPREG);
+  emit_add(HOST_CCREG, HOST_TEMPREG, HOST_CCREG);
+  host_tempreg_release();
+}
+
 static void cop2_do_stall_check(struct compile_state *st, u_int op, int i,
   const struct regstat *i_regs, u_int reglist)
 {
   int j = i, cycles, other_gte_op_cycles = -1, stall = -MAXBLOCK, cycles_passed;
-  int rtmp = reglist_find_free(reglist);
 
   if (HACK_ENABLED(NDHACK_NO_STALLS))
     return;
@@ -4149,18 +4155,11 @@ static void cop2_do_stall_check(struct compile_state *st, u_int op, int i,
     stall = other_gte_op_cycles - cycles_passed;
   else if (cycles_passed >= 44)
     stall = 0; // can't possibly stall
-  if (stall == -MAXBLOCK && rtmp >= 0) {
+  if (stall == -MAXBLOCK) {
     // unknown stall, do the expensive runtime check
     assem_debug("; cop2_do_stall_check\n");
-    // busy - (cc + adj) -> busy - adj - cc
-    host_tempreg_acquire();
-    emit_readword(&psxRegs.gteBusyCycle, rtmp);
-    emit_addimm(rtmp, -cinfo[i].ccadj, rtmp);
-    emit_sub(rtmp, HOST_CCREG, HOST_TEMPREG);
-    emit_cmpimm(HOST_TEMPREG, 44);
-    emit_cmovb_reg(rtmp, HOST_CCREG);
+    emit_busy_stall(&psxRegs.gteBusyCycle, cinfo[i].ccadj, 44);
     //emit_log_gte_stall(i, 0, reglist);
-    host_tempreg_release();
   }
   else if (stall > 0) {
     //emit_log_gte_stall(i, stall, reglist);
@@ -4248,15 +4247,11 @@ static void multdiv_prepare_stall(struct compile_state *st, int i,
 static void multdiv_do_stall(int i, const struct regstat *i_regs)
 {
   int j, known_cycles = 0;
-  u_int reglist = get_host_reglist(i_regs->regmap);
-  int rtmp = get_reg_temp(i_regs->regmap);
-  if (rtmp < 0)
-    rtmp = reglist_find_free(reglist);
   if (HACK_ENABLED(NDHACK_NO_STALLS))
     return;
-  if (get_reg(i_regs->regmap, CCREG) != HOST_CCREG || rtmp < 0) {
+  if (get_reg(i_regs->regmap, CCREG) != HOST_CCREG) {
     // happens occasionally... cc evicted? Don't bother then
-    //printf("no cc/rtmp %08x\n", start + i*4);
+    //printf("no cc %08x\n", start + i*4);
     return;
   }
   if (!dops[i].bt) {
@@ -4280,14 +4275,7 @@ static void multdiv_do_stall(int i, const struct regstat *i_regs)
     return;
   }
   assem_debug("; muldiv stall unresolved\n");
-  host_tempreg_acquire();
-  emit_readword(&psxRegs.muldivBusyCycle, rtmp);
-  emit_addimm(rtmp, -cinfo[i].ccadj, rtmp);
-  emit_sub(rtmp, HOST_CCREG, HOST_TEMPREG);
-  emit_cmpimm(HOST_TEMPREG, 37);
-  emit_cmovb_reg(rtmp, HOST_CCREG);
-  //emit_log_gte_stall(i, 0, reglist);
-  host_tempreg_release();
+  emit_busy_stall(&psxRegs.muldivBusyCycle, cinfo[i].ccadj, 37);
 }
 
 static void cop2_get_dreg(u_int copr,signed char tl,signed char temp)
