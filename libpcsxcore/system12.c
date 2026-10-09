@@ -27,6 +27,11 @@
 #include "arcade/serial_nvram.h"
 #include "arcade/at28c16.h"
 #include <errno.h>
+#ifdef SYSTEM12_BOARD_THREAD
+#include <stdatomic.h>
+#include <retro_timers.h>
+#include "../frontend/pcsxr-threads.h"
+#endif
 
 #ifndef DRC_DISABLE
 #include "new_dynarec/new_dynarec.h"
@@ -79,6 +84,10 @@ static struct {
     int slice_open, slice_ran;
 } board;
 static void pcm_sync_h8(void);
+typedef struct board_cmd board_cmd;
+static void board_post(const board_cmd *c);
+static void board_drain(void);
+static void board_audio_out(const int16_t *stereo, unsigned frames);
 static system12_bus_trace_cb bus_trace_cb;
 static void *bus_trace_opaque;
 static system12_edge_trace_cb edge_trace_cb;
@@ -189,6 +198,7 @@ static int audio_write_samples(const int16_t *samples, unsigned frames)
 int system12_open_audio(const char *path)
 {
     FILE *f;
+    board_drain();
     if (!board.active || !path || board.audio_file) return -1;
     f = fopen(path, "wb+");
     if (!f) return -1;
@@ -206,8 +216,10 @@ int system12_open_audio(const char *path)
 
 int system12_close_audio(void)
 {
-    FILE *f = board.audio_file;
+    FILE *f;
     int failed;
+    board_drain();
+    f = board.audio_file;
     if (!f) return board.audio_error ? -1 : 0;
     failed = board.audio_error || board.audio_bytes > 0xffffffc3u;
     if (!failed && audio_write_header(f, (u32)board.audio_bytes)) failed = 1;
@@ -219,6 +231,8 @@ int system12_close_audio(void)
 
 void system12_set_audio_output(system12_audio_cb callback, void *opaque)
 {
+    board_drain();
+    system12_audio_pump();
     board.audio_cb = callback;
     board.audio_opaque = opaque;
 }
@@ -228,6 +242,7 @@ void system12_audio_test_fixture(void)
 {
     unsigned i;
     if (!board.active || !board.pcm) return;
+    board_drain();
     memset(board.wave, 0, 64);
     for (i = 0; i < 64; i++) board.wave[i] = 0x40;
     c352_reset(board.pcm);
@@ -238,22 +253,51 @@ void system12_audio_test_fixture(void)
     c352_write(board.pcm, 0x202, 0, 0xffff);  /* execute-key */
 }
 
+/* Board work posted by the main CPU, run in posting order either at once or
+ * on the board thread. The main CPU computes every target as before and only
+ * touches state that board work uses (shared RAM, reports, reset) after
+ * board_drain(). The H8 observes the main CPU only through shared RAM, the
+ * vblank line and inputs, all ordered here, so the thread changes when the
+ * work runs, never what it computes. */
+enum { BOARD_CMD_SYNC, BOARD_CMD_VBLANK, BOARD_CMD_INPUT };
+struct board_cmd {
+    u8 kind, run_h8, run_until, level;
+    u32 h8_cycles, rtc_seconds;
+    u64 h8_target, pcm_target;
+    u32 jvs_player[2], jvs_system;
+    u8 jvs_coin[2];
+};
+/* Inputs as set by the frontend; the board's copy follows in posting order. */
+static struct { u32 player[2], system; u8 coin[2]; } inputs;
+
+static void post_inputs(void)
+{
+    board_cmd c = {BOARD_CMD_INPUT};
+    c.jvs_player[0] = inputs.player[0]; c.jvs_player[1] = inputs.player[1];
+    c.jvs_system = inputs.system;
+    c.jvs_coin[0] = inputs.coin[0]; c.jvs_coin[1] = inputs.coin[1];
+    board_post(&c);
+}
+
 int system12_set_input(const char *control, int pressed)
 {
     unsigned i;
     if (!board.active || !control || (pressed != 0 && pressed != 1)) return -1;
-    if (!strcmp(control, "coin1")) board.jvs_coin[0] = pressed;
-    else if (!strcmp(control, "coin2")) board.jvs_coin[1] = pressed;
-    else if (!strcmp(control, "test")) board.jvs_system = (board.jvs_system & ~0x80u) | ((u32)pressed << 7);
-    else if (!strcmp(control, "service")) board.jvs_player[0] = (board.jvs_player[0] & ~0x40u) | ((u32)pressed << 6);
-    else for (i = 0; i < sizeof(player_inputs) / sizeof(player_inputs[0]); i++)
-        if (!strcmp(control, player_inputs[i].name)) {
-            u32 *p = &board.jvs_player[player_inputs[i].player];
-            *p = (*p & ~player_inputs[i].mask) | (pressed ? player_inputs[i].mask : 0);
-            return 0;
-        }
-    return (!strcmp(control, "coin1") || !strcmp(control, "coin2") ||
-            !strcmp(control, "test") || !strcmp(control, "service")) ? 0 : -1;
+    if (!strcmp(control, "coin1")) inputs.coin[0] = pressed;
+    else if (!strcmp(control, "coin2")) inputs.coin[1] = pressed;
+    else if (!strcmp(control, "test")) inputs.system = (inputs.system & ~0x80u) | ((u32)pressed << 7);
+    else if (!strcmp(control, "service")) inputs.player[0] = (inputs.player[0] & ~0x40u) | ((u32)pressed << 6);
+    else {
+        for (i = 0; i < sizeof(player_inputs) / sizeof(player_inputs[0]); i++)
+            if (!strcmp(control, player_inputs[i].name)) {
+                u32 *p = &inputs.player[player_inputs[i].player];
+                *p = (*p & ~player_inputs[i].mask) | (pressed ? player_inputs[i].mask : 0);
+                break;
+            }
+        if (i == sizeof(player_inputs) / sizeof(player_inputs[0])) return -1;
+    }
+    post_inputs();
+    return 0;
 }
 
 int system12_eeprom_export(u8 *image, size_t size)
@@ -476,8 +520,7 @@ static void pcm_generate_to(u64 target)
             stereo[i * 2 + 1] = samples[i * 4 + 1];
         }
         uint64_t audio_started = pcsx_profile_begin(PCSX_PROF_BOARD_AUDIO, 1);
-        if (board.audio_cb)
-            board.audio_cb(board.audio_opaque, stereo, frames);
+        board_audio_out(stereo, frames);
         pcsx_profile_end(PCSX_PROF_BOARD_AUDIO, audio_started);
         for (i = 0; i < frames * 4; i++) {
             unsigned amplitude = samples[i] < 0 ? -(int)samples[i] : samples[i];
@@ -497,6 +540,278 @@ static void pcm_sync_h8(void)
         pcm_generate_to(target);
 }
 
+static void board_exec(const board_cmd *c)
+{
+    uint64_t started;
+    switch (c->kind) {
+    case BOARD_CMD_SYNC:
+        if (c->rtc_seconds) rtc4543_advance_seconds(&board.rtc, c->rtc_seconds);
+        started = pcsx_profile_begin(PCSX_PROF_H8, 1);
+        if (!c->run_h8) ;
+        else if (c->run_until) h8_run_until(board.h8, c->h8_target);
+        else h8_run_cycles(board.h8, c->h8_cycles);
+        pcsx_profile_end(PCSX_PROF_H8, started);
+        pcm_generate_to(c->pcm_target);
+        break;
+    case BOARD_CMD_VBLANK:
+        if (c->run_h8) {
+            started = pcsx_profile_begin(PCSX_PROF_H8, 1);
+            if (h8_run_until(board.h8, c->h8_target))
+                SysPrintf("System12: invalid H8 screen deadline\n");
+            pcsx_profile_end(PCSX_PROF_H8, started);
+            h8_set_irq(board.h8, 1, c->level);
+            h8_adc_trigger(board.h8, c->level);
+            board.portb = (board.portb & 0x7f) | (c->level ? 0x80 : 0);
+        } else {
+            board.portb = (board.portb & 0x7f) | (c->level ? 0x80 : 0);
+            h8_set_irq(board.h8, 1, c->level);
+            h8_adc_trigger(board.h8, c->level);
+        }
+        trace_edge(SYSTEM12_EDGE_VBLANK, c->level);
+        break;
+    case BOARD_CMD_INPUT:
+        board.jvs_player[0] = c->jvs_player[0]; board.jvs_player[1] = c->jvs_player[1];
+        board.jvs_system = c->jvs_system;
+        board.jvs_coin[0] = c->jvs_coin[0]; board.jvs_coin[1] = c->jvs_coin[1];
+        break;
+    }
+}
+
+#ifdef SYSTEM12_BOARD_THREAD
+/* The board thread lags the main CPU by at most BOARD_QUEUE commands (about
+ * a dozen frames). Its audio goes through a ring that the main thread
+ * delivers, because libretro audio must be sent from the retro_run thread. */
+#define BOARD_QUEUE 64
+#define BOARD_AUDIO_FRAMES 65536
+static struct {
+    sthread_t *thread;
+    slock_t *lock;
+    scond_t *work, *done_cond;
+    board_cmd queue[BOARD_QUEUE];
+    unsigned posted;  /* main thread; updated under lock */
+    atomic_uint done; /* board thread */
+    int quit, active;
+    atomic_uint audio_head, audio_tail; /* frames: board writes head, main tail */
+    int16_t audio[BOARD_AUDIO_FRAMES * 2];
+} bt;
+
+#ifdef SYSTEM12_BOARD_THREAD_JITTER
+/* Test builds: random delays on both sides must not change any output. */
+#include <unistd.h>
+static unsigned jitter_main_seed, jitter_board_seed;
+static void board_jitter(unsigned *seed)
+{
+    const char *env = getenv("S12_BOARD_JITTER");
+    unsigned r;
+    if (!env) return;
+    if (!jitter_main_seed) {
+        jitter_main_seed = 2 * (unsigned)atoi(env) + 1;
+        jitter_board_seed = 2 * (unsigned)atoi(env) + 2;
+    }
+    r = rand_r(seed);
+    if ((r & 3) == 0) usleep(r % 3000);
+}
+#define BOARD_JITTER(seed) board_jitter(&(seed))
+#else
+#define BOARD_JITTER(seed)
+#endif
+
+static int board_audio_pending(void)
+{
+    return atomic_load_explicit(&bt.audio_head, memory_order_acquire) !=
+        atomic_load_explicit(&bt.audio_tail, memory_order_relaxed);
+}
+
+static void board_audio_pump(void)
+{
+    for (;;) {
+        unsigned head = atomic_load_explicit(&bt.audio_head, memory_order_acquire);
+        unsigned tail = atomic_load_explicit(&bt.audio_tail, memory_order_relaxed);
+        unsigned n = head - tail, at = tail % BOARD_AUDIO_FRAMES;
+        if (!n) break;
+        if (n > BOARD_AUDIO_FRAMES - at) n = BOARD_AUDIO_FRAMES - at;
+        if (board.audio_cb)
+            board.audio_cb(board.audio_opaque, bt.audio + at * 2, n);
+        atomic_store_explicit(&bt.audio_tail, tail + n, memory_order_release);
+    }
+}
+
+static void board_audio_push(const int16_t *stereo, unsigned frames)
+{
+    while (frames) {
+        unsigned head = atomic_load_explicit(&bt.audio_head, memory_order_relaxed);
+        unsigned tail = atomic_load_explicit(&bt.audio_tail, memory_order_acquire);
+        unsigned space = BOARD_AUDIO_FRAMES - (head - tail);
+        unsigned at = head % BOARD_AUDIO_FRAMES, n = frames;
+        if (!space) {
+            /* Wake a waiting main thread so that it delivers audio. */
+            slock_lock(bt.lock);
+            scond_signal(bt.done_cond);
+            slock_unlock(bt.lock);
+            retro_sleep(1);
+            continue;
+        }
+        if (n > space) n = space;
+        if (n > BOARD_AUDIO_FRAMES - at) n = BOARD_AUDIO_FRAMES - at;
+        memcpy(bt.audio + at * 2, stereo, (size_t)n * 4);
+        atomic_store_explicit(&bt.audio_head, head + n, memory_order_release);
+        stereo += n * 2;
+        frames -= n;
+    }
+}
+
+static STRHEAD_RET_TYPE board_thread(void *unused)
+{
+    (void)unused;
+    slock_lock(bt.lock);
+    for (;;) {
+        unsigned next = atomic_load_explicit(&bt.done, memory_order_relaxed);
+        if (next == bt.posted) {
+            if (bt.quit) break;
+            scond_wait(bt.work, bt.lock);
+            continue;
+        }
+        slock_unlock(bt.lock);
+        BOARD_JITTER(jitter_board_seed);
+        board_exec(&bt.queue[next % BOARD_QUEUE]);
+        slock_lock(bt.lock);
+        atomic_store_explicit(&bt.done, next + 1, memory_order_release);
+        scond_signal(bt.done_cond);
+    }
+    slock_unlock(bt.lock);
+    STRHEAD_RETURN();
+}
+
+/* Wait until the board has run the commands before `target` (modulo 2^32),
+ * delivering board audio meanwhile. */
+static void board_wait(unsigned target)
+{
+    if ((int)(atomic_load_explicit(&bt.done, memory_order_acquire) - target) >= 0)
+        return;
+    slock_lock(bt.lock);
+    while ((int)(atomic_load_explicit(&bt.done, memory_order_acquire) - target) < 0) {
+        if (board_audio_pending()) {
+            slock_unlock(bt.lock);
+            board_audio_pump();
+            slock_lock(bt.lock);
+            continue;
+        }
+        scond_wait(bt.done_cond, bt.lock);
+    }
+    slock_unlock(bt.lock);
+}
+#endif
+
+static void board_post(const board_cmd *c)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) {
+        BOARD_JITTER(jitter_main_seed);
+        board_wait(bt.posted - BOARD_QUEUE + 1);
+        bt.queue[bt.posted % BOARD_QUEUE] = *c;
+        slock_lock(bt.lock);
+        bt.posted++;
+        scond_signal(bt.work);
+        slock_unlock(bt.lock);
+        return;
+    }
+#endif
+    board_exec(c);
+}
+
+static void board_drain(void)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) {
+        BOARD_JITTER(jitter_main_seed);
+        board_wait(bt.posted);
+    }
+#endif
+}
+
+static void board_audio_out(const int16_t *stereo, unsigned frames)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) {
+        if (board.audio_cb) board_audio_push(stereo, frames);
+        return;
+    }
+#endif
+    if (board.audio_cb)
+        board.audio_cb(board.audio_opaque, stereo, frames);
+}
+
+void system12_audio_pump(void)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) board_audio_pump();
+#endif
+}
+
+int system12_board_thread_active(void)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    return bt.active;
+#else
+    return 0;
+#endif
+}
+
+int system12_board_thread_start(void)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) return 0;
+    /* Traces and MAME timeslices read board state from the main thread. */
+    if (!board.active || edge_trace_cb || bus_trace_cb || board.slice_open)
+        return -1;
+    bt.lock = slock_new();
+    bt.work = scond_new();
+    bt.done_cond = scond_new();
+    if (bt.lock && bt.work && bt.done_cond) {
+        bt.posted = 0;
+        atomic_store(&bt.done, 0);
+        atomic_store(&bt.audio_head, 0);
+        atomic_store(&bt.audio_tail, 0);
+        bt.quit = 0;
+        bt.active = 1;
+        bt.thread = pcsxr_sthread_create(board_thread, PCSXRT_BOARD);
+        if (bt.thread) {
+            SysPrintf("System12: board thread started\n");
+            return 0;
+        }
+        bt.active = 0;
+    }
+    if (bt.done_cond) scond_free(bt.done_cond);
+    if (bt.work) scond_free(bt.work);
+    if (bt.lock) slock_free(bt.lock);
+    bt.done_cond = bt.work = NULL;
+    bt.lock = NULL;
+#endif
+    return -1;
+}
+
+void system12_board_thread_stop(void)
+{
+#ifdef SYSTEM12_BOARD_THREAD
+    if (!bt.active) return;
+    board_drain();
+    slock_lock(bt.lock);
+    bt.quit = 1;
+    scond_signal(bt.work);
+    slock_unlock(bt.lock);
+    sthread_join(bt.thread);
+    bt.thread = NULL;
+    board_audio_pump();
+    bt.active = 0;
+    scond_free(bt.done_cond);
+    scond_free(bt.work);
+    slock_free(bt.lock);
+    bt.done_cond = bt.work = NULL;
+    bt.lock = NULL;
+    SysPrintf("System12: board thread stopped\n");
+#endif
+}
+
 static void sync_devices(u32 psx_cycle, int force, int run_h8)
 {
     u32 elapsed;
@@ -508,25 +823,26 @@ static void sync_devices(u32 psx_cycle, int force, int run_h8)
         board.eeprom_clock_error = 1;
         SysPrintf("System12: EEPROM clock overflow or rewind\n");
     }
+    board_cmd c = {BOARD_CMD_SYNC};
     board.rtc_fraction += elapsed;
     if (board.rtc_fraction >= PSXCLK) {
-        rtc4543_advance_seconds(&board.rtc, board.rtc_fraction / PSXCLK);
+        c.rtc_seconds = (u32)(board.rtc_fraction / PSXCLK);
         board.rtc_fraction %= PSXCLK;
     }
     board.h8_fraction += (u64)elapsed * 16934400;
     u32 requested = board.h8_fraction / PSXCLK;
     board.h8_requested += requested;
-    uint64_t h8_started = pcsx_profile_begin(PCSX_PROF_H8, 1);
-    if (!run_h8) ;
-    else if (psxArcadeSourceTimingActive()) h8_run_until(board.h8, board.h8_requested);
-    else h8_run_cycles(board.h8, requested);
-    pcsx_profile_end(PCSX_PROF_H8, h8_started);
+    c.run_h8 = run_h8 != 0;
+    c.run_until = psxArcadeSourceTimingActive() != 0;
+    c.h8_target = board.h8_requested;
+    c.h8_cycles = requested;
     board.h8_fraction %= PSXCLK;
     board.pcm_fraction += (u64)elapsed * c352_sample_rate(board.pcm);
     board.pcm_due += board.pcm_fraction / PSXCLK;
     board.pcm_fraction %= PSXCLK;
     /* MAME's stream includes the sample at the current nonzero time. */
-    pcm_generate_to(board.pcm_due + 1);
+    c.pcm_target = board.pcm_due + 1;
+    board_post(&c);
 }
 
 static void sync_to(u32 psx_cycle, int force)
@@ -556,6 +872,14 @@ void system12_pre_reset(void)
 void system12_profile_counters(uint64_t *cycles, uint64_t *samples)
 {
     H8Status state;
+#ifdef SYSTEM12_BOARD_THREAD
+    if (bt.active) {
+        /* Requested totals: reading the board would serialize every frame. */
+        *cycles = board.h8_requested;
+        *samples = board.pcm_due - board.pcm_epoch_frames;
+        return;
+    }
+#endif
     h8_get_status(board.h8, &state);
     *cycles = state.cycles;
     *samples = board.pcm_frames - board.pcm_epoch_frames;
@@ -564,12 +888,11 @@ void system12_profile_counters(uint64_t *cycles, uint64_t *samples)
 
 void system12_vblank(int level)
 {
+    board_cmd c = {BOARD_CMD_VBLANK};
     if (!board.active || !board.h8) return;
     system12_sync(psxRegs.cycle);
-    board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
-    h8_set_irq(board.h8, 1, level);
-    h8_adc_trigger(board.h8, level);
-    trace_edge(SYSTEM12_EDGE_VBLANK, level);
+    c.level = level != 0;
+    board_post(&c);
 }
 
 /* CPU execution before a global timer is bounded by floor, not ceil.
@@ -588,14 +911,11 @@ void system12_vblank_at(int level, const psx_screen_time *time)
     u64 target;
     if (!board.active || !board.h8 || !time || time->seconds < 0) return;
     target = h8_cycle_at(time);
-    uint64_t started = pcsx_profile_begin(PCSX_PROF_H8, 1);
-    if (h8_run_until(board.h8, target))
-        SysPrintf("System12: invalid H8 screen deadline\n");
-    pcsx_profile_end(PCSX_PROF_H8, started);
-    h8_set_irq(board.h8, 1, level);
-    h8_adc_trigger(board.h8, level);
-    board.portb = (board.portb & 0x7f) | (level ? 0x80 : 0);
-    trace_edge(SYSTEM12_EDGE_VBLANK, level);
+    board_cmd c = {BOARD_CMD_VBLANK};
+    c.run_h8 = 1;
+    c.h8_target = target;
+    c.level = level != 0;
+    board_post(&c);
 }
 
 /* MAME device_scheduler timeslices (source instruction step profile only).
@@ -842,6 +1162,7 @@ int system12_load(const char *directory)
 void system12_unload(void)
 {
     /* Call after psxShutdown(): sizes are needed to unmap the core. */
+    system12_board_thread_stop();
     bus_trace_cb = NULL;
     bus_trace_opaque = NULL;
     edge_trace_cb = NULL;
@@ -906,6 +1227,7 @@ void system12_mem_reset(void)
 
 void system12_reset(void)
 {
+    board_drain();
     pcsx_profile_reset();
     board.slice_open = 0;
     if (!board.booted) {
@@ -916,6 +1238,7 @@ void system12_reset(void)
         board.port8 = board.porta = 0; board.portb = 0x50;
         board.jvs_player[0] = board.jvs_player[1] = board.jvs_system = 0;
         board.jvs_coin[0] = board.jvs_coin[1] = 0;
+        memset(&inputs, 0, sizeof(inputs));
         board.rtc_fraction = 0;
         memset(board.shared, 0, sizeof(board.shared));
         h8_reset(board.h8);
@@ -980,6 +1303,7 @@ int system12_read(u32 address, unsigned width, u32 *value)
     if (a < 0x1f000000 || a >= 0x1f800000)
         return 0;
     if (a >= 0x1f080000 && a + width <= 0x1f084000) {
+        board_drain();
         for (i = 0; i < width; i++)
             v |= (u32)board.shared[a - 0x1f080000 + i] << (i * 8);
         board.shared_reads++;
@@ -1035,6 +1359,7 @@ int system12_write(u32 address, unsigned width, u32 value)
         board.bank_writes++;
     }
     else if (a >= 0x1f080000 && a + width <= 0x1f084000) {
+        board_drain();
         for (i = 0; i < width; i++)
             board.shared[a - 0x1f080000 + i] = value >> (i * 8);
         board.shared_writes++;
@@ -1122,6 +1447,7 @@ void system12_dma5(u32 madr, u32 bcr, u32 chcr)
 
 void system12_report(FILE *out)
 {
+    board_drain();
     fprintf(out, "System12: JAMMA=%02x/%02x/%02x/%02x\n",
         system12_jamma_read(0), system12_jamma_read(1),
         system12_jamma_read(2), system12_jamma_read(3));
@@ -1177,6 +1503,7 @@ int system12_selftest(void)
     int saved_eeprom_error = board.eeprom_clock_error;
     int eeprom_state_valid = board.eeprom &&
         at28c16_get_state(board.eeprom, &saved_eeprom) == 0;
+    board_drain();
 #define CHECK(condition) do { if (!(condition)) { \
     SysPrintf("System12 selftest FAIL line %d: %s\n", __LINE__, #condition); failures++; \
 } } while (0)
@@ -1209,8 +1536,8 @@ int system12_selftest(void)
     CHECK(!system12_set_input("p1button6", 1) && system12_jamma_read(3) == 0xf7);
     CHECK(!system12_set_input("p2button4", 1) && system12_jamma_read(3) == 0xd7);
     CHECK(system12_set_input("unknown", 1) < 0);
-    board.jvs_player[0] = board.jvs_player[1] = board.jvs_system = 0;
-    board.jvs_coin[0] = board.jvs_coin[1] = 0;
+    memset(&inputs, 0, sizeof(inputs));
+    post_inputs();
     CHECK(intFakeFetch(0xbfc00000) == SWAPu32(*(u32 *)board.main));
     CHECK(psxMemRead32(&psxRegs, 0x1ffffffc) == SWAPu32(*(u32 *)(board.main + board.main_size - 4)));
     /* Upper 2 MiB must not alias lower RAM; all physical/KSEG mirrors agree. */

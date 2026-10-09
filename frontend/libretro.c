@@ -2069,6 +2069,22 @@ static void retro_system12_audio(void *opaque, const int16_t *stereo,
       audio_batch_cb(stereo, frames);
 }
 
+#ifdef SYSTEM12_BOARD_THREAD
+static int system12_board_thread_option;
+
+static void retro_system12_apply_board_thread(void)
+{
+   if (!system12_active())
+      return;
+   if (!system12_board_thread_option)
+      system12_board_thread_stop();
+   else if (!system12_board_thread_active() && system12_board_thread_start())
+      LogErr("System12 board thread is unavailable\n");
+}
+#else
+#define retro_system12_apply_board_thread()
+#endif
+
 static void retro_update_system_av_info(void)
 {
    struct retro_system_av_info av;
@@ -2083,6 +2099,8 @@ static void retro_system12_restore_console(void)
 {
    if (!system12_active())
       return;
+   /* Finish board work and deliver its audio before the core goes away. */
+   system12_board_thread_stop();
    if (plugins_opened)
    {
       ClosePlugins();
@@ -2162,6 +2180,7 @@ static bool retro_load_system12_profile(const char *directory)
    is_pal_mode = false;
    plugin_call_rearmed_cbs();
    SysReset();
+   retro_system12_apply_board_thread();
    set_retro_memmap();
    retro_set_audio_buff_status_cb();
    retro_update_system_av_info();
@@ -2972,6 +2991,16 @@ static void update_variables(bool in_flight)
          ndrc_g.hacks &= ~NDHACK_NO_LD_DELAY;
    }
 #endif /* !DRC_DISABLE && !LIGHTREC */
+
+#if defined(ARCADE_SYSTEM12) && defined(SYSTEM12_BOARD_THREAD)
+   var.value = NULL;
+   var.key = "pcsx_rearmed_system12_board_thread";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      system12_board_thread_option = strcmp(var.value, "enabled") == 0;
+      retro_system12_apply_board_thread();
+   }
+#endif
 
    var.value = NULL;
    var.key = "pcsx_rearmed_nostalls";
@@ -4014,6 +4043,10 @@ void retro_run(void)
       pl_rearmed_cbs.fskip_dirty = 0;
    }
 
+#ifdef ARCADE_SYSTEM12
+   if (system12_active())
+      system12_audio_pump(); /* board-thread audio, from the retro_run thread */
+#endif
    uint64_t video_started = pcsx_profile_begin(PCSX_PROF_VIDEO, 1);
    video_cb((vout_fb_dirty || !vout_can_dupe) ? vout_buf_ptr : NULL,
        vout_width, vout_height, vout_pitch_b);

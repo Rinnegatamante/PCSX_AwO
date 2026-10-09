@@ -466,12 +466,13 @@ int main(int argc, char **argv)
     if (ppm && write_ppm(ppm)) { fprintf(stderr, "cannot write %s\n", ppm); result = 3; }
     if (hash_out && fclose(hash_out)) result = 3;
     if (video_hash_out && fclose(video_hash_out)) result = 3;
+    /* Unloading may deliver audio still queued by a board thread. */
+    core.unload_game();
     if (wav) {
         fseek(wav, 0, SEEK_SET);
         wav_header(wav, (unsigned)av.timing.sample_rate, (uint32_t)wav_bytes);
         if (fclose(wav)) result = 3;
     }
-    core.unload_game();
     core.deinit();
     free(last_frame);
     return result;

@@ -40,6 +40,12 @@ endif
 ifeq ($(ARCADE_SYSTEM12),1)
 CFLAGS += -DARCADE_SYSTEM12 -DPCSX_SYSTEM12 -DPCSX_SYSTEM12_SOURCE_TIMING \
 	-DPCSX_ARCADE_SOURCE_TIMING
+# The board (H8 + C352) can run on its own thread; the core option decides.
+SYSTEM12_BOARD_THREAD ?= 1
+ifeq ($(SYSTEM12_BOARD_THREAD),1)
+CFLAGS += -DSYSTEM12_BOARD_THREAD
+USE_RTHREADS := 1
+endif
 ifeq ($(platform),vita)
 CXX = arm-vita-eabi-g++$(EXE_EXT)
 endif
@@ -761,9 +767,6 @@ endif
 ifeq ($(SYSTEM12_PROFILE),1)
 ifneq ($(ARCADE_SYSTEM12),1)
 $(error SYSTEM12_PROFILE=1 requires ARCADE_SYSTEM12=1)
-endif
-ifneq ($(USE_ASYNC_GPU)$(USE_ASYNC_SPU),00)
-$(error SYSTEM12_PROFILE=1 requires USE_ASYNC_GPU=0 USE_ASYNC_SPU=0)
 endif
 CFLAGS += -DPCSX_SYSTEM12_PROFILE
 OBJS += libpcsxcore/system12_profile.o

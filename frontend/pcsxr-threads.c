@@ -62,6 +62,7 @@ sthread_t *pcsxr_sthread_create(void (*thread_func)(void *),
 	switch (type) {
 	case PCSXRT_CDR:
 	case PCSXRT_SPU:
+	case PCSXRT_BOARD:
 		core_id = 1;
 		break;
 	case PCSXRT_DRC:
@@ -93,12 +94,19 @@ sthread_t *pcsxr_sthread_create(void (*thread_func)(void *),
 	h->id = ctr_thread;
 #else
 	h = sthread_create(thread_func, NULL);
+ #ifdef VITA
+	/* Main emulation stays on core 0 (set by the frontend). */
+	if (h && (type == PCSXRT_GPU || type == PCSXRT_BOARD))
+		sceKernelChangeThreadCpuAffinityMask(h->id, type == PCSXRT_GPU
+			? SCE_KERNEL_CPU_MASK_USER_1 : SCE_KERNEL_CPU_MASK_USER_2);
+ #endif
  #if defined(__GLIBC__) || \
     (defined(__ANDROID_API__) && __ANDROID_API__ >= 26)
 	if (h && (unsigned int)type < (unsigned int)PCSXRT_COUNT)
 	{
 		const char * const pcsxr_tnames[PCSXRT_COUNT] = {
-			"pcsxr-cdrom", "pcsxr-drc", "pcsxr-gpu", "pcsxr-spu"
+			"pcsxr-cdrom", "pcsxr-drc", "pcsxr-gpu", "pcsxr-spu",
+			"pcsxr-board"
 		};
 		pthread_setname_np(h->id, pcsxr_tnames[type]);
 	}

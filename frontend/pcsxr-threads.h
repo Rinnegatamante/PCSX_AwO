@@ -7,6 +7,7 @@ enum pcsxr_thread_type
 	PCSXRT_DRC,
 	PCSXRT_GPU,
 	PCSXRT_SPU,
+	PCSXRT_BOARD, // arcade board CPU/devices (System 12 H8 + C352)
 	PCSXRT_COUNT // must be last
 };
 

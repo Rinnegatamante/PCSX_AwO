@@ -243,6 +243,22 @@ struct retro_core_option_v2_definition option_defs_us[] = {
    },
 #endif
 #endif // DRC_DISABLE
+#if defined(ARCADE_SYSTEM12) && defined(SYSTEM12_BOARD_THREAD)
+   {
+      "pcsx_rearmed_system12_board_thread",
+      "System 12 board threading",
+      NULL,
+      "Run the System 12 sound/IO CPU (H8) and PCM chip (C352) on another thread. Results are identical; it needs a free CPU core.",
+      NULL,
+      "system",
+      {
+         { "disabled", NULL },
+         { "enabled",  NULL },
+         { NULL, NULL },
+      },
+      "disabled",
+   },
+#endif
    {
       "pcsx_rearmed_psxclock",
       "PSX CPU Clock Speed (%)",

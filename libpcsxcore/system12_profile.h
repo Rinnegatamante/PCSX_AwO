@@ -9,6 +9,10 @@ enum pcsx_profile_section {
     PCSX_PROF_COUNT
 };
 #ifdef PCSX_SYSTEM12_PROFILE
+#ifdef VITA
+/* Optional sink for PERF lines (the standalone frontend tees them to a file). */
+extern void (*pcsx_profile_log)(const char *text);
+#endif
 void pcsx_profile_reset(void);
 uint64_t pcsx_profile_begin(enum pcsx_profile_section section, unsigned stride);
 void pcsx_profile_end(enum pcsx_profile_section section, uint64_t started);

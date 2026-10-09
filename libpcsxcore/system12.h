@@ -58,6 +58,15 @@ int system12_close_audio(void);
 /* Optional 88.2 kHz stereo output; the WAV capture path can run at once.
  * Called synchronously from device advancement; must not re-enter/reset core. */
 void system12_set_audio_output(system12_audio_cb callback, void *opaque);
+/* Optional board thread (SYSTEM12_BOARD_THREAD builds): runs the H8 and C352
+ * on another core with identical results. Audio from that thread is
+ * delivered by system12_audio_pump(), which the frontend calls on its own
+ * thread (e.g. at the end of retro_run). Start after load; stop is implied by
+ * system12_unload(). */
+int system12_board_thread_start(void);
+void system12_board_thread_stop(void);
+int system12_board_thread_active(void);
+void system12_audio_pump(void);
 void system12_set_bus_trace(system12_bus_trace_cb callback, void *opaque);
 void system12_set_edge_trace(system12_edge_trace_cb callback, void *opaque);
 /* Opt-in shared access flags from both CPUs; disabled by default, cleared on unload. */
