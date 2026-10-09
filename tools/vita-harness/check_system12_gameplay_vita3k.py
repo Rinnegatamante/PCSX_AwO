@@ -593,6 +593,8 @@ def main():
                         help="replay inputs through frame 3,600, 6,000, or 12,000 (requires --gameplay-replay)")
     parser.add_argument("--frames", type=int, choices=DIAGNOSTIC_MILESTONES,
                         help="run only this frame milestone (400, 800, 1800, or 3600)")
+    parser.add_argument("--gpu-thread", action="store_true",
+                        help="pass --gpu-thread to the guest (VITA_GPU_THREAD=1 NEON VPK)")
     parser.add_argument("--reuse-console-smoke", type=Path,
                         help="reuse smoke evidence JSON when VPK and host hashes match")
     args = parser.parse_args()
@@ -726,6 +728,8 @@ def main():
                 args_text += f", --capture-ppm, {capture_guest}"
             if inputs_path:
                 args_text += f", --inputs, ux0:app/{TITLE_ID}/soulclbrac/inputs.csv"
+            if args.gpu_thread:
+                args_text += ", --gpu-thread"
             expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
                         "pcsx-vita: cpu_driver=ari64")
             if args.renderer == "neon":

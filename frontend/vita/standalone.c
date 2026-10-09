@@ -107,8 +107,12 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
     sceClibPrintf("%s", buf);
 }
 
+static bool g_gpu_thread;
+
 static const char *option_value(const char *key)
 {
+    if (strcmp(key, "pcsx_rearmed_gpu_thread_rendering") == 0)
+        return g_gpu_thread ? "enabled" : "disabled";
     static const struct {
         const char *key;
         const char *value;
@@ -126,7 +130,6 @@ static const char *option_value(const char *key)
         { "pcsx_rearmed_neon_interlace_enable_v2", "auto" },
         { "pcsx_rearmed_neon_enhancement_enable", "disabled" },
         { "pcsx_rearmed_scale_hires", "disabled" },
-        { "pcsx_rearmed_gpu_thread_rendering", "disabled" },
         { "pcsx_rearmed_spu_interpolation", "gaussian" },
         { "pcsx_rearmed_spu_thread", "disabled" },
         { "pcsx_rearmed_cd_readahead", "0" },
@@ -811,6 +814,8 @@ int main(int argc, char **argv)
     game_path[0] = '\0';
     for (ret = 1; ret < argc; ret++) {
         if (!strcmp(argv[ret], "--verify-smoke")) { verify_smoke = true; continue; }
+        /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
+        if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--verify-system12-vram-pattern")) {
             verify_system12_vram = true;
             verify_system12_vram_pattern = true;
