@@ -25,6 +25,7 @@
 #include "validation.h"
 #include "../../libpcsxcore/system12_profile.h"
 #include "input_csv_reader.h"
+#include "vita_gpuprof.h"
 
 #define APP_ROOT "ux0:data/pcsx-rearmed"
 #define BIOS_DIR APP_ROOT "/bios"
@@ -283,6 +284,15 @@ static void rebuild_scale_map(unsigned width, unsigned height)
     g_map_w = (int)width;
     g_map_h = (int)height;
 }
+
+#ifdef VITA_GPUPROF
+extern void (*pcsx_vita_swap_cb)(void);
+static void gpuprof_swap(void)
+{
+    static unsigned presents;
+    vita_gpuprof_after_frame(++presents);
+}
+#endif
 
 /* GXM presentation. The PSX 15-bit pixel (R low, bit 15 = mask) is GXM's
  * X1U5U5U5_1BGR texture format, so the displayed VRAM rows are copied as
@@ -1187,6 +1197,12 @@ int main(int argc, char **argv)
     retro_set_audio_sample_batch(audio_batch_cb);
     retro_set_input_poll(input_poll_cb);
     retro_set_input_state(input_state_cb);
+#ifdef VITA_GPUPROF
+    /* The renderer thread starts GXM during retro_load_game. */
+    vita_gpuprof_install();
+    vita_gpuprof_session_begin("pcsx");
+    pcsx_vita_swap_cb = gpuprof_swap;
+#endif
     retro_init();
     sceClibPrintf("pcsx-vita: retro_init complete\n");
 

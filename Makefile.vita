@@ -8,6 +8,10 @@ VITA_GPU_THREAD ?= 0
 # VITA_GPU_NEON_C=1 selects the C renderer for comparisons.
 VITA_GPU_NEON_C ?= 0
 VITAGL_DIR ?= build/vita-deps/vitaGL
+# GPU profiler captures (psp2-cex-gpues4-prof, vitaGL only): the eboot then
+# imports psp2_gpuprof.skprx and needs it loaded before it starts.
+VITA_GPUPROF ?= 0
+GPUPROF_PREFIX ?= $(HOME)/Fun/psp2-cex-gpues4-prof/install
 ifeq ($(VITA_GPU_THREAD),1)
 ifneq ($(VITA_GPU),neon)
 $(error VITA_GPU_THREAD=1 requires VITA_GPU=neon)
@@ -39,7 +43,8 @@ CFLAGS := -O3 -g -Wall -Wextra -DVITA -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neo
 	-fsingle-precision-constant -mword-relocations -ffast-math -fno-unwind-tables \
 	-fno-asynchronous-unwind-tables -I$(VITASDK)/include -Ideps/libretro-common/include -I$(VITAGL_DIR)/source
 LDFLAGS := -Wl,-q
-LIBS := -lSDL3 -lvita2d $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_stub -lSceShaccCg_stub \
+VITAGL_LINK := $(VITAGL_DIR)/libvitaGL.a
+LIBS = -lSDL3 -lvita2d $(VITAGL_LINK) -lvitashark -lSceShaccCgExt -ltaihen_stub -lSceShaccCg_stub \
 	-lSceKernelDmacMgr_stub -lpthread -lc -lSceCommonDialog_stub -lSceAudio_stub \
 	-lSceLibKernel_stub -lmathneon -lkubridge_stub -lSceNet_stub -lSceNetCtl_stub \
 	-lpng -lSceDisplay_stub -lSceGxm_stub -lSceAudioIn_stub \
@@ -48,6 +53,28 @@ LIBS := -lSDL3 -lvita2d $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -l
 	-lSceAppMgr_stub -lSceHid_stub -lSceAppUtil_stub -lScePgf_stub -ljpeg \
 	-lSceRtc_stub -lScePower_stub -lSceIofilemgr_stub -lcurl -lssl -lcrypto -lz
 CFLAGS += $(CFLAGS_GPU)
+GPUPROF_OBJ :=
+ifeq ($(VITA_GPUPROF),1)
+ifneq ($(VITA_GPU),vitagl)
+$(error VITA_GPUPROF=1 requires VITA_GPU=vitagl)
+endif
+CFLAGS += -DVITA_GPUPROF -I$(GPUPROF_PREFIX)/include
+GPUPROF_WRAPS := glCreateProgram glDeleteProgram glUseProgram glDrawArrays glDrawElements \
+	glDrawRangeElements glDrawArraysInstanced glDrawElementsInstanced glDrawElementsBaseVertex \
+	glDrawRangeElementsBaseVertex vglSwapBuffers sceGxmBeginScene sceGxmEndScene sceGxmMidSceneFlush \
+	sceGxmDraw sceGxmDrawInstanced sceGxmDrawPrecomputed sceGxmSetVertexProgram sceGxmSetFragmentProgram \
+	sceGxmCreateContext sceGxmDestroyContext sceGxmShaderPatcherCreateVertexProgram \
+	sceGxmShaderPatcherCreateFragmentProgram sceGxmShaderPatcherAddRefVertexProgram \
+	sceGxmShaderPatcherAddRefFragmentProgram sceGxmShaderPatcherReleaseVertexProgram \
+	sceGxmShaderPatcherReleaseFragmentProgram sceGxmShaderPatcherDestroy sceGxmDisplayQueueAddEntry \
+	sceGxmTransferCopy sceGxmTransferFill sceGxmTransferDownscale sceGxmTransferFinish \
+	sceGxmSetFrontFragmentProgramEnable sceGxmSetBackFragmentProgramEnable \
+	sceGxmShaderPatcherCreateMaskUpdateFragmentProgram
+LDFLAGS += $(foreach f,$(GPUPROF_WRAPS),-Wl,--wrap=$(f))
+VITAGL_LINK := -Wl,--start-group $(VITAGL_DIR)/libvitaGL.a $(GPUPROF_PREFIX)/lib/libpsp2_gpuprof_vitagl.a \
+	$(GPUPROF_PREFIX)/lib/libpsp2_gpuprof_gxm_observer.a $(GPUPROF_PREFIX)/lib/libpsp2_gpuprof_client.a \
+	$(GPUPROF_PREFIX)/lib/libpsp2_gpuprof_stub.a -Wl,--end-group -lSceKernelThreadMgr_stub
+endif
 ifeq ($(ARCADE_SYSTEM12),1)
 CFLAGS += -DARCADE_SYSTEM12
 endif
@@ -56,9 +83,12 @@ CFLAGS += -DPCSX_SYSTEM12_PROFILE
 endif
 BUILD_DIR := build-vita/$(VITA_GPU)$(if $(filter 1,$(ARCADE_SYSTEM12)),-system12,)$(if $(filter 1,$(SYSTEM12_PROFILE)),-profile,)
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
+ifeq ($(VITA_GPUPROF),1)
+GPUPROF_OBJ := $(BUILD_DIR)/vita_gpuprof.o
+endif
 CORE_ARGS := platform=vita ARCADE_SYSTEM12=$(ARCADE_SYSTEM12) SYSTEM12_PROFILE=$(SYSTEM12_PROFILE) VITA_CTR_GPU_TRACE=$(VITA_CTR_GPU_TRACE) TARGET_NAME=$(CORE_NAME) BUILTIN_GPU=$(BUILTIN_VITA_GPU) GPU_NEON_USE_C=$(VITA_GPU_NEON_C) VITAGL_DIR=$(VITAGL_DIR) GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 	USE_ASYNC_CDROM=0 USE_ASYNC_GPU=$(VITA_GPU_THREAD) USE_ASYNC_SPU=0 \
-	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke pcsx_vita_read_system12_drc pcsx_vita_write_system12_report pcsx_raw_frame_cb $(if $(filter 1,$(SYSTEM12_PROFILE)),pcsx_profile_begin pcsx_profile_end pcsx_profile_log,)'
+	EXTRA_EXTERN_SYMS='_newlib_vm_size_user pcsx_vita_uses_dynarec pcsx_vita_read_smoke pcsx_vita_read_system12_drc pcsx_vita_write_system12_report pcsx_raw_frame_cb pcsx_vita_swap_cb $(if $(filter 1,$(SYSTEM12_PROFILE)),pcsx_profile_begin pcsx_profile_end pcsx_profile_log,)'
 
 .PHONY: all core clean vita-gl
 all: $(TARGET).vpk
@@ -75,8 +105,11 @@ $(BUILD_DIR):
 $(STANDALONE_OBJ): frontend/vita/standalone.c frontend/vita/validation.h frontend/vita/input_csv_reader.h Makefile.vita | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(TARGET).elf: core $(STANDALONE_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(CORE) $(LIBS) -o $@
+$(GPUPROF_OBJ): frontend/vita/vita_gpuprof.c frontend/vita/vita_gpuprof.h Makefile.vita | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(TARGET).elf: core $(STANDALONE_OBJ) $(GPUPROF_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(GPUPROF_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@

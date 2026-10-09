@@ -142,6 +142,8 @@ global_variable struct NativeVramState s_vram;
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define NATIVE_VITA_VRAM_TRANSFER_BYTES (VRAM_WIDTH * VRAM_MAX_HEIGHT * 4u)
 global_variable u8 *s_vitaVramTransferPixels;
+/* Set by the Vita frontend; runs on this thread right after each present. */
+void (*pcsx_vita_swap_cb)(void);
 
 #define NATIVE_P4_CACHE_CAPACITY 320
 #define NATIVE_P4_HASH_CAPACITY 1024
@@ -4410,6 +4412,8 @@ void NativeRenderer_SwapWindow(void)
 	}
 	#endif
 	vglSwapBuffers(GL_FALSE);
+	if (pcsx_vita_swap_cb)
+		pcsx_vita_swap_cb();
 #else
 	SDL_GL_SwapWindow(g_window);
 #endif
