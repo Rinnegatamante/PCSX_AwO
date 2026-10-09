@@ -260,8 +260,12 @@ void c352_generate(C352 *c, int16_t *out, size_t frames)
             }
             v->counter = next & 0xffffu;
             sample = v->sample;
+            /* MAME multiplies in u32 (counter is u32) and stores into s16.
+             * A signed product overflows for large steps and the missing
+             * 16-bit truncation then shifts the sample by 65536: a click. */
             if (!(v->flags & C352_FLG_FILTER))
-                sample = v->last_sample + ((int32_t)v->counter * (v->sample - v->last_sample) >> 16);
+                sample = (int16_t)(uint16_t)((uint32_t)v->last_sample +
+                    (v->counter * (uint32_t)(v->sample - v->last_sample) >> 16));
             mix[0] += (((v->flags & C352_FLG_PHASEFL) ? -sample : sample) * v->curr_vol[0]) >> 8;
             mix[2] += (((v->flags & C352_FLG_PHASERL) ? -sample : sample) * v->curr_vol[2]) >> 8;
             mix[1] += (((v->flags & C352_FLG_PHASEFR) ? -sample : sample) * v->curr_vol[1]) >> 8;

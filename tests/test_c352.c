@@ -101,11 +101,39 @@ static void test_one_shot_and_reset(void)
     c352_destroy(c);
 }
 
+/* Interpolating between full-scale samples must stay between them. MAME
+ * multiplies counter * step in u32 and keeps the result in s16; a signed
+ * product overflowed for large steps and shifted the sample by 65536. */
+static void test_interpolation_full_swing(void)
+{
+    uint8_t rom[64];
+    int16_t pcm[2000 * 4];
+    const int limit = (32768 * 0xff >> 8) >> 3;
+    C352 *c;
+    size_t i;
+    for (i = 0; i < sizeof(rom); ++i)
+        rom[i] = i & 1 ? 0x7f : 0x80; /* +32512, -32768 */
+    c = c352_create(rom, sizeof(rom), 25401600, 288);
+    assert(c);
+    reg(c, 0, 0, 0xffff);
+    reg(c, 0, 2, 0x1000);
+    reg(c, 0, 3, KEYON | LOOP);
+    reg(c, 0, 5, 0); reg(c, 0, 6, sizeof(rom) - 1); reg(c, 0, 7, 0);
+    keyon(c);
+    c352_generate(c, pcm, 2000);
+    for (i = 0; i < 2000; ++i) {
+        assert(pcm[i * 4] >= -limit && pcm[i * 4] <= limit);
+        assert(pcm[i * 4 + 1] == pcm[i * 4]);
+    }
+    c352_destroy(c);
+}
+
 int main(void)
 {
     test_bus_and_pcm();
     test_mulaw_and_loop();
     test_one_shot_and_reset();
+    test_interpolation_full_swing();
     puts("C352 synthetic tests passed");
     return 0;
 }
