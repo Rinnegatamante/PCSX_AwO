@@ -1438,3 +1438,147 @@ texture cache, which the generic build already had with the C renderer. The
 speed gain of the assembly needs a physical Vita to measure; qemu timing is
 not representative of NEON cost. Evidence:
 `artifacts/validation/neon-asm-arcade-20261009/`.
+
+## Vita hardware: threads and GXM presentation (2026-10-09)
+
+Soul Calibur replay on a physical Vita (192.168.0.25), profile builds,
+gameplay frames 3000-4800, NEON assembly renderer unless noted:
+
+| Configuration | fps |
+| --- | --- |
+| Sequential, CPU present (start of the day) | 15.0 |
+| Faster CPU present (NEON row conversion, row dedup) | 16.2 |
+| GPU thread + board thread (H8 and C352) | 32.1 |
+| + framebuffers in main memory | 35.5 |
+| Same, C renderer instead of the assembly | 25.1 |
+| GXM presentation (`--gxm`, now the default) | 47.3 |
+
+- Board thread (`SYSTEM12_BOARD_THREAD`, core option
+  `pcsx_rearmed_system12_board_thread`): the H8 and C352 run on core 2,
+  driven by screen events, with an SPSC audio ring. macOS replays are
+  identical with three jitter seeds and ThreadSanitizer clean; ARMv7 and the
+  Vita report are identical too.
+- GXM presentation: the PSX 15-bit pixel is GXM's `X1U5U5U5_1BGR`, so the
+  displayed VRAM rows are copied as they are into an uncached texture and the
+  GPU scales them (245 KB per frame instead of 1.6 MB converted by the CPU).
+- vita-tracy (PC sampling) before GXM: no core saturated, the threads wait on
+  each other; the present was half the main thread; the profiler cost ~19% of
+  the board thread; `c352_generate` was 38% of the board thread.
+
+Per-thread cost at 35.5 fps (profile build, ms per frame): main 15.7 (CPU)
++ present, GPU list 21.0, board 19.9 (H8 12.9, C352 6.8). With GXM the
+present is ~1 ms, so the frame is bound by the GPU thread and the board
+thread together: ~58 ms of work per frame against 50 ms for three cores at
+60 fps. Reaching 60 fps needs less work, not only better distribution
+(non-profile builds, then C352 and the renderer below).
+
+## vitaGL renderer crash (2026-10-09)
+
+The vitaGL (`gpu_vita_ctr`) build crashed between frames 1700 and 2700 of
+the replay: a data abort in the "CTR Renderer" thread inside SceLibKernel's
+mspace `malloc`, reached from vitaGL's `glTexImage2D` upload path. The
+registers held `0xffefefef`, a PSX colour expanded by the renderer's VRAM
+shader (5-bit 29 -> 0xEF), on the heap's metadata.
+
+Cause: vitaGL frees a texture's old store at once when nothing *sampled* it
+in the last `FRAME_PURGE_FREQ` frames; rendering into it does not count. The
+CTR renderer resizes its render targets with `glTexImage2D` (235 times in
+the attract mode), so the GPU kept drawing into freed memory that the next
+upload reused. `tools/vita-harness/patches/vitagl-fbo-last-frame.patch`
+marks an FBO's texture used when a scene begins on it; the replay then
+passes 4800 frames on hardware. The vitaGL build runs ~55 fps in attract
+but ~11.5 fps in gameplay (60 VRAM upload rectangles per swap, each a
+`glTexImage2D` and a draw); not investigated further.
+
+Also found on hardware: a launch right after another app aborted with
+"trampoline banks are full" because the dynarec's VM block came back with
+the previous app's data; the trampoline table is now cleared at init.
+
+## GPU command replay and renderer profiling without the Vita (2026-10-09)
+
+`gpulib` built with `-DGPULIB_TRACE` records, for
+`GPULIB_TRACE_FILE=path:from:to`, a VRAM/register snapshot and every GPU
+entry call of those emulated frames (DMA chains as the packets they walk)
+plus the final VRAM hash. `tools/gpu-replay` replays a trace with only
+gpulib and the NEON renderer:
+
+- `build.sh mac|armv7`: macOS (SIMD C) or the ARMv7 container (assembly).
+- `check.sh`: every `build/gpu-replay/*.gtr` on both, single- and
+  two-stage, against a baseline of flip and VRAM hashes.
+- `profile.sh TRACE LABEL`: callgrind with a Cortex-A9-like cache model;
+  `cg_by_symbol.py` attributes the assembly (its symbols have no `.size`),
+  `cg_hot_instr.py` lists one function's hot instructions.
+
+Five Soul Calibur traces (frames 1200, 1800, 2400, 3000, 4200; 60 frames
+each) replay to the emulator's exact VRAM. The callgrind ranking matches
+vita-tracy's samples of the Vita GPU thread:
+
+| Function | Vita samples | callgrind Ir |
+| --- | --- | --- |
+| `setup_blocks_shaded_textured_dithered_swizzled_indirect` | 19.6% | 16.6% |
+| `texture_blocks_4bpp` | 17.5% | 11.5% |
+| `shade_blocks_shaded_textured_modulated_dithered_direct` | 12.5% | 8.3% |
+| `setup_blocks_unshaded_textured_dithered_swizzled_indirect` | 6.0% | 6.1% |
+| triangle setup (prepare, gradients, spans) | ~12% | ~16% |
+
+`texture_blocks_4bpp` costs more on the Vita than its instruction count
+(texture-cache misses, which callgrind also sees). Soul Calibur draws small
+gouraud-textured dithered 4bpp triangles: ~4.2 M instructions per frame,
+~0.45 instructions per cycle on the Vita.
+
+## NEON renderer: arcade overhead and a two-stage renderer (2026-10-09)
+
+Arcade overhead removed (commit b7449e20, ~4% less estimated GPU thread
+time; every replayed frame and the final VRAM unchanged):
+
+- `gpu_get_model()` inline (constant 2 on console); the renderer called it
+  9000 times a frame.
+- `texture_region_mask` builds the 64-bit page set from 32-bit products;
+  it no longer marks pages of the next band when a rectangle wraps in X
+  (they are not touched). An exhaustive sweep matches a per-page reference
+  and never marks fewer pages than before.
+- Writes of up to 1024 halfwords into clean 4bpp pages patch the cached
+  texels in place: Soul Calibur's palette animation (16x1 VRAM copies into a
+  texture page every frame) made two 64 KB cache rebuilds a frame; now 17
+  rebuilds per 60 frames, all first uses.
+
+Two-stage renderer (commits 2a529992, a3a88df0; core option
+`pcsx_rearmed_neon_two_stage`, Vita `--gpu2`, off by default): with
+threaded rendering, full block buffers are textured, shaded and blended on
+another thread while the GPU thread parses and sets up the next primitives.
+A ring slot is `psx_gpu_struct` up to the end of `blocks[]`, so stage 2 runs
+the handlers on the slot with the state its buffer was set up with. Stage 1
+keeps the texture caches (rebuilt before queueing, as `texture_blocks`
+would) and waits for stage 2 before anything that reads or writes VRAM the
+queued buffers may write (the bounding box of their viewports): cache
+rebuilds, textured sprites, lines, fills, simple untextured sprites and
+every gpulib VRAM access (all through `renderer_flush_queues`).
+
+Validation: all five traces give the single-threaded flip and VRAM hashes
+on macOS and ARMv7, 30 repeats each on macOS, ThreadSanitizer clean; a
+4800-frame emulation on macOS with the GPU thread and two stages gives the
+same per-frame video, RAM and audio hashes as the sequential run. The first
+version raced (lines and simple sprites write VRAM directly); TSan and the
+repeats found it.
+
+Expected split: stage 2 is ~32-37% of the GPU thread (callgrind and Vita
+samples), so ~13-14 ms of the 21 ms would stay on the GPU thread. Per frame
+in gameplay stage 1 queues ~1100 buffers (~23 blocks, ~2 KB each) and waits
+for stage 2 about twice for lines/fills, twice at frame end, and ~7 times
+because the ring is full. Its value on the Vita depends on a core having
+room for stage 2 (see the budget above); not measured on hardware yet.
+
+Assembly (`psx_gpu_arm_neon.S`) review, for hardware measurement:
+
+- `setup_blocks_*_textured`: ~60 instructions per span before ~40 per block;
+  Soul Calibur's spans have 1-2 blocks, so the span prologue dominates
+  (five per-triangle block-span vectors reloaded per span, `uvrg_dx`
+  recomputed). All 16 q registers are in use.
+- `shade_blocks_*_direct` read the framebuffer line of every block to merge
+  the draw mask (97% of that function's L1 misses in callgrind). Skipping the
+  read for full blocks needs the NEON mask in an ARM register (~20-cycle
+  stall on Cortex-A9). setup's `pld [fb_ptr]` covers it single-threaded
+  (callgrind does not model `pld`); with two stages it ran on the other core,
+  so stage 2 now prefetches each buffer's framebuffer lines.
+- `texture_blocks_4bpp`: 8 byte loads from the texture cache per block,
+  ~0.3 L1 misses per block.
