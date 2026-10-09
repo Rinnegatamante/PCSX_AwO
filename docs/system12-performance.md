@@ -1638,3 +1638,21 @@ thread) is the one near 100%, but cores 0 and 2 have too little room for
 ~7 ms of stage 2, and sharing a core makes stage 1 wait on the scheduler
 around its ~1100 hand-offs a frame. It stays off; `--gpu2-core N` pins it
 for experiments. To reach 60 fps the GPU thread has to drop below ~16.7 ms.
+
+## Tekken 3 and Tekken Tag Tournament (2026-10-10)
+
+Profiles prepared from the local MAME sets with `prepare_mame_psx.py` and
+`prepare_system12_board.py` (pinned MAME source; Tekken Tag's protection is
+unchanged in current MAME, only its API names moved). Tekken Tag needed its
+protection (commit 4e30b4ce, port of MAME's `tektagt_state`).
+
+| Set | macOS core (attract, no input) | Vita3K, NEON VPK, 5400 frames |
+| --- | --- | --- |
+| `tekken3` (World, TET2/VER.E1) | boots; attract demo fights from ~60 s | PASS, report and capture; 91 s |
+| `tektagt` (World, TEG2/VER.C1) | boots; VS screen, time records, demo fight | PASS, report and capture; 91 s |
+
+Both report no illegal H8 instruction, no unmapped access, and C352 output
+(peak 5886 and 7590). `tools/vita-harness/run_system12_vita3k.py` runs any
+prepared profile in an isolated Vita3K (it reuses the Soul Calibur runner's
+isolation and packaging) and keeps the report, the final frame and Vita3K's
+screenshots. Not yet run on the console.
