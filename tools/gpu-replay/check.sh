@@ -25,11 +25,17 @@ for t in $OUT/*.gtr; do
       $OUT/gpu-replay-armv7 $t | sed 's/ [0-9.]* ms\/loop//')
   echo "$n mac   $m" >> $RES
   echo "$n armv7 $a" >> $RES
+  # gpu_neon's two-stage renderer must give the same frames and VRAM
+  mp=$($OUT/gpu-replay-mac $t --pipeline 2>/dev/null | sed 's/ [0-9.]* ms\/loop//')
+  ap=$(docker run --rm --platform linux/arm/v7 -v "$ROOT:$ROOT" -w "$ROOT" pcsx-armv7-build \
+      $OUT/gpu-replay-armv7 $t --pipeline 2>/dev/null | sed 's/ [0-9.]* ms\/loop//')
+  [ "$mp" = "$m" ] || echo "$n mac   pipeline differs: $mp" >> $RES
+  [ "$ap" = "$a" ] || echo "$n armv7 pipeline differs: $ap" >> $RES
 done
 cat $RES
 if [ $UPDATE = 1 ]; then cp $RES $BASE; echo "baseline updated"; exit 0; fi
 st=0
-grep -q MISMATCH $RES && { echo "FAIL: replay mismatch"; st=1; }
+grep -q "MISMATCH\|differs" $RES && { echo "FAIL: replay mismatch"; st=1; }
 if [ -f $BASE ]; then
   diff $BASE $RES >/dev/null && echo "OK: identical to baseline" || { echo "FAIL: differs from baseline"; diff $BASE $RES; st=1; }
 fi

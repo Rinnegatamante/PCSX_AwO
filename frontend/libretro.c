@@ -3218,6 +3218,17 @@ static void update_variables(bool in_flight)
    }
 #endif
 
+#if defined(GPU_NEON) && defined(USE_ASYNC_GPU)
+   var.key = "pcsx_rearmed_neon_two_stage";
+   var.value = NULL;
+
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      extern int psx_gpu_pipeline_requested;
+      psx_gpu_pipeline_requested = strcmp(var.value, "enabled") == 0;
+   }
+#endif
+
 #ifdef GPU_PEOPS
    var.value = NULL;
    var.key = "pcsx_rearmed_gpu_peops_odd_even_bit";

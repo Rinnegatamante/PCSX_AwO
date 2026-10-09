@@ -69,6 +69,7 @@ sthread_t *pcsxr_sthread_create(void (*thread_func)(void *),
 		stack_size = new_dynarec_estimate_stack_size();
 		// fallthrough
 	case PCSXRT_GPU:
+	case PCSXRT_GPU2:
 		core_id = is_new_3ds ? 2 : 1;
 		break;
 	case PCSXRT_COUNT:
@@ -106,7 +107,7 @@ sthread_t *pcsxr_sthread_create(void (*thread_func)(void *),
 	{
 		const char * const pcsxr_tnames[PCSXRT_COUNT] = {
 			"pcsxr-cdrom", "pcsxr-drc", "pcsxr-gpu", "pcsxr-spu",
-			"pcsxr-board"
+			"pcsxr-board", "pcsxr-gpu2"
 		};
 		pthread_setname_np(h->id, pcsxr_tnames[type]);
 	}

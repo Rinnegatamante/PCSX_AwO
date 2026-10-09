@@ -6,7 +6,7 @@
  * assembly) and to check that renderer changes keep every displayed frame
  * and the final VRAM byte-identical.
  *
- *   gpu-replay TRACE [--loops N] [--hash FILE] [--no-frame-hash] [--dump-vram FILE]
+ *   gpu-replay TRACE [--loops N] [--hash FILE] [--no-frame-hash] [--dump-vram FILE] [--pipeline]
  *
  * Trace: 32-word header (magic "SGTR", version 1, VRAM rows, GPU model, from,
  * to, cbs fields, start frame, PSX RAM size), status word, 256 control words,
@@ -49,6 +49,12 @@ static uint64_t frame_hash = 0xcbf29ce484222325ull;
 static unsigned flips;
 static FILE *hash_out;
 static int no_frame_hash;
+#ifdef PSX_GPU_PIPELINE
+extern int psx_gpu_pipeline_requested;
+#endif
+#ifdef PSX_GPU_PIPELINE_STATS
+void psx_gpu_pipeline_print_stats(void);
+#endif
 
 static uint64_t fnv(uint64_t h, const void *p, size_t n)
 {
@@ -133,6 +139,10 @@ int main(int argc, char **argv)
       loops = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--hash") && i + 1 < argc)
       hash_out = fopen(argv[++i], "w");
+#ifdef PSX_GPU_PIPELINE
+    else if (!strcmp(argv[i], "--pipeline"))   /* gpu_neon's two-stage renderer */
+      psx_gpu_pipeline_requested = 1;
+#endif
     else if (!strcmp(argv[i], "--no-frame-hash"))   /* profiling: skip the flip hashes */
       no_frame_hash = 1;
     else if (!strcmp(argv[i], "--dump-vram") && i + 1 < argc)
@@ -244,6 +254,10 @@ int main(int argc, char **argv)
     }
   }
   double ms = (now() - t0) * 1000.0 / loops;
+#ifdef PSX_GPU_PIPELINE_STATS
+  if (psx_gpu_pipeline_requested)
+    psx_gpu_pipeline_print_stats();
+#endif
   GPUfreeze(1, fz, &vram);
   vram_hash = fnv(0xcbf29ce484222325ull, vram, vram_words * 4);
   if (dump_path) {

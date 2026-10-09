@@ -275,6 +275,10 @@ ifeq "$(BUILTIN_GPU)" "neon"
 CFLAGS += -DGPU_NEON
 OBJS += plugins/gpu_neon/psx_gpu_if.o
 plugins/gpu_neon/psx_gpu_if.o: CFLAGS += -DNEON_BUILD -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP
+ifeq "$(USE_ASYNC_GPU)" "1"
+# optional second render stage (core option), on another thread
+plugins/gpu_neon/psx_gpu_if.o: CFLAGS += -DPSX_GPU_PIPELINE
+endif
 frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
  ifeq "$(HAVE_NEON_ASM)$(GPU_NEON_USE_C)" "10"
  OBJS += plugins/gpu_neon/psx_gpu/psx_gpu_arm_neon.o

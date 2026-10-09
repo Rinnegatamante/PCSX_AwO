@@ -750,6 +750,9 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
           break;
         }
   
+#ifdef PSX_GPU_PIPELINE
+        pipeline_viewport_change(psx_gpu);
+#endif
         psx_gpu->viewport_start_x = viewport_start_x;
         psx_gpu->viewport_start_y = viewport_start_y;
 
@@ -774,6 +777,9 @@ u32 gpu_parse(psx_gpu_struct *psx_gpu, u32 *list, u32 size, u32 *ex_regs,
           break;
         }
 
+#ifdef PSX_GPU_PIPELINE
+        pipeline_viewport_change(psx_gpu);
+#endif
         psx_gpu->viewport_end_x = viewport_end_x;
         psx_gpu->viewport_end_y = viewport_end_y;
 

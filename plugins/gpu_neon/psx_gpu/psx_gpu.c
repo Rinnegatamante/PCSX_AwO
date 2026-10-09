@@ -31,6 +31,22 @@
 #endif
 #include "../../../include/compiler_features.h"
 
+#ifdef PSX_GPU_PIPELINE
+/* Second render stage (psx_gpu_if.c): full block buffers are textured,
+ * shaded and blended on another thread; see the comment there. */
+static int pipeline_submit(psx_gpu_struct *psx_gpu);
+static void pipeline_wait_idle(psx_gpu_struct *psx_gpu);
+static void pipeline_before_texture_read(psx_gpu_struct *psx_gpu);
+static void pipeline_viewport_change(psx_gpu_struct *psx_gpu);
+#ifdef PSX_GPU_PIPELINE_STATS
+enum { PLS_SUBMIT, PLS_FULL, PLS_CACHE, PLS_SPRITE, PLS_DIRECT, PLS_FLUSH, PLS_COUNT };
+static void pipeline_stat(int reason);
+#define PL_STAT(r) pipeline_stat(r)
+#else
+#define PL_STAT(r)
+#endif
+#endif
+
 #if 0
 void dump_r_d(const char *name, void *dump);
 void dump_r_q(const char *name, void *dump);
@@ -586,6 +602,13 @@ void flush_render_block_buffer(psx_gpu_struct *psx_gpu)
     render_block_handler_struct *render_block_handler =
      psx_gpu->render_block_handler;
 
+#ifdef PSX_GPU_PIPELINE
+    if(pipeline_submit(psx_gpu))
+    {
+      psx_gpu->num_blocks = 0;
+      return;
+    }
+#endif
 #if defined(__arm__) && defined(NEON_BUILD) && !defined(SIMD_BUILD)
     // the asm doesn't bother to save callee-save vector regs, so do it here
     __asm__ __volatile__("":::"q4","q5","q6","q7");
@@ -4173,6 +4196,10 @@ static noinline void setup_sprite_untextured_simple(psx_gpu_struct *psx_gpu,
   {
     flush_render_block_buffer(psx_gpu);
   }
+#ifdef PSX_GPU_PIPELINE
+  PL_STAT(PLS_DIRECT);
+  pipeline_wait_idle(psx_gpu);   /* writes VRAM directly */
+#endif
 
   while(height)
   {
@@ -4415,6 +4442,11 @@ void render_sprite(psx_gpu_struct *psx_gpu, s32 x, s32 y, u32 u, u32 v,
   render_block_handler_struct *render_block_handler =
    &(render_sprite_block_handlers[render_state]);
   psx_gpu->render_block_handler = render_block_handler;
+
+#ifdef PSX_GPU_PIPELINE
+  if(render_state & RENDER_FLAGS_TEXTURE_MAP)
+    pipeline_before_texture_read(psx_gpu);
+#endif
 
   ((setup_sprite_function_type *)render_block_handler->setup_blocks)
    (psx_gpu, x, y, u, v, *width, *height, color);
@@ -4714,6 +4746,10 @@ void render_line(psx_gpu_struct *psx_gpu, vertex_struct *vertexes, u32 flags,
   u16 *vram_ptr;
 
   flush_render_block_buffer(psx_gpu);
+#ifdef PSX_GPU_PIPELINE
+  PL_STAT(PLS_DIRECT);
+  pipeline_wait_idle(psx_gpu);   /* lines write VRAM directly */
+#endif
   psx_gpu->primitive_type = PRIMITIVE_TYPE_LINE;
 
   vertex_struct *vertex_a = &(vertexes[0]);
@@ -4945,6 +4981,10 @@ void render_block_fill(psx_gpu_struct *psx_gpu, u32 color, u32 x, u32 y,
   if((width == 0) || (height == 0))
     return;
 
+#ifdef PSX_GPU_PIPELINE
+  PL_STAT(PLS_DIRECT);
+  pipeline_wait_idle(psx_gpu);
+#endif
   invalidate_texture_cache_region(psx_gpu, x, y, x + width - 1, y + height - 1);
 
   u32 r = color & 0xFF;

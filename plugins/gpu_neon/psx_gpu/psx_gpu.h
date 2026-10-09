@@ -303,6 +303,7 @@ void render_line(psx_gpu_struct *gpu, vertex_struct *vertexes, u32 flags,
 texture_page_mask_t texture_region_mask(s32 x1, s32 y1, s32 x2, s32 y2);
 void update_type1_interleaved_texture_cache(psx_gpu_struct *psx_gpu, int depth);
 
+void update_texture_4bpp_cache(psx_gpu_struct *psx_gpu);
 void update_texture_8bpp_cache(psx_gpu_struct *psx_gpu);
 void flush_render_block_buffer(psx_gpu_struct *psx_gpu);
 

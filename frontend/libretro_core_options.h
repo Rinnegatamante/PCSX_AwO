@@ -243,6 +243,22 @@ struct retro_core_option_v2_definition option_defs_us[] = {
    },
 #endif
 #endif // DRC_DISABLE
+#if defined(GPU_NEON) && defined(USE_ASYNC_GPU)
+   {
+      "pcsx_rearmed_neon_two_stage",
+      "(GPU) NEON two-stage rendering",
+      NULL,
+      "With threaded rendering, texture, shade and blend pixel blocks on one more thread while the GPU thread sets up the next primitives. Results are identical; it needs a free CPU core.",
+      NULL,
+      "video",
+      {
+         { "disabled", NULL },
+         { "enabled",  NULL },
+         { NULL, NULL },
+      },
+      "disabled",
+   },
+#endif
 #if defined(ARCADE_SYSTEM12) && defined(SYSTEM12_BOARD_THREAD)
    {
       "pcsx_rearmed_system12_board_thread",

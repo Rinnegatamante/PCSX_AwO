@@ -2364,7 +2364,7 @@ void setup_blocks_shaded_untextured_dithered_unswizzled_direct(psx_gpu_struct
   setup_blocks_do(shaded, untextured, dithered, unswizzled, direct);
 }
 
-static void update_texture_4bpp_cache(psx_gpu_struct *psx_gpu)
+void update_texture_4bpp_cache(psx_gpu_struct *psx_gpu)
 {
   u32 current_texture_page = psx_gpu->current_texture_page;
   u8 *texture_page_ptr = psx_gpu->texture_page_base;
