@@ -851,6 +851,11 @@ static void emit_cmovb_imm(int imm,u_int rt)
   emit_cmov_imm(COND_CC, COND_CS, imm, rt);
 }
 
+static void emit_cmovae_imm(int imm,u_int rt)
+{
+  emit_cmov_imm(COND_CS, COND_CC, imm, rt);
+}
+
 static void emit_cmoveq_reg(u_int rs,u_int rt)
 {
   assem_debug("csel %s,%s,%s,eq\n",regname[rt],regname[rs],regname[rt]);
@@ -867,12 +872,6 @@ static void emit_cmovl_reg(u_int rs,u_int rt)
 {
   assem_debug("csel %s,%s,%s,lt\n",regname[rt],regname[rs],regname[rt]);
   output_w32(0x1a800000 | (COND_LT << 12) | rm_rn_rd(rt, rs, rt));
-}
-
-static void emit_cmovb_reg(u_int rs,u_int rt)
-{
-  assem_debug("csel %s,%s,%s,cc\n",regname[rt],regname[rs],regname[rt]);
-  output_w32(0x1a800000 | (COND_CC << 12) | rm_rn_rd(rt, rs, rt));
 }
 
 static void emit_cmovs_reg(u_int rs,u_int rt)
