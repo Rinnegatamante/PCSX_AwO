@@ -6833,6 +6833,8 @@ void new_dynarec_init(void)
   ret = sceKernelOpenVMDomain();
   if (ret)
     SysPrintf("sceKernelOpenVMDomain: %x\n", ret);
+  // the block can hold a previous app's data; get_trampoline() needs empty slots
+  memset(&ndrc->tramp, 0, sizeof(ndrc->tramp));
   #elif defined(_MSC_VER)
   ndrc = VirtualAlloc(NULL, sizeof(*ndrc), MEM_COMMIT | MEM_RESERVE,
     PAGE_EXECUTE_READWRITE);
