@@ -38,6 +38,8 @@ struct core {
     void (*run)(void);
     void (*get_system_av_info)(struct retro_system_av_info *);
     void (*system12_report)(FILE *);
+    void *(*get_memory_data)(unsigned);
+    size_t (*get_memory_size)(unsigned);
     void **psx_cpu;
     void *psx_rec;
 };
@@ -313,17 +315,34 @@ static double now_seconds(void)
     return t.tv_sec + t.tv_nsec * 1e-9;
 }
 
+/* FNV-1a over main RAM in 64-bit words. The first 64 KiB hold the BIOS
+ * kernel, where exception handlers save registers the dynarec may leave
+ * stale when they are dead; their values differ between backends without
+ * any effect, so they are left out. */
+static uint64_t ram_hash(void)
+{
+    const uint8_t *ram = core.get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+    size_t size = core.get_memory_size(RETRO_MEMORY_SYSTEM_RAM), i;
+    uint64_t hash = 1469598103934665603ull, word;
+    for (i = 0x10000; ram && i + 8 <= size; i += 8) {
+        memcpy(&word, ram + i, 8);
+        hash = (hash ^ word) * 1099511628211ull;
+    }
+    return hash;
+}
+
 static void usage(const char *name)
 {
     fprintf(stderr, "usage: %s --core CORE.dylib --system12 DIR --frames N [--inputs CSV] "
         "[--capture-ppm FILE] [--report-system12 FILE] [--wav FILE] "
-        "[--system-dir DIR] [--save-dir DIR] [--option KEY=VALUE]...\n", name);
+        "[--hash-ram FILE] [--system-dir DIR] [--save-dir DIR] [--option KEY=VALUE]...\n", name);
 }
 
 int main(int argc, char **argv)
 {
     const char *core_path = NULL, *game = NULL, *inputs = NULL, *ppm = NULL;
-    const char *report = NULL, *wav_path = NULL;
+    const char *report = NULL, *wav_path = NULL, *hash_path = NULL;
+    FILE *hash_out = NULL;
     unsigned long frames = 0, run;
     struct retro_game_info info = {0};
     struct retro_system_av_info av = {0};
@@ -339,6 +358,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--capture-ppm") && next) ppm = argv[++i];
         else if (!strcmp(argv[i], "--report-system12") && next) report = argv[++i];
         else if (!strcmp(argv[i], "--wav") && next) wav_path = argv[++i];
+        else if (!strcmp(argv[i], "--hash-ram") && next) hash_path = argv[++i];
         else if (!strcmp(argv[i], "--system-dir") && next) system_dir = argv[++i];
         else if (!strcmp(argv[i], "--save-dir") && next) save_dir = argv[++i];
         else if (!strcmp(argv[i], "--option") && next && override_count < MAX_OPTIONS) {
@@ -372,6 +392,8 @@ int main(int argc, char **argv)
     core.system12_report = symbol("system12_report", 0);
     core.psx_cpu = symbol("psxCpu", 0);
     core.psx_rec = symbol("psxRec", 0);
+    core.get_memory_data = symbol("retro_get_memory_data", 1);
+    core.get_memory_size = symbol("retro_get_memory_size", 1);
 
     core.set_environment(environment_cb);
     core.set_video_refresh(video_cb);
@@ -393,13 +415,20 @@ int main(int argc, char **argv)
         wav_header(wav, (unsigned)av.timing.sample_rate, 0);
     }
 
+    if (hash_path && !(hash_out = fopen(hash_path, "w"))) { perror(hash_path); return 3; }
+
     started = now_seconds();
-    for (run = 0; run < frames; run++) core.run();
+    for (run = 0; run < frames; run++) {
+        core.run();
+        if (hash_out)
+            fprintf(hash_out, "%lu %016llx\n", run + 1, (unsigned long long)ram_hash());
+    }
     elapsed = now_seconds() - started;
 
     fprintf(stderr, "libretro-host: cpu=%s frames=%lu elapsed=%.3fs fps=%.2f "
         "audio_frames=%llu rate=%.1f\n",
-        core.psx_cpu && core.psx_rec && *core.psx_cpu == core.psx_rec ? "ari64" : "interpreter",
+        !core.psx_cpu || !core.psx_rec ? "unknown" :
+        *core.psx_cpu == core.psx_rec ? "ari64" : "interpreter",
         frames, elapsed, frames / elapsed, (unsigned long long)audio_frames,
         av.timing.sample_rate);
     if (replay_active) {
@@ -415,6 +444,7 @@ int main(int argc, char **argv)
         else { core.system12_report(out); if (fclose(out)) result = 3; }
     }
     if (ppm && write_ppm(ppm)) { fprintf(stderr, "cannot write %s\n", ppm); result = 3; }
+    if (hash_out && fclose(hash_out)) result = 3;
     if (wav) {
         fseek(wav, 0, SEEK_SET);
         wav_header(wav, (unsigned)av.timing.sample_rate, (uint32_t)wav_bytes);
