@@ -1398,3 +1398,43 @@ The C352 implementation itself (superctr, also used by libvgm) is the best
 available model and now matches bit for bit where the game streams agree. A
 direct-feed recording of a real System 12 PCB is the only better reference
 for pitch and boot timing. Evidence: `artifacts/validation/c352-mame-20261009/`.
+
+## NEON assembly renderer for console and arcade (2026-10-09)
+
+The ARMv7 assembly renderer (`psx_gpu_arm_neon.S`) was blocked in arcade
+builds, so the Vita used the C renderer for everything. One generic build now
+runs console games (512 VRAM rows) and System 12 (1024 rows) with the
+assembly, and the console-only build is unchanged.
+
+What changed for `PCSX_SYSTEM12`:
+
+- `psx_gpu_offsets_update.c` writes `psx_gpu_offsets_system12.h` for the
+  arcade layout (64 texture pages, 64-bit page masks).
+- In arcade, the five masks sit after the bitfields. Earlier, they pushed
+  16-bit fields beyond the 8-bit offsets of `ldrh`/`ldrsh`. `blocks` stays
+  at 0x200 (one immediate, 64-byte aligned).
+- After each dirty-page `tst`, `test_texture_mask_high` tests the high words
+  when the low words are clean (three conditional instructions; empty on
+  console). `update_texture_4bpp_cache` clears both words.
+- Model 1 interleaved textures (TPAGE bit 13) go through
+  `update_texture_4bpp_cache_type1()`, the C path the C renderer uses.
+- `Makefile.vita` uses the assembly by default (`VITA_GPU_NEON_C=1` selects
+  C). `build_armv7_core.sh` does the same.
+
+Validation (ARMv7 in Docker/qemu unless noted):
+
+| Check | Result |
+| --- | --- |
+| Console `psx_gpu_arm_neon.o`, before and after | byte-identical |
+| Soul Calibur replay, 12,000 frames: assembly against the ARM64 C renderer | RAM hash per frame, video hash per frame (9,793 distinct images), final PPM and WAV identical |
+| Crash Bandicoot, 5,000 frames with input into N. Sanity Beach: generic build against console-only build | RAM and video hash identical in every frame (723 distinct images) |
+| Type-1 selftests (512 and 1024 rows), ARMv7 harness with assembly | PASS; with the C helper disabled they FAIL, so the path is exercised |
+| ARM64 Mac core after the layout change | PPM, WAV and report identical to the reference |
+| Vita3K VPK, replay frames 3000/3300/3600 | passed; equal to the Mac frames at 15-bit color |
+
+Cost for console games in the generic build: three conditional
+instructions per texture-cache check, a runtime VRAM height and 4 MiB more
+texture cache, which the generic build already had with the C renderer. The
+speed gain of the assembly needs a physical Vita to measure; qemu timing is
+not representative of NEON cost. Evidence:
+`artifacts/validation/neon-asm-arcade-20261009/`.
