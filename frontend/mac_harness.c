@@ -337,6 +337,47 @@ static void poll_interactive_input(void)
         system12_set_input(keys[i].control, event.type == SDL_EVENT_KEY_DOWN);
   }
 }
+
+/* Interactive sound: the board's 88.2 kHz stereo goes to an SDL stream, and
+ * the queued audio paces the loop, as on the Vita. */
+static SDL_AudioStream *interactive_audio;
+
+static void interactive_audio_cb(void *opaque, const int16_t *stereo,
+    unsigned frames)
+{
+  (void)opaque;
+  SDL_PutAudioStreamData(interactive_audio, stereo, (int)(frames * 4));
+}
+
+static int open_interactive_audio(void)
+{
+  const SDL_AudioSpec spec = { SDL_AUDIO_S16, 2, 88200 };
+  if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) return -1;
+  interactive_audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+      &spec, NULL, NULL);
+  if (!interactive_audio) return -1;
+  system12_set_audio_output(interactive_audio_cb, NULL);
+  SDL_ResumeAudioStreamDevice(interactive_audio);
+  return 0;
+}
+
+/* Keep about three frames queued: enough to avoid gaps, little latency. */
+static void wait_interactive_audio(void)
+{
+  const int limit = 88200 * 4 / 60 * 3;
+  while (!interrupted && SDL_GetAudioStreamQueued(interactive_audio) > limit) {
+    SDL_DelayNS(1000000);
+    poll_interactive_input();
+  }
+}
+
+static void close_interactive_audio(void)
+{
+  if (!interactive_audio) return;
+  system12_set_audio_output(NULL, NULL);
+  SDL_DestroyAudioStream(interactive_audio);
+  interactive_audio = NULL;
+}
 #endif
 
 #ifdef PCSX_SYSTEM12
@@ -1001,6 +1042,8 @@ int main(int argc, char **argv)
   if (interactive) {
     interactive_started_ns = SDL_GetTicksNS();
     interactive_frame = frame_counter;
+    if (open_interactive_audio())
+      fprintf(stderr, "Interactive: no audio (%s), pacing at 60 Hz\n", SDL_GetError());
     fprintf(stderr, "Interactive: 5 coin, 1 start, arrows move, A/S/D/Space buttons, Escape exit\n");
   }
 #endif
@@ -1042,10 +1085,14 @@ int main(int argc, char **argv)
         poll_interactive_input();
       if (frame_counter != interactive_frame) {
         /* Pace presentation only; emulated board clocks remain unchanged. */
-        uint64_t target = interactive_started_ns +
-            (uint64_t)(frame_counter - start_frame) * 1000000000 / 60;
-        uint64_t now = SDL_GetTicksNS();
-        if (target > now) SDL_DelayNS(target - now);
+        if (interactive_audio)
+          wait_interactive_audio();
+        else {
+          uint64_t target = interactive_started_ns +
+              (uint64_t)(frame_counter - start_frame) * 1000000000 / 60;
+          uint64_t now = SDL_GetTicksNS();
+          if (target > now) SDL_DelayNS(target - now);
+        }
         interactive_frame = frame_counter;
       }
     }
@@ -1165,6 +1212,9 @@ int main(int argc, char **argv)
     }
   }
   clock_gettime(CLOCK_MONOTONIC, &end);
+#if defined(PCSX_NATIVE_VITA_PATH) && defined(PCSX_SYSTEM12)
+  close_interactive_audio();
+#endif
   if (!result && reset_at_cycle && !reset_performed) {
     fprintf(stderr, "requested soft-reset cycle was not reached\n");
     result = 1;
