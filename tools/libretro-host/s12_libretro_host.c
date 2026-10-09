@@ -331,18 +331,31 @@ static uint64_t ram_hash(void)
     return hash;
 }
 
+/* FNV-1a over the last presented RGB565 frame and its size. */
+static uint64_t video_hash(void)
+{
+    uint64_t hash = 1469598103934665603ull;
+    size_t i, n = (size_t)last_w * last_h;
+    hash = (hash ^ last_w) * 1099511628211ull;
+    hash = (hash ^ last_h) * 1099511628211ull;
+    for (i = 0; last_frame && i < n; i++)
+        hash = (hash ^ last_frame[i]) * 1099511628211ull;
+    return hash;
+}
+
 static void usage(const char *name)
 {
     fprintf(stderr, "usage: %s --core CORE.dylib --system12 DIR --frames N [--inputs CSV] "
         "[--capture-ppm FILE] [--report-system12 FILE] [--wav FILE] "
-        "[--hash-ram FILE] [--system-dir DIR] [--save-dir DIR] [--option KEY=VALUE]...\n", name);
+        "[--hash-ram FILE] [--hash-video FILE] [--system-dir DIR] [--save-dir DIR] [--option KEY=VALUE]...\n", name);
 }
 
 int main(int argc, char **argv)
 {
     const char *core_path = NULL, *game = NULL, *inputs = NULL, *ppm = NULL;
     const char *report = NULL, *wav_path = NULL, *hash_path = NULL;
-    FILE *hash_out = NULL;
+    const char *video_hash_path = NULL;
+    FILE *hash_out = NULL, *video_hash_out = NULL;
     unsigned long frames = 0, run;
     struct retro_game_info info = {0};
     struct retro_system_av_info av = {0};
@@ -359,6 +372,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--report-system12") && next) report = argv[++i];
         else if (!strcmp(argv[i], "--wav") && next) wav_path = argv[++i];
         else if (!strcmp(argv[i], "--hash-ram") && next) hash_path = argv[++i];
+        else if (!strcmp(argv[i], "--hash-video") && next) video_hash_path = argv[++i];
         else if (!strcmp(argv[i], "--system-dir") && next) system_dir = argv[++i];
         else if (!strcmp(argv[i], "--save-dir") && next) save_dir = argv[++i];
         else if (!strcmp(argv[i], "--option") && next && override_count < MAX_OPTIONS) {
@@ -416,12 +430,18 @@ int main(int argc, char **argv)
     }
 
     if (hash_path && !(hash_out = fopen(hash_path, "w"))) { perror(hash_path); return 3; }
+    if (video_hash_path && !(video_hash_out = fopen(video_hash_path, "w"))) {
+        perror(video_hash_path); return 3;
+    }
 
     started = now_seconds();
     for (run = 0; run < frames; run++) {
         core.run();
         if (hash_out)
             fprintf(hash_out, "%lu %016llx\n", run + 1, (unsigned long long)ram_hash());
+        if (video_hash_out)
+            fprintf(video_hash_out, "%lu %ux%u %016llx\n", run + 1, last_w, last_h,
+                (unsigned long long)video_hash());
     }
     elapsed = now_seconds() - started;
 
@@ -445,6 +465,7 @@ int main(int argc, char **argv)
     }
     if (ppm && write_ppm(ppm)) { fprintf(stderr, "cannot write %s\n", ppm); result = 3; }
     if (hash_out && fclose(hash_out)) result = 3;
+    if (video_hash_out && fclose(video_hash_out)) result = 3;
     if (wav) {
         fseek(wav, 0, SEEK_SET);
         wav_header(wav, (unsigned)av.timing.sample_rate, (uint32_t)wav_bytes);
