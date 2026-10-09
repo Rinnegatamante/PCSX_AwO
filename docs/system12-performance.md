@@ -1250,3 +1250,53 @@ Normal VPK, 12,000-frame replay: console smoke PASS, 177/177 events, no
 unmapped accesses, H8 report identical to the previous Vita3K run (same
 instructions 593,505,145), guest elapsed 257.5 s to 215.7 s (46.6 to 55.6 fps).
 A physical Vita must confirm pacing and cost; Vita3K establishes behavior only.
+
+### Single-thread budget and H8 interpreter overhead (2026-10-09)
+
+Without a physical Vita, cost is tracked as retired AArch64 instructions on
+the M1 (stable, unlike wall time). The gameplay half of the replay (frames
+6,000-12,000) cost 16.0 M instructions per frame before this work. A
+Cortex-A9 at 444 MHz (dual-issue, limited out-of-order) at 0.8-1.2
+instructions per cycle has room for about 6-9 M ARMv7 instructions per frame
+at 60 fps; the ARMv7 count of the same work is likely somewhat higher.
+
+An isolated H8 loop (`bench/h8_bench.cpp` in the evidence) cost 485 host
+instructions per emulated H8 instruction. Exact changes, each re-verified
+against the replay's byte-identical PPM/WAV/report:
+
+| Change | Host instr. per H8 instr. |
+| --- | ---: |
+| Baseline | 485 |
+| Direct code ROM reads (`H8Config.rom`) | 345 |
+| Inline timer deadline/tick, IRQ refresh once per run | 289 |
+| Cached next event, lazy attotime, IRQ input flag | 252 |
+| Inline IRQ check in `prefetch_done`, out-of-line slow fetch | 240 |
+| `run_batch`: states back to back, one commit per bound | 190 |
+| First-level table dispatch generated from `do_exec_full()` | 169 |
+| Forced inline code fetch | 148 |
+
+`run_batch` keeps `m_icount` accumulating from the committed cycle, so
+checkpoints, `h8_current_cycle()`, callback times and the event at the bound
+are unchanged; the bound is recomputed at a state boundary after peripheral
+state changed, a clock cap keeps lazy attotime exact, and possible spin-loop
+heads leave the batch for the single-state path. `h8_generate.py` emits
+`h8_dispatch.inc` from the same generated switch, so table and switch agree
+by construction.
+
+Gameplay half now: **11.39 M instructions per frame** (8.83 M for the first
+half). Time shares in that half: GPU lists 38%, H8 31%, C352 21%, rest 10%.
+Repeating each C352 block on a copy attributes exactly 1.4 M instructions per
+frame to C352 (about 54 per busy voice and sample). A voice-major C352 mixer
+produced identical audio but 1% fewer instructions and 3% more time in an
+isolated benchmark, so it was not kept.
+
+Validation: H8 unit/UBSan suites, MAME H8 peripherals (1,440 comparisons, 0
+differences), SCI sync timers, all System 12 MAME gates, 108 Python tests,
+the Mac harness per-block replay (PPM/report identical) and a Vita3K 12,000-
+frame replay whose H8 report matches the previous VPK exactly.
+
+The remaining single-thread gap is mostly PSX DRC plus GPU, which is the
+same work pcsx_rearmed performs for console games, and the ARMv7/A9 factor,
+which only a physical Vita can measure. Further single-thread options: the
+ARMv7 NEON assembly GPU renderer (`GPU_NEON_USE_C=0`, needs hardware to
+measure), NEON mixing of several C352 voices, and the remaining H8 bodies.
