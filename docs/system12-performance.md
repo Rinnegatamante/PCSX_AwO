@@ -1078,4 +1078,38 @@ python3 tests/check_system12_psx_step.py --harness build/mac-psx-source-step-202
 python3 tests/check_system12_mailbox.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-mailbox.json --output native-mailbox.json --source-step
 ```
 
-The mailbox command deliberately exits nonzero while the slice order differs.
+The mailbox command exited nonzero until the slice coordinator below.
+
+### MAME timeslice coordinator: mailbox exact (2026-10-09)
+
+The source step profile now drives the board through
+`system12_slice_begin()`/`system12_slice_end()` instead of catching the H8 up
+after every instruction. Each slice targets `min(base + 1/60 s, next global
+timer)`, with the quantum equal to MAME `attotime::from_hz(60)`
+(16 666 666 666 666 666 as). Global timers currently are the source screen
+VBLANK start/end deadlines and the H8 SCI sync timers. The main CPU runs
+`floor((target - now) / 40 ns)` instructions; when it stops short, the target
+moves to its local time but not before the base, as in
+`device_scheduler::timeslice`. The H8 then runs to the target through the
+existing truncated-period attotime conversion, RTC/EEPROM/C352 catch up, the
+base advances, and due SCI sync timers retire (their callbacks are empty).
+Other System12 profiles are unchanged.
+
+**The PSX/H8 mailbox now matches MAME 7/7**, including the main CPU's last
+zero poll at 16 666 520 ns and the response at 16 666 680 ns. Instruction
+timing 8/8, step cases 6/6, production RTC 8/8, timed C352, vblank fixtures
+and 108 Python tests pass; default interpreter/ARI64 mailbox observations are
+identical to 2026-10-05.
+
+Known gaps: PSX-side MAME timers (root counters, DMA, SIO, CD) are not yet
+slice boundaries. A screen timer between two 40 ns main instruction starts is
+delivered by the core after the next main instruction, while MAME fires it
+first; this affects PSX interrupt phase, not the H8 deadline.
+
+Soul Calibur, 300 frames: source step with slices 3.00 s (per-instruction
+H8 catch-up was 10.28 s), with the same H8 instruction and shared-access
+counts.
+
+```sh
+python3 tests/check_system12_mailbox.py --harness build/mac-psx-source-step-20261009/pcsx-harness --mame mame-mailbox.json --output native-mailbox.json --source-step
+```
