@@ -823,6 +823,7 @@ int system12_load(const char *directory)
     h8config.serial_external_period_as[0] = UINT64_C(542534722222);
     h8config.port_read = sub_port_read; h8config.port_write = sub_port_write;
     h8config.peek8 = sub_peek8; h8config.account_reads = sub_account_reads;
+    h8config.rom = board.sub; h8config.rom_size = (uint32_t)board.sub_size;
     board.h8 = h8_create(&h8config);
     if (!board.pcm || !board.h8 || !board.eeprom) { system12_unload(); return -1; }
     rtc4543_datetime_t epoch = {2026, 10, 4, 7, 12, 0, 0};

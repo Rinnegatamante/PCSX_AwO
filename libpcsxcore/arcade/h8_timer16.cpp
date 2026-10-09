@@ -449,9 +449,5 @@ void H8Timer16::setEventTime(Channel &channel, uint64_t when) noexcept
     }
 }
 
-uint64_t H8Timer16::nextDeadline() const noexcept
-{
-    return m_next_deadline;
-}
 
 } // namespace arcade

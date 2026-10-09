@@ -33,7 +33,7 @@ public:
      * until a source register handler calls updateCounter. nextDeadline()
      * returns the earliest enabled event, or UINT64_MAX when none is scheduled. */
     void update(uint64_t cycle);
-    uint64_t nextDeadline() const noexcept;
+    uint64_t nextDeadline() const noexcept { return m_next_deadline; }
 
 private:
     struct Channel {

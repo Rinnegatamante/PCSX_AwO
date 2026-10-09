@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// The exact idle-loop skip must be invisible: a CPU with peek8/account_reads
-// and one without them stay identical after every h8_run_until call, while
-// external IRQ edges and ADC conversions (internal events) interrupt the spin.
+// The exact idle-loop skip and direct ROM reads must be invisible: a CPU with
+// peek8/account_reads/rom and one without them stay identical after every
+// h8_run_until call, while external IRQ edges and ADC conversions (internal
+// events) interrupt the spin.
 #include "../libpcsxcore/arcade/h8.h"
 #include <cassert>
 #include <cstdio>
@@ -46,7 +47,11 @@ static H8CPU *create(Bus &b, bool skip) {
     word(b, 0x208, 0x5670);                       // RTE
     H8Config cfg{};
     cfg.opaque = &b; cfg.read8 = read8; cfg.write8 = write8; cfg.adc_read = adc_read;
-    if (skip) { cfg.peek8 = peek8; cfg.account_reads = account_reads; }
+    if (skip) {
+        cfg.peek8 = peek8; cfg.account_reads = account_reads;
+        // Code below the stack is never written: serve it as direct ROM.
+        cfg.rom = b.memory.data(); cfg.rom_size = 0x400;
+    }
     b.cpu = h8_create(&cfg);
     assert(b.cpu);
     h8_write_byte(b.cpu, 0xfffff4, 0x01);         // ISCR: IRQ0 edge-triggered

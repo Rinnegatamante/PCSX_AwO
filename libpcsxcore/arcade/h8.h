@@ -49,6 +49,11 @@ typedef struct H8Config {
      * then receives the byte reads the skip did not perform. */
     int (*peek8)(void *opaque, uint32_t address, uint8_t *value);
     void (*account_reads)(void *opaque, uint32_t address, uint64_t count);
+    /* Optional read-only code ROM at external addresses [0, rom_size): reads
+     * there use these bytes instead of read8/read16, which must have no read
+     * side effects in that range. Writes still go to write8/write16. */
+    const uint8_t *rom;
+    uint32_t rom_size;
 } H8Config;
 typedef struct H8Status {
     uint32_t pc, er[8];
