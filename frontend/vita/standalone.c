@@ -377,6 +377,12 @@ static int gxm_init(void)
     int i;
     if (vita2d_init() < 0)
         return -1;
+    /* vita2d's display callback waits for a vblank after each flip by
+     * default: with the audio queue also pacing, a frame finished just past
+     * a vblank waited for the next one (5 ms a frame, 59.5 fps). The flip
+     * still latches at a vblank; only the wait goes, so audio is the one
+     * pacing clock, as on the CPU presentation path. */
+    vita2d_set_vblank_wait(0);
     vita2d_set_clear_color(0xff000000u);
     vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE);
     for (i = 0; i < 2; i++) {
