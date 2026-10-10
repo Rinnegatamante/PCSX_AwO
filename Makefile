@@ -290,6 +290,10 @@ frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
 endif
 ifeq "$(BUILTIN_GPU)" "vita_ctr"
 CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -Iplugins/gpu_vita_ctr/include
+# Render the main target at the presentation size (725x544 on the Vita):
+# polygons at the host's resolution, packed back to VRAM for the game.
+VITA_GL_HD ?= 1
+CFLAGS += -DCTR_NATIVE_WIDESCREEN=$(VITA_GL_HD)
 OBJS += plugins/gpu_vita_ctr/gpulib_if.o \
         plugins/gpu_vita_ctr/native_gpu.o \
         plugins/gpu_vita_ctr/native_renderer.o

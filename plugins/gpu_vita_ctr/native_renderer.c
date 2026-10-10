@@ -276,6 +276,12 @@ global_variable int s_mainLoaded;
 global_variable int s_mainDirty;
 global_variable int s_offscreenLoaded;
 global_variable int s_offscreenDirty;
+/* The main target of the previous scene. A double-buffered game displays a
+ * page one frame after drawing it, so presentation needs the target that
+ * drew that page. It is valid until a VRAM write overlaps its rect. */
+global_variable struct NativeRenderTarget s_prevMainRenderTarget;
+global_variable RECT16 s_prevMainRect;
+global_variable int s_prevMainValid;
 #endif
 
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
@@ -595,6 +601,9 @@ void NativeRenderer_Shutdown(void)
 #endif
 	NativeRenderer_DestroyRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	NativeRenderer_DestroyRenderTarget(&s_prevMainRenderTarget);
+#endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
 	NativeRenderer_DestroyTexture(s_vram.texture);
@@ -930,6 +939,9 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 
 	int physicalWidth = logicalWidth;
 	int physicalHeight = logicalHeight;
+#ifndef CTR_NATIVE_WIDESCREEN
+#define CTR_NATIVE_WIDESCREEN 0
+#endif
 #if CTR_NATIVE_WIDESCREEN
 	if ((g_windowWidth > 0) && (g_windowHeight > 0))
 	{
@@ -2289,6 +2301,7 @@ int NativeRenderer_InitialisePSX(void)
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	s_mainLoaded = s_mainDirty = s_offscreenLoaded = s_offscreenDirty = 0;
 	s_previousOffscreenState = 0;
+	s_prevMainValid = 0;
 #endif
 	SDL_memset(s_vram.cpuPixels, 0, sizeof(s_vram.cpuPixels));
 	s_vram.cpuDirtyRects[0].x = 0;
@@ -2326,6 +2339,9 @@ int NativeRenderer_InitialisePSX(void)
 	// Main and offscreen draws share one explicit render-target contract. The main target stays at CTR's logical display size; host scaling is deferred to presentation.
 	NativeRenderer_InitRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	NativeRenderer_InitRenderTarget(&s_prevMainRenderTarget);
+#endif
 
 	// gen VRAM texture (single, persistent - mirrors PS1's single 1MB VRAM)
 	{
@@ -3145,7 +3161,14 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 	}
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	s_mainLoaded = s_offscreenLoaded = 0;
+	/* Only a target whose rect the write touches is stale; reloading the
+	 * others from VRAM would drop their host-resolution pixels. */
+	if (NativeRenderer_VRAMRectsOverlap(&rect, &s_mainDrawRect))
+		s_mainLoaded = 0;
+	if (NativeRenderer_VRAMRectsOverlap(&rect, &s_previousOffscreen))
+		s_offscreenLoaded = 0;
+	if (NativeRenderer_VRAMRectsOverlap(&rect, &s_prevMainRect))
+		s_prevMainValid = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
@@ -3162,6 +3185,8 @@ internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h)
 	}
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	if (NativeRenderer_VRAMRectsOverlap(&rect, &s_prevMainRect))
+		s_prevMainValid = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
@@ -3465,7 +3490,8 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	                                    s_previousOffscreen.h, true);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	/* Returning to main must include any offscreen writes in VRAM. */
-	s_mainLoaded = 0;
+	if (NativeRenderer_VRAMRectsOverlap(&s_previousOffscreen, &s_mainDrawRect))
+		s_mainLoaded = 0;
 #endif
 }
 
@@ -3967,16 +3993,13 @@ void NativeRenderer_PresentBlank(void)
 	s_previousShader = (ShaderID)-1;
 	s_lastBoundTexture = (TextureID)-1;
 }
-void NativeRenderer_PresentMainRenderTarget(void)
+/* Draws the main render target into a host viewport rectangle. */
+internal void NativeRenderer_DrawMainTarget(const struct NativeRenderTarget *target, int x, int y, int w, int h, int clearBars)
 {
-	if ((s_mainRenderTarget.texture == 0) || (s_mainRenderTarget.width <= 0) || (s_mainRenderTarget.height <= 0))
-	{
-		return;
-	}
-
-	NativeRenderer_SetViewPort(s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h);
+	NativeRenderer_SetViewPort(x, y, w, h);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	NativeRenderer_ClearPresentationBars();
+	if (clearBars)
+		NativeRenderer_ClearPresentationBars();
 
 	NativeRenderer_SetScissorState(0);
 	NativeRenderer_SetBlendMode(BM_NONE);
@@ -3989,7 +4012,7 @@ void NativeRenderer_PresentMainRenderTarget(void)
 #if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	if (s_presentRgbaTexelSizeLoc >= 0)
 	{
-		glUniform2f(s_presentRgbaTexelSizeLoc, 1.0f / (float)s_mainRenderTarget.width, 1.0f / (float)s_mainRenderTarget.height);
+		glUniform2f(s_presentRgbaTexelSizeLoc, 1.0f / (float)target->width, 1.0f / (float)target->height);
 	}
 	if (s_presentRgbaFxaaLoc >= 0)
 	{
@@ -3997,7 +4020,7 @@ void NativeRenderer_PresentMainRenderTarget(void)
 	}
 #endif
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, s_mainRenderTarget.texture);
+	glBindTexture(GL_TEXTURE_2D, target->texture);
 #if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	// FXAA uses subpixel samples from the final native-resolution render target.
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -4019,6 +4042,63 @@ void NativeRenderer_PresentMainRenderTarget(void)
 	s_previousShader = (ShaderID)-1;
 	s_lastBoundTexture = (TextureID)-1;
 }
+
+void NativeRenderer_PresentMainRenderTarget(void)
+{
+	if ((s_mainRenderTarget.texture == 0) || (s_mainRenderTarget.width <= 0) || (s_mainRenderTarget.height <= 0))
+	{
+		return;
+	}
+	NativeRenderer_DrawMainTarget(&s_mainRenderTarget, s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h, 1);
+}
+
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Draws a host-resolution target over its part of the displayed VRAM rect,
+ * if it lies inside it. Returns 0 when it does not. */
+internal int NativeRenderer_OverlayTarget(const struct NativeRenderTarget *target, const RECT16 *r,
+                                          int displayX, int displayY, int displayW, int displayH)
+{
+	if (target->texture == 0 || target->width <= 0 || target->height <= 0 ||
+	    displayW <= 0 || displayH <= 0 || r->w <= 0 || r->h <= 0 ||
+	    r->x < displayX || r->y < displayY ||
+	    r->x + r->w > displayX + displayW || r->y + r->h > displayY + displayH)
+		return 0;
+	const int vx = s_presentViewport.x, vy = s_presentViewport.y;
+	const int vw = s_presentViewport.w, vh = s_presentViewport.h;
+	const int x0 = vx + (r->x - displayX) * vw / displayW;
+	const int x1 = vx + (r->x + r->w - displayX) * vw / displayW;
+	const int top = (r->y - displayY) * vh / displayH;
+	const int bottom = (r->y + r->h - displayY) * vh / displayH;
+	NativeRenderer_DrawMainTarget(target, x0, vy + vh - bottom, x1 - x0, bottom - top, 0);
+	return 1;
+}
+
+/* After the displayed VRAM rectangle has been presented, cover it with the
+ * host-resolution (and multisampled) target that drew it: the current main
+ * target if it still matches VRAM, else the previous scene's one, which is
+ * what a double-buffered game shows. The VRAM under it is the same picture
+ * packed to 15-bit PSX pixels; borders and CPU uploads stay as presented.
+ * Then the main target becomes the previous one; the next scene reloads its
+ * replacement from VRAM. */
+void NativeRenderer_PresentMainOverlay(int displayX, int displayY, int displayW, int displayH)
+{
+	if (!s_mainLoaded || s_mainDirty ||
+	    !NativeRenderer_OverlayTarget(&s_mainRenderTarget, &s_mainDrawRect, displayX, displayY, displayW, displayH))
+	{
+		if (s_prevMainValid)
+			NativeRenderer_OverlayTarget(&s_prevMainRenderTarget, &s_prevMainRect, displayX, displayY, displayW, displayH);
+	}
+	if (s_mainLoaded && !s_mainDirty && s_mainDrawRect.w > 0 && s_mainDrawRect.h > 0)
+	{
+		const struct NativeRenderTarget swap = s_prevMainRenderTarget;
+		s_prevMainRenderTarget = s_mainRenderTarget;
+		s_mainRenderTarget = swap;
+		s_prevMainRect = s_mainDrawRect;
+		s_prevMainValid = 1;
+		s_mainLoaded = 0;
+	}
+}
+#endif
 
 internal TextureID NativeRenderer_CreateGhostReplayTexture(int width, int height, const u8 *pixels)
 {

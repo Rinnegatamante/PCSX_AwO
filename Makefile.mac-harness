@@ -37,6 +37,9 @@ SDL3_CFLAGS := $(shell pkg-config --cflags sdl3)
 SDL3_LIBS := $(shell pkg-config --libs sdl3)
 LIBPNG_CFLAGS := $(shell pkg-config --cflags libpng)
 LIBPNG_LIBS := $(shell pkg-config --libs libpng)
+# Render the Vita GL path's main target at the presentation size (HD).
+VITA_GL_HD ?= 1
+CFLAGS += -DCTR_NATIVE_WIDESCREEN=$(VITA_GL_HD)
 CFLAGS += -DPCSX_NATIVE_VITA_PATH=1 -DGPU_VITA_CTR $(SDL3_CFLAGS) $(LIBPNG_CFLAGS) \
   -DGL_SILENCE_DEPRECATION -Iplugins/gpu_vita_ctr/include
 SOURCES += plugins/gpu_vita_ctr/gpulib_if.c plugins/gpu_vita_ctr/native_gpu.c \

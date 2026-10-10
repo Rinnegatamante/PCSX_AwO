@@ -18,6 +18,7 @@ void NativeRenderer_SwapWindow(void);
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h);
 void NativeRenderer_PresentVRAMDisplay(void);
 void NativeRenderer_PresentMainRenderTarget(void);
+void NativeRenderer_PresentMainOverlay(int displayX, int displayY, int displayW, int displayH);
 void NativeRenderer_PresentVRAMRect(int x, int y, int w, int h);
 void NativeRenderer_SaveVRAM(const char *outputFileName, int x, int y, int width, int height, int readFromFramebuffer);
 void NativeRenderer_Clear(int x, int y, int w, int h, u8 r, u8 g, u8 b);

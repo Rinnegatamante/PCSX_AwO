@@ -147,8 +147,10 @@ void Platform_EndScene(void)
     }
     else {
         NativeRenderer_StoreFrameBuffer(draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h);
-        /* Scanout reads DISPENV, independently of the final GP0 draw page. */
+        /* Scanout reads DISPENV, independently of the final GP0 draw page;
+         * the high-resolution target covers it where it still holds it. */
         NativeRenderer_PresentVRAMRect(display->disp.x, display->disp.y, display->disp.w, display->disp.h);
+        NativeRenderer_PresentMainOverlay(display->disp.x, display->disp.y, display->disp.w, display->disp.h);
     }
 #if defined(PCSX_NATIVE_VITA_PATH) && !defined(__vita__)
     extern void harness_capture_gl_frame(unsigned int frame);
