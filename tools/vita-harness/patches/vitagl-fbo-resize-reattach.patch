@@ -1,0 +1,21 @@
+diff --git a/source/gxm.c b/source/gxm.c
+index a1f8d80..7f283fc 100644
+--- a/source/gxm.c
++++ b/source/gxm.c
+@@ -816,8 +816,14 @@ void scene_reset(void) {
+ 			}
+ #endif
+ 		} else {
+-			// Double check that colorsurface and target texture are synced
+-			if (sceGxmColorSurfaceGetData(&active_write_fb->colorbuffer) != active_write_fb->tex->data) {
++			// Double check that colorsurface and target texture are synced. A
++			// texture reallocated to another size can get the same address back
++			// (its old store freed at once), so compare the size too: a stale
++			// surface larger than the new store makes the GPU write past it.
++			uint32_t tex_w, tex_h;
++			vglGetTexSizes(&active_write_fb->tex->gxm_tex, &tex_w, &tex_h);
++			if (sceGxmColorSurfaceGetData(&active_write_fb->colorbuffer) != active_write_fb->tex->data ||
++				(int)tex_w != active_write_fb->width || (int)tex_h != active_write_fb->height) {
+ 				_glFramebufferTexture2D(active_write_fb, GL_COLOR_ATTACHMENT0, active_write_fb->tex, 1);
+ 			}
+ 			// The scene writes into this texture: count that as a use, so a
