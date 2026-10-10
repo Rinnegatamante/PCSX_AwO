@@ -17,6 +17,7 @@
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/power.h>
 
 #include <arm_neon.h>
 #include <vita2d.h>
@@ -150,6 +151,7 @@ static void vita_log(enum retro_log_level level, const char *fmt, ...)
 
 static bool g_gpu_thread;
 static bool g_board_thread;
+static bool g_stock_clocks; /* --stock-clocks: keep the system's clocks */
 static bool g_gpu2;   /* gpu_neon's second render stage */
 static bool g_fb_main; /* framebuffers in main memory instead of CDRAM */
 /* Present through GXM (the GPU scales raw VRAM). Not with the vitaGL
@@ -1100,6 +1102,7 @@ int main(int argc, char **argv)
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
+        if (!strcmp(argv[ret], "--stock-clocks")) { g_stock_clocks = true; continue; }
         if (!strcmp(argv[ret], "--gpu2")) { g_gpu2 = true; continue; }
         if (!strcmp(argv[ret], "--gpu2-core") && ret + 1 < argc) {
             extern int pcsxr_gpu2_core;
@@ -1262,6 +1265,17 @@ int main(int argc, char **argv)
 #endif
 
     sceClibPrintf("pcsx-vita: main entered\n");
+    /* Apps start at the system's clocks (GPU 111 MHz): the vitaGL renderer
+     * was GPU-bound at ~100 ms a frame there. These are the Vita's usual
+     * maximums. */
+    if (!g_stock_clocks) {
+        scePowerSetArmClockFrequency(444);
+        scePowerSetBusClockFrequency(222);
+        scePowerSetGpuClockFrequency(222);
+        scePowerSetGpuXbarClockFrequency(166);
+    }
+    sceClibPrintf("pcsx-vita: clocks arm=%d bus=%d gpu=%d xbar=%d\n", scePowerGetArmClockFrequency(),
+        scePowerGetBusClockFrequency(), scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
     make_dirs();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
 
