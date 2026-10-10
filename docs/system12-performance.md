@@ -1666,7 +1666,12 @@ the target that drew the displayed page (the previous scene's one for
 double-buffered games, swapped, not copied), sized one target pixel per
 presented pixel (725x517 for Soul Calibur's 512x228 draw area on the
 Vita), with 4x MSAA. `--gl-1x` and `--gl-msaa 0|2|4` switch it back for
-measurements. Fixed on the way: untextured flat polygons and tiles drew
+measurements. Only draw areas shaped like the display get the HD target:
+Soul Calibur draws small areas off screen (its font among them) and reads
+them back every frame, and packed from an HD target they changed the
+game's course. With that, the Vita3K reports of the vitaGL build equal the
+NEON build's for Soul Calibur (gameplay replay), Tekken 3 and Tekken Tag.
+Fixed on the way: untextured flat polygons and tiles drew
 the raw-texture bit's 128 grey (Tekken's shadows), Tekken Tag's ROMs did
 not fit the 128 MB newlib heap next to vitaGL's shader translation, and
 `--capture-ppm` now works for vitaGL builds (on hardware; Vita3K reads the
