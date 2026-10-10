@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef PCSX_GP0_ROI_TRACE
@@ -130,6 +131,35 @@ int Platform_BeginScene(void)
     return 1;
 }
 
+#if defined(__vita__)
+/* A frontend's picture capture (the standalone's --capture-ppm): once the
+ * request is set, the next presented picture is read back in bands of RGBA
+ * glReadPixels rows (row 0 at the bottom) and handed to the callback. */
+volatile int pcsx_vita_gl_capture_request;
+void (*pcsx_vita_gl_capture_store)(const uint8_t *rgba, unsigned y, unsigned rows,
+                                   unsigned width, unsigned height);
+
+static void capture_gl_frame(void)
+{
+    enum { BAND = 16, MAX_WIDTH = 1024 };
+    static uint8_t band[MAX_WIDTH * BAND * 4];
+    extern int g_windowWidth, g_windowHeight;
+    const int width = g_windowWidth, height = g_windowHeight;
+    if (width <= 0 || width > MAX_WIDTH || height <= 0)
+        return;
+    /* After vglSwapBuffers the front buffer holds the finished picture; the
+     * first read waits for the GPU to complete it. */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadBuffer(GL_FRONT);
+    for (int y = 0; y < height; y += BAND) {
+        const int rows = height - y < BAND ? height - y : BAND;
+        glReadPixels(0, y, width, rows, GL_RGBA, GL_UNSIGNED_BYTE, band);
+        pcsx_vita_gl_capture_store(band, y, rows, width, height);
+    }
+    glReadBuffer(GL_BACK);
+}
+#endif
+
 void Platform_EndScene(void)
 {
     const DISPENV *display = NativeGpu_GetRenderDispEnv();
@@ -158,6 +188,12 @@ void Platform_EndScene(void)
         harness_capture_gl_frame(*pl_rearmed_cbs.gpu_frame_count);
 #endif
     NativeRenderer_SwapWindow();
+#if defined(__vita__)
+    if (pcsx_vita_gl_capture_request && pcsx_vita_gl_capture_store) {
+        pcsx_vita_gl_capture_request = 0;
+        capture_gl_frame();
+    }
+#endif
 }
 
 typedef struct VitaCtrVramTask {

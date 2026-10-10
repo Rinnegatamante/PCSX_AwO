@@ -59,6 +59,14 @@ static uint16_t *g_capture_pixels;
 static size_t g_capture_capacity;
 static unsigned g_capture_width;
 static unsigned g_capture_height;
+static uint8_t *g_capture_rgb;
+#ifdef STANDALONE_VITAGL
+/* The vitaGL GPU presents by itself, so video_cb never sees its pixels: it
+ * reads its next picture back once asked, into capture_gl_frame. */
+extern volatile int pcsx_vita_gl_capture_request;
+extern void (*pcsx_vita_gl_capture_store)(const uint8_t *rgba, unsigned y, unsigned rows,
+                                          unsigned width, unsigned height);
+#endif
 static char g_inputs_path[1024];
 
 typedef struct {
@@ -463,12 +471,62 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     g_front = back;
 }
 
+#ifdef STANDALONE_VITAGL
+/* rgba: glReadPixels rows y..y+rows-1, counted from the bottom. The picture
+ * lives in its own memory block: the newlib heap is mostly board ROMs. */
+static void capture_gl_frame(const uint8_t *rgba, unsigned y, unsigned rows,
+                             unsigned width, unsigned height)
+{
+    static SceUID block = -1;
+    static size_t block_size;
+    size_t bytes = (size_t)width * height * 3;
+    unsigned x, row;
+    if (block < 0 || block_size < bytes) {
+        void *base = NULL;
+        if (block >= 0)
+            sceKernelFreeMemBlock(block);
+        block_size = (bytes + 0xfff) & ~(size_t)0xfff;
+        block = sceKernelAllocMemBlock("pcsx-capture", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW,
+                                       block_size, NULL);
+        g_capture_rgb = NULL;
+        if (block < 0 || sceKernelGetMemBlockBase(block, &base) < 0)
+            return;
+        g_capture_rgb = base;
+    }
+    for (row = 0; row < rows; row++) {
+        const uint8_t *src = rgba + (size_t)row * width * 4;
+        uint8_t *dst = g_capture_rgb + (size_t)(height - 1 - (y + row)) * width * 3;
+        for (x = 0; x < width; x++) {
+            dst[x * 3 + 0] = src[x * 4 + 0];
+            dst[x * 3 + 1] = src[x * 4 + 1];
+            dst[x * 3 + 2] = src[x * 4 + 2];
+        }
+    }
+    if (y + rows == height) {
+        g_capture_width = width;
+        g_capture_height = height;
+    }
+}
+#endif
+
 static int write_capture_ppm(void)
 {
     FILE *out;
     unsigned x, y;
     if (!g_capture_path[0])
         return 0;
+    if (g_capture_rgb && g_capture_width && g_capture_height) {
+        size_t bytes = (size_t)g_capture_width * g_capture_height * 3;
+        out = fopen(g_capture_path, "wb");
+        if (!out)
+            return -1;
+        if (fprintf(out, "P6\n%u %u\n255\n", g_capture_width, g_capture_height) < 0 ||
+            fwrite(g_capture_rgb, 1, bytes, out) != bytes) {
+            fclose(out);
+            return -1;
+        }
+        return fclose(out) == 0 ? 0 : -1;
+    }
     if (!g_capture_pixels || !g_capture_width || !g_capture_height)
         return -1;
     out = fopen(g_capture_path, "wb");
@@ -1258,6 +1316,14 @@ int main(int argc, char **argv)
 #endif
     sceClibPrintf("pcsx-vita: cpu_driver=%s\n", pcsx_vita_uses_dynarec() ? "ari64" : "interpreter");
     while (!g_exit_requested && (!validation_frames || runs < validation_frames)) {
+#ifdef STANDALONE_VITAGL
+        /* Ask for each of the last frames' pictures; the GPU thread presents
+         * them later, and the last one read back is kept. */
+        if (g_capture_path[0] && validation_frames && runs + 30 >= validation_frames) {
+            pcsx_vita_gl_capture_store = capture_gl_frame;
+            pcsx_vita_gl_capture_request = 1;
+        }
+#endif
         retro_run(); ++runs;
         /* Keep the console awake: no auto suspend or screen off while
          * emulating (input from the replay never touches the system). */
@@ -1463,7 +1529,12 @@ int main(int argc, char **argv)
             validation_result = 6;
     }
     if (g_capture_path[0]) {
-        int capture_result = write_capture_ppm();
+        int capture_result;
+#ifdef STANDALONE_VITAGL
+        for (int wait = 0; wait < 100 && !g_capture_width; wait++)
+            sceKernelDelayThread(10000);
+#endif
+        capture_result = write_capture_ppm();
         sceClibPrintf("pcsx-vita: system12-capture %s path=%s width=%u height=%u\n",
             capture_result == 0 ? "PASS" : "FAIL", g_capture_path,
             g_capture_width, g_capture_height);
