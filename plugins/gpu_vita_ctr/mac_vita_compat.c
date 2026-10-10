@@ -80,6 +80,7 @@ void vglReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
 
 static struct {
     GLuint draw_fbo, scene_fbo;
+    void *bind_site; /* caller of the last framebuffer bind (scene trace) */
     int scene_open;
     unsigned long long frames, scenes, draws, vertices, clears, uploads, upload_texels;
 } s_stats;
@@ -111,9 +112,26 @@ static int stats_enabled(void)
     return enabled;
 }
 
+/* PCSX_GL_SCENE_TRACE=N: print each scene of the first N counted frames
+ * (fbo and the code address that bound it; symbolize with atos). */
+static unsigned long long scene_trace_frames(void)
+{
+    static long long n = -1;
+    if (n < 0) {
+        const char *v = getenv("PCSX_GL_SCENE_TRACE");
+        n = v ? strtoll(v, NULL, 10) : 0;
+        if (n)
+            fprintf(stderr, "gl-scene-trace base=%p\n", (void *)&PCSXGLStats_Draw);
+    }
+    return (unsigned long long)n;
+}
+
 static void stats_touch(void)
 {
     if (!s_stats.scene_open || s_stats.scene_fbo != s_stats.draw_fbo) {
+        if (s_stats_seen > s_stats_skip && s_stats.frames < scene_trace_frames())
+            fprintf(stderr, "gl-scene frame=%llu scene=%llu fbo=%u site=%p\n", s_stats.frames,
+                    s_stats.scenes, s_stats.draw_fbo, s_stats.bind_site);
         s_stats.scenes++;
         s_stats.scene_open = 1;
         s_stats.scene_fbo = s_stats.draw_fbo;
@@ -122,8 +140,10 @@ static void stats_touch(void)
 
 void PCSXGLStats_BindFramebuffer(GLenum target, GLuint framebuffer)
 {
-    if (target == GL_FRAMEBUFFER || target == GL_DRAW_FRAMEBUFFER)
+    if (target == GL_FRAMEBUFFER || target == GL_DRAW_FRAMEBUFFER) {
         s_stats.draw_fbo = framebuffer;
+        s_stats.bind_site = __builtin_return_address(0);
+    }
     glBindFramebuffer(target, framebuffer);
 }
 
