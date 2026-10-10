@@ -147,8 +147,9 @@ static void capture_gl_frame(void)
     const int width = g_windowWidth, height = g_windowHeight;
     if (width <= 0 || width > MAX_WIDTH || height <= 0)
         return;
-    /* After vglSwapBuffers the front buffer holds the finished picture; the
-     * first read waits for the GPU to complete it. */
+    /* After vglSwapBuffers the front buffer holds the picture; vitaGL is
+     * built with READBACKS_SPEEDHACK, so wait for the GPU explicitly. */
+    glFinish();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glReadBuffer(GL_FRONT);
     for (int y = 0; y < height; y += BAND) {
