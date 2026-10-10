@@ -30,6 +30,7 @@ PATCHES = (
     ROOT / "tools/vita-harness/patches/vitagl-fbo-last-frame.patch",
     ROOT / "tools/vita-harness/patches/vitagl-fbo-stencil-free.patch",
     ROOT / "tools/vita-harness/patches/vitagl-fbo-resize-reattach.patch",
+    ROOT / "tools/vita-harness/patches/vitagl-fbo-msaa.patch",
 )
 
 
