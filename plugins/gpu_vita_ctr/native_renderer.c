@@ -268,6 +268,7 @@ struct NativeRenderTarget
 	s32 allocWidth;
 	s32 allocHeight;
 	s32 growable; /* allocated in 32-pixel steps, used in part */
+	s32 multisampled; /* the display's MSAA (host-resolution targets) or none */
 };
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
@@ -454,7 +455,7 @@ internal void NativeRenderer_DestroyRenderTarget(struct NativeRenderTarget *targ
 internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *target, int width, int height);
 internal void NativeRenderer_ResizeRenderTarget(struct NativeRenderTarget *target, int width, int height);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow);
+internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow, int multisampled);
 #endif
 internal void NativeRenderer_BindMainRenderTarget(void);
 internal void NativeRenderer_BindMainRect(const RECT16 *rect);
@@ -902,6 +903,7 @@ internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target)
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	target->logicalWidth = 0;
 	target->logicalHeight = 0;
+	target->multisampled = 1; /* vitaGL multisamples new framebuffers as the display */
 }
 
 internal void NativeRenderer_DestroyRenderTarget(struct NativeRenderTarget *target)
@@ -929,7 +931,7 @@ internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *targe
 		return;
 	}
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	NativeRenderer_EnsureTargetSize(target, width, height, 0);
+	NativeRenderer_EnsureTargetSize(target, width, height, 0, target->multisampled);
 	return;
 #endif
 	NativeRenderer_ResizeRenderTarget(target, width, height);
@@ -967,9 +969,9 @@ internal void NativeRenderer_ResizeRenderTarget(struct NativeRenderTarget *targe
  * swapped in; growable ones (1x) are allocated in 32-pixel steps and drawn
  * into their bottom-left width x height, which the pack and presentation
  * sample. */
-internal int NativeRenderer_TargetFits(const struct NativeRenderTarget *t, int width, int height, int grow)
+internal int NativeRenderer_TargetFits(const struct NativeRenderTarget *t, int width, int height, int grow, int multisampled)
 {
-	if (t->framebuffer == 0)
+	if (t->framebuffer == 0 || t->multisampled != multisampled)
 		return 0;
 	/* Within four times the area in use: a GXM scene processes the tiles of
 	 * the whole target, so a tiny area must not land in a host-sized one. */
@@ -992,17 +994,35 @@ internal int NativeRenderer_TargetAllocStep(int n)
 	return step;
 }
 
-internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow)
+/* vitaGL multisamples every framebuffer as the display unless told: only
+ * host-resolution targets keep it; VRAM and 1x targets (packed back to VRAM
+ * for the game, drawn with axis-aligned quads or at PSX resolution) do not
+ * need it, and each of their scenes paid for four samples per pixel. */
+internal void NativeRenderer_SetTargetMultisample(GLuint framebuffer, int multisampled)
+{
+#ifdef __vita__
+	extern int pcsx_vita_gl_msaa;
+	vglFramebufferMultisample(framebuffer, !multisampled ? SCE_GXM_MULTISAMPLE_NONE
+	                                       : pcsx_vita_gl_msaa >= 4 ? SCE_GXM_MULTISAMPLE_4X
+	                                       : pcsx_vita_gl_msaa >= 2 ? SCE_GXM_MULTISAMPLE_2X
+	                                                                : SCE_GXM_MULTISAMPLE_NONE);
+#else
+	(void)framebuffer;
+	(void)multisampled;
+#endif
+}
+
+internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow, int multisampled)
 {
 	if (width < 1)
 		width = 1;
 	if (height < 1)
 		height = 1;
-	if (!NativeRenderer_TargetFits(target, width, height, grow))
+	if (!NativeRenderer_TargetFits(target, width, height, grow, multisampled))
 	{
 		int slot = -1;
 		for (int i = 0; i < NATIVE_RT_POOL_SIZE && slot < 0; i++)
-			if (NativeRenderer_TargetFits(&s_rtPool[i], width, height, grow))
+			if (NativeRenderer_TargetFits(&s_rtPool[i], width, height, grow, multisampled))
 				slot = i;
 		const int reuse = slot >= 0;
 		if (!reuse)
@@ -1030,6 +1050,11 @@ internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target,
 			NativeRenderer_ResizeRenderTarget(target, grow ? NativeRenderer_TargetAllocStep(width) : width,
 			                                  grow ? NativeRenderer_TargetAllocStep(height) : height);
 			target->growable = grow;
+			if (target->multisampled != multisampled)
+			{
+				NativeRenderer_SetTargetMultisample(target->framebuffer, multisampled);
+				target->multisampled = multisampled;
+			}
 		}
 	}
 	target->width = width;
@@ -1095,8 +1120,7 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 #endif
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	(void)hostResolution;
-	NativeRenderer_EnsureTargetSize(&s_mainRenderTarget, physicalWidth, physicalHeight, 1);
+	NativeRenderer_EnsureTargetSize(&s_mainRenderTarget, physicalWidth, physicalHeight, 1, hostResolution);
 #else
 	(void)hostResolution;
 	NativeRenderer_EnsureRenderTarget(&s_mainRenderTarget, physicalWidth, physicalHeight);
@@ -2587,6 +2611,10 @@ int NativeRenderer_InitialisePSX(void)
 		{
 			glBindFramebuffer(GL_FRAMEBUFFER, s_glVramFramebuffer);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_vram.texture, 0);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+			/* Uploads, packs and fills: axis-aligned quads, no multisampling. */
+			NativeRenderer_SetTargetMultisample(s_glVramFramebuffer, 0);
+#endif
 #if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
@@ -3776,7 +3804,7 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 			NativeRenderer_FlushOffscreenToVRAM();
 			s_previousOffscreenState = 1;
 			s_previousOffscreen = *offscreenRect;
-			NativeRenderer_EnsureTargetSize(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h, 1);
+			NativeRenderer_EnsureTargetSize(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h, 1, 0);
 			s_offscreenRenderTarget.logicalWidth = offscreenRect->w;
 			s_offscreenRenderTarget.logicalHeight = offscreenRect->h;
 			NativeRenderer_LoadRenderTargetFromVRAM(&s_offscreenRenderTarget, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
