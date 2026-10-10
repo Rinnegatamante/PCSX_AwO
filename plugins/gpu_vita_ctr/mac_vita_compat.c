@@ -1,7 +1,9 @@
+#define PCSX_MAC_VITA_COMPAT_IMPL
 #include "platform/mac_vita_compat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 extern SDL_Window *g_window;
 
@@ -76,9 +78,91 @@ void vglReadPixels(GLint x, GLint y, GLsizei width, GLsizei height,
     glReadPixels(x, y, width, height, format, type, pixels);
 }
 
+static struct {
+    GLuint draw_fbo, scene_fbo;
+    int scene_open;
+    unsigned long long frames, scenes, draws, vertices, clears, uploads, upload_texels;
+} s_stats;
+
+static unsigned long long s_stats_skip, s_stats_seen;
+
+static void stats_report(void)
+{
+    if (!s_stats.frames)
+        return;
+    const double f = (double)s_stats.frames;
+    fprintf(stderr, "gl-stats frames=%llu scenes/frame=%.2f draws/frame=%.1f verts/frame=%.0f clears/frame=%.2f uploads/frame=%.2f upload_texels/frame=%.0f\n",
+            s_stats.frames, s_stats.scenes / f, s_stats.draws / f, s_stats.vertices / f,
+            s_stats.clears / f, s_stats.uploads / f, s_stats.upload_texels / f);
+}
+
+static int stats_enabled(void)
+{
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *v = getenv("PCSX_GL_STATS");
+        enabled = v && *v == '1';
+        if (enabled) {
+            const char *skip = getenv("PCSX_GL_STATS_SKIP");
+            s_stats_skip = skip ? strtoull(skip, NULL, 10) : 0;
+            atexit(stats_report);
+        }
+    }
+    return enabled;
+}
+
+static void stats_touch(void)
+{
+    if (!s_stats.scene_open || s_stats.scene_fbo != s_stats.draw_fbo) {
+        s_stats.scenes++;
+        s_stats.scene_open = 1;
+        s_stats.scene_fbo = s_stats.draw_fbo;
+    }
+}
+
+void PCSXGLStats_BindFramebuffer(GLenum target, GLuint framebuffer)
+{
+    if (target == GL_FRAMEBUFFER || target == GL_DRAW_FRAMEBUFFER)
+        s_stats.draw_fbo = framebuffer;
+    glBindFramebuffer(target, framebuffer);
+}
+
+void PCSXGLStats_Draw(GLsizei vertices)
+{
+    if (!stats_enabled())
+        return;
+    stats_touch();
+    s_stats.draws++;
+    s_stats.vertices += (unsigned long long)vertices;
+}
+
+void PCSXGLStats_Clear(void)
+{
+    if (!stats_enabled())
+        return;
+    stats_touch();
+    s_stats.clears++;
+}
+
+void PCSXGLStats_Upload(GLsizei width, GLsizei height)
+{
+    if (!stats_enabled() || width <= 0 || height <= 0)
+        return;
+    s_stats.uploads++;
+    s_stats.upload_texels += (unsigned long long)width * (unsigned long long)height;
+}
+
 void vglSwapBuffers(GLboolean wait_vblank)
 {
     (void)wait_vblank;
+    if (stats_enabled()) {
+        /* PCSX_GL_STATS_SKIP=N: count from the N+1th presented frame. */
+        if (++s_stats_seen <= s_stats_skip)
+            memset(&s_stats, 0, sizeof(s_stats));
+        else
+            s_stats.frames++;
+        s_stats.scene_open = 0;
+    }
     if (g_window != NULL)
         SDL_GL_SwapWindow(g_window);
 }
