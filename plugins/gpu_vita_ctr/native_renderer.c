@@ -458,6 +458,7 @@ global_variable GLuint s_glVramFramebuffer;
 global_variable TextureID s_vramUploadTexture;
 global_variable ShaderID s_vramUploadShader;
 global_variable GLint s_vramUploadRectLoc;
+global_variable GLint s_vramUploadSourceRectLoc;
 #endif
 
 #ifndef __vita__
@@ -2223,10 +2224,12 @@ global_variable const char *ctr_present_rgba_shader = "#ifdef VERTEX\n"
 global_variable const char *ctr_vram_upload_shader = "#ifdef VERTEX\n"
                                                     "attribute vec2 a_position;\n"
                                                     "uniform vec4 targetRect;\n"
+                                                    "uniform vec4 sourceRect;\n"
                                                     "varying vec2 v_uv;\n"
                                                     "void main() {\n"
-                                                    "    v_uv = a_position * 0.5 + 0.5;\n"
-                                                    "    gl_Position = vec4(targetRect.xy + v_uv * targetRect.zw, 0.0, 1.0);\n"
+                                                    "    vec2 unit = a_position * 0.5 + 0.5;\n"
+                                                    "    v_uv = sourceRect.xy + unit * sourceRect.zw;\n"
+                                                    "    gl_Position = vec4(targetRect.xy + unit * targetRect.zw, 0.0, 1.0);\n"
                                                     "}\n"
                                                     "#endif\n"
                                                     "#ifdef FRAGMENT\n"
@@ -2283,6 +2286,7 @@ internal int NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(s_vramUploadShader);
 	glUniform1i(glGetUniformLocation(s_vramUploadShader, "s_src"), 0);
 	s_vramUploadRectLoc = glGetUniformLocation(s_vramUploadShader, "targetRect");
+	s_vramUploadSourceRectLoc = glGetUniformLocation(s_vramUploadShader, "sourceRect");
 	glUseProgram(0);
 #endif
 
@@ -3896,28 +3900,50 @@ internal void NativeRenderer_UploadVRAMRects(s32 rectCount)
 	glViewport(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 	glUseProgram(s_vramUploadShader);
 	glBindVertexArray(s_vramQuadVAO);
-	for (s32 i = 0; i < rectCount; ++i)
+	/* The rects go up stacked in one RG8 texture (the PSX pixels' own two
+	 * bytes, copied row by row: R = low byte, G = high, as the RGBA VRAM
+	 * target gets them), one texture store per batch instead of per rect:
+	 * each store of a texture still in use is a new allocation in vitaGL. */
+	for (s32 first = 0; first < rectCount;)
 	{
-		const RECT16 r = s_vram.cpuDirtyRects[i];
-		u8 *dst = s_vitaVramTransferPixels;
-		for (int y = 0; y < r.h; ++y)
+		int atlasWidth = 0, atlasHeight = 0;
+		s32 last = first;
+		for (; last < rectCount; ++last)
 		{
-			const u16 *src = s_vram.cpuPixels + (size_t)(r.y + y) * VRAM_WIDTH + r.x;
-			for (int x = 0; x < r.w; ++x)
-			{
-				const u16 pixel = src[x];
-				*dst++ = (u8)pixel;
-				*dst++ = (u8)(pixel >> 8);
-				*dst++ = 0;
-				*dst++ = 255;
-			}
+			const RECT16 r = s_vram.cpuDirtyRects[last];
+			const int width = r.w > atlasWidth ? r.w : atlasWidth;
+			/* At most 512 rows: the shaders run in half precision, and a
+			 * texel centre must stay well inside its texel. */
+			if (last > first && (atlasHeight + r.h > 512 ||
+			                     (size_t)width * (size_t)(atlasHeight + r.h) * sizeof(u16) > NATIVE_VITA_VRAM_TRANSFER_BYTES))
+				break;
+			atlasWidth = width;
+			atlasHeight += r.h;
 		}
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, r.w, r.h, 0, GL_RGBA,
-		             GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
-		glUniform4f(s_vramUploadRectLoc, r.x * (2.0f / VRAM_WIDTH) - 1.0f,
-		            r.y * (2.0f / VRAM_HEIGHT) - 1.0f,
-		            r.w * (2.0f / VRAM_WIDTH), r.h * (2.0f / VRAM_HEIGHT));
-		NativeRenderer_DrawTriangles(0, 2);
+		atlasWidth = (atlasWidth + 1) & ~1; /* rows of whole 4-byte words */
+		u16 *atlas = (u16 *)s_vitaVramTransferPixels;
+		int row = 0;
+		for (s32 i = first; i < last; ++i)
+		{
+			const RECT16 r = s_vram.cpuDirtyRects[i];
+			for (int y = 0; y < r.h; ++y, ++row)
+				SDL_memcpy(atlas + (size_t)row * atlasWidth, s_vram.cpuPixels + (size_t)(r.y + y) * VRAM_WIDTH + r.x,
+				           (size_t)r.w * sizeof(u16));
+		}
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RG8, atlasWidth, atlasHeight, 0, GL_RG, GL_UNSIGNED_BYTE, atlas);
+		row = 0;
+		for (s32 i = first; i < last; ++i)
+		{
+			const RECT16 r = s_vram.cpuDirtyRects[i];
+			glUniform4f(s_vramUploadSourceRectLoc, 0.0f, (float)row / (float)atlasHeight,
+			            (float)r.w / (float)atlasWidth, (float)r.h / (float)atlasHeight);
+			glUniform4f(s_vramUploadRectLoc, r.x * (2.0f / VRAM_WIDTH) - 1.0f,
+			            r.y * (2.0f / VRAM_HEIGHT) - 1.0f,
+			            r.w * (2.0f / VRAM_WIDTH), r.h * (2.0f / VRAM_HEIGHT));
+			NativeRenderer_DrawTriangles(0, 2);
+			row += r.h;
+		}
+		first = last;
 	}
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, previousFramebuffer);
 	glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
