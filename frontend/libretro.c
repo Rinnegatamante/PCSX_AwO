@@ -450,6 +450,8 @@ static void CrosshairDimensions(int port, struct CrosshairInfo *info) {
 int (*pcsx_raw_frame_cb)(const void *vram, int ofs, int stride, unsigned mask,
       int w, int h);
 
+extern unsigned gpu_vram_height;
+
 static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
       int x, int y, int w, int h, int dims_changed)
 {
@@ -460,7 +462,9 @@ static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
    const unsigned char *vram = vram_;
    int dstride = vout_pitch_b, h1;
    int enhres = w > psx_w;
-   u32 vram_mask = enhres ? ~0 : 0xfffff;
+   /* Byte offsets wrap at the end of VRAM: 1 MB on the console, 2 MB on
+    * System 12, which shows its movies from rows 512 and below. */
+   u32 vram_mask = enhres ? ~0 : 1024u * gpu_vram_height * 2 - 1;
    int w_blit = min(w, vout_width);
    int port = 0, hwrapped;
    int sstride = 2048;
@@ -499,12 +503,12 @@ static void vout_flip(const void *vram_, int vram_ofs, int bgr24,
    if (!enhres && hwrapped > 0) {
       // this is super-rare so just fix-up
       w_blit = hwrapped / bytes_pp_s;
-      vram_ofs = (vram_ofs - h * sstride) & 0xff800;
+      vram_ofs = (vram_ofs - h * sstride) & (vram_mask & ~2047u);
       dest -= dstride * h;
       dest += (w - hwrapped / bytes_pp_s) * bytes_pp;
       for (h1 = h; h1-- > 0; dest += dstride) {
          bgr_to_fb(dest, vram + vram_ofs, w_blit);
-         vram_ofs = (vram_ofs + sstride) & 0xfffff;
+         vram_ofs = (vram_ofs + sstride) & vram_mask;
       }
    }
 
