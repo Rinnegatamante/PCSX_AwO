@@ -1267,13 +1267,13 @@ int main(int argc, char **argv)
 
     sceClibPrintf("pcsx-vita: main entered\n");
     /* Apps start at the system's clocks (GPU 111 MHz): the vitaGL renderer
-     * was GPU-bound at ~100 ms a frame there. These are the Vita's usual
-     * maximums. */
+     * was GPU-bound at ~100 ms a frame there. Raise each clock to the Vita's
+     * usual maximum, never lowering one an overclock plugin already set. */
     if (!g_stock_clocks) {
-        scePowerSetArmClockFrequency(444);
-        scePowerSetBusClockFrequency(222);
-        scePowerSetGpuClockFrequency(222);
-        scePowerSetGpuXbarClockFrequency(166);
+        if (scePowerGetArmClockFrequency() < 444) scePowerSetArmClockFrequency(444);
+        if (scePowerGetBusClockFrequency() < 222) scePowerSetBusClockFrequency(222);
+        if (scePowerGetGpuClockFrequency() < 222) scePowerSetGpuClockFrequency(222);
+        if (scePowerGetGpuXbarClockFrequency() < 166) scePowerSetGpuXbarClockFrequency(166);
     }
     sceClibPrintf("pcsx-vita: clocks arm=%d bus=%d gpu=%d xbar=%d\n", scePowerGetArmClockFrequency(),
         scePowerGetBusClockFrequency(), scePowerGetGpuClockFrequency(), scePowerGetGpuXbarClockFrequency());
