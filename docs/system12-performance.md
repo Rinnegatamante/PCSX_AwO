@@ -1711,3 +1711,33 @@ itself was fixed (it began a second scene in synchronous frames, reloading
 the HD target at PSX resolution). Soul Calibur (attract and gameplay),
 Tekken 3 and Tekken Tag run in Vita3K with the final VPK. Hardware fps not
 measured yet (the console was locked).
+
+## vitaGL renderer on hardware: crashes, clocks and render targets (2026-10-10)
+
+The HD vitaGL build crashed on the Vita around frames 1800-2400 of the
+gameplay replay, in several ways: physical memory exhausted (vitaGL leaked
+each FBO's stencil surface on resize), heap metadata overwritten with a
+pixel colour (a texture reallocated at the same address kept its old colour
+surface size), and GPU lockups (watchdog reset, no MMU fault; decoded from
+the dump's GPU_INFO note with `../vita_gpucrash.py`). All of them happened in
+the renderer's render target churn: targets followed the game's draw areas
+and were resized in place about 200 times in the replay.
+
+Fixes: two vitaGL patches (stencil free, size-checked re-attach), 32 MB left
+outside vitaGL's pool, render targets allocated in steps and swapped from a
+pool instead of resized (28 allocations in the replay), and vitaGL pinned to
+upstream dca4b9d. The app also never raised the clocks: the GPU ran at
+111 MHz. With ARM 444-500 / bus 222 / GPU 222 / xbar 166 MHz:
+
+| Soul Calibur gameplay replay, frames 3000-4800 | fps |
+| --- | --- |
+| vitaGL HD + 4x MSAA, before (GPU 111 MHz) | ~10 |
+| vitaGL HD + 4x MSAA, clocks raised | ~17 |
+| vitaGL HD + 4x MSAA, all fixes (3 runs, no crash) | 40.1 |
+| NEON renderer, release, vblank pacing | 59.9 |
+
+Every vitaGL run's report equals the NEON build's. Profiled before the fixes
+(psp2-cex-gpues4-prof at 111 MHz): GPU-bound, ~105 ms of GPU time a frame, 7
+scenes and 138 draws a frame, 67% of fragment time in the cached 4-bit
+polygon shader (ALU-bound), which the texture-window and opaque variants
+now trim. A profile with the fixes is the next step.
