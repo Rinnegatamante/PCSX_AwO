@@ -328,6 +328,14 @@ extern int (*pcsx_raw_frame_cb)(const void *vram, int ofs, int stride, unsigned 
  * processed and its rendering is complete. No sceGxmFinish per frame. */
 #define GXM_TEX_COUNT 3
 static vita2d_texture *g_gxm_tex[GXM_TEX_COUNT];
+/* --scale: how the PSX picture reaches the 725x544 game area. Nearest at a
+ * non-integer factor (725/512 across) gives columns 1 or 2 pixels wide;
+ * sharp first scales by whole factors with nearest, then by the remaining
+ * fraction with bilinear, so pixels stay crisp and evenly sized. */
+enum { SCALE_NEAREST, SCALE_SHARP, SCALE_BILINEAR };
+static int g_scale_mode = SCALE_SHARP;
+static vita2d_texture *g_gxm_prescale; /* render target of the sharp pass */
+static int g_prescale_w, g_prescale_h;
 static int g_gxm_next, g_gxm_ready = -1, g_gxm_w, g_gxm_h;
 
 static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, int w, int h)
@@ -373,10 +381,36 @@ static void gxm_present(void)
         vita2d_wait_rendering_done();
         vita2d_pool_reset();
     }
+    vita2d_texture *src = g_gxm_tex[g_gxm_ready];
+    int src_w = g_gxm_w, src_h = g_gxm_h;
+    if (g_scale_mode == SCALE_SHARP) {
+        const int kx = (GAME_W + g_gxm_w - 1) / g_gxm_w, ky = (DISPLAY_H + g_gxm_h - 1) / g_gxm_h;
+        const int pw = g_gxm_w * kx, ph = g_gxm_h * ky;
+        if (pw != g_prescale_w || ph != g_prescale_h) {
+            if (g_gxm_prescale) {
+                vita2d_wait_rendering_done();
+                vita2d_free_texture(g_gxm_prescale);
+            }
+            g_gxm_prescale = vita2d_create_empty_texture_rendertarget(pw, ph, SCE_GXM_TEXTURE_FORMAT_A8B8G8R8);
+            g_prescale_w = pw;
+            g_prescale_h = ph;
+            if (g_gxm_prescale)
+                vita2d_texture_set_filters(g_gxm_prescale, SCE_GXM_TEXTURE_FILTER_LINEAR,
+                    SCE_GXM_TEXTURE_FILTER_LINEAR);
+        }
+        if (g_gxm_prescale) {
+            vita2d_start_drawing_advanced(g_gxm_prescale, 0);
+            vita2d_draw_texture_part_scale(src, 0, 0, 0, 0, g_gxm_w, g_gxm_h, (float)kx, (float)ky);
+            vita2d_end_drawing();
+            src = g_gxm_prescale;
+            src_w = pw;
+            src_h = ph;
+        }
+    }
     vita2d_start_drawing_advanced(NULL, 0);
     vita2d_clear_screen();
-    vita2d_draw_texture_part_scale(g_gxm_tex[g_gxm_ready], GAME_X, 0, 0, 0,
-        g_gxm_w, g_gxm_h, (float)GAME_W / g_gxm_w, (float)DISPLAY_H / g_gxm_h);
+    vita2d_draw_texture_part_scale(src, GAME_X, 0, 0, 0,
+        src_w, src_h, (float)GAME_W / src_w, (float)DISPLAY_H / src_h);
     vita2d_end_drawing();
     vita2d_swap_buffers();
     g_gxm_ready = -1;
@@ -400,8 +434,12 @@ static int gxm_init(void)
             SCE_GXM_TEXTURE_FORMAT_X1U5U5U5_1BGR);
         if (!g_gxm_tex[i])
             return -1;
-        vita2d_texture_set_filters(g_gxm_tex[i], SCE_GXM_TEXTURE_FILTER_POINT,
-            SCE_GXM_TEXTURE_FILTER_POINT);
+        if (g_scale_mode == SCALE_BILINEAR)
+            vita2d_texture_set_filters(g_gxm_tex[i], SCE_GXM_TEXTURE_FILTER_LINEAR,
+                SCE_GXM_TEXTURE_FILTER_LINEAR);
+        else
+            vita2d_texture_set_filters(g_gxm_tex[i], SCE_GXM_TEXTURE_FILTER_POINT,
+                SCE_GXM_TEXTURE_FILTER_POINT);
     }
     pcsx_raw_frame_cb = gxm_raw_frame;
     return 0;
@@ -414,6 +452,9 @@ static void gxm_finish(void)
     vita2d_wait_rendering_done();
     for (i = 0; i < GXM_TEX_COUNT; i++)
         if (g_gxm_tex[i]) vita2d_free_texture(g_gxm_tex[i]);
+    if (g_gxm_prescale) vita2d_free_texture(g_gxm_prescale);
+    g_gxm_prescale = NULL;
+    g_prescale_w = g_prescale_h = 0;
     vita2d_fini();
 }
 
@@ -1128,6 +1169,12 @@ int main(int argc, char **argv)
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
+        if (!strcmp(argv[ret], "--scale") && ret + 1 < argc) {
+            const char *mode = argv[++ret];
+            g_scale_mode = !strcmp(mode, "nearest") ? SCALE_NEAREST
+                         : !strcmp(mode, "bilinear") ? SCALE_BILINEAR : SCALE_SHARP;
+            continue;
+        }
         if (!strcmp(argv[ret], "--stock-clocks")) { g_stock_clocks = true; continue; }
         if (!strcmp(argv[ret], "--gpu2")) { g_gpu2 = true; continue; }
         if (!strcmp(argv[ret], "--gpu2-core") && ret + 1 < argc) {
