@@ -944,10 +944,13 @@ internal int NativeGpu_PendingTiles(int x, int y, int w, int h, int mark)
 
 /* Whether the splits not yet drawn read or write any of this VRAM rect,
  * or a queued upload writes it. */
+internal int NativeGpu_PendingSplitsAccess(int x, int y, int w, int h, int uploads);
+
 int NativeGpu_PendingSplitsTouch(int x, int y, int w, int h)
 {
 	return s_gpu.splitIndex > 0 &&
-	       (NativeGpu_PendingTiles(x, y, w, h, 0) || NativeGpu_VisitTiles(s_gpu.uploadTiles, x, y, w, h, 0));
+	       (NativeGpu_PendingTiles(x, y, w, h, 0) || NativeGpu_VisitTiles(s_gpu.uploadTiles, x, y, w, h, 0)) &&
+	       NativeGpu_PendingSplitsAccess(x, y, w, h, 1);
 }
 
 /* The VRAM rect a frontend split writes: the bounds of its vertices within
@@ -989,6 +992,58 @@ internal int NativeGpu_SplitWriteRect(int i, RECT16 *rect)
 		rect->h = (s16)(maxY - minY);
 		return 1;
 	}
+}
+
+/* Whether a pending split reads or writes this VRAM rect, to the texel: the
+ * pending tiles are 64x64 and take a draw's whole texture page and its
+ * CLUT's tile, so most uploads they flag touch nothing a split uses (Soul
+ * Calibur: 9 in 10), and each ended the packet early (a scene of VRAM
+ * uploads and the main target's again). Reads are the texels inside each
+ * page's UV bounds (the whole page under a texture window) and the CLUT;
+ * writes are NativeGpu_SplitWriteRect. With uploads, queued uploads
+ * overlapping the rect count too. */
+internal int NativeGpu_PendingSplitsAccess(int x, int y, int w, int h, int uploads)
+{
+	RECT16 rect;
+	for (int i = 1; i <= s_gpu.splitIndex; i++)
+	{
+		const GPUDrawSplit *split = &s_gpu.splits[i];
+		if (split->drawPrimMode == 2 && split->uploadPixels != NULL)
+		{
+			if (uploads && NativeGpu_RectOverlaps(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, x, y, w, h))
+				return 1;
+			continue;
+		}
+		if (NativeGpu_SplitWriteRect(i, &rect) && NativeGpu_RectOverlaps(rect.x, rect.y, rect.w, rect.h, x, y, w, h))
+			return 1;
+		if (split->drawPrimMode == 2 || split->textureId == NativeRenderer_GetWhiteTexture())
+			continue;
+		const int count = i == s_gpu.splitIndex ? s_gpu.vertexIndex - split->startVertex : split->numVerts;
+		const int div = split->texFormat == TF_4_BIT ? 4 : split->texFormat == TF_8_BIT ? 2 : 1;
+		const int window = split->drawenv.tw.w != 0 || split->drawenv.tw.h != 0;
+		const GrVertex *v = &s_gpu.vertexBuffer[split->startVertex];
+		for (int k = 0; k < count;)
+		{
+			/* A run of vertices sharing a page and CLUT. */
+			const int page = v[k].page, clut = v[k].clut;
+			int u0 = v[k].u, u1 = v[k].u, v0 = v[k].v, v1 = v[k].v;
+			for (k++; k < count && v[k].page == page && v[k].clut == clut; k++)
+			{
+				u0 = v[k].u < u0 ? v[k].u : u0;
+				u1 = v[k].u > u1 ? v[k].u : u1;
+				v0 = v[k].v < v0 ? v[k].v : v0;
+				v1 = v[k].v > v1 ? v[k].v : v1;
+			}
+			const int pageX = (page & 15) * 64, pageY = (page >> 4) * 256;
+			if (window)
+				u0 = 0, u1 = 255, v0 = 0, v1 = 255;
+			if (NativeGpu_RectOverlaps(pageX + u0 / div, pageY + v0, u1 / div - u0 / div + 1, v1 - v0 + 1, x, y, w, h))
+				return 1;
+			if (div > 1 && NativeGpu_RectOverlaps((clut & 0x3f) << 4, (clut >> 6) & 0x3ff, div == 4 ? 16 : 256, 1, x, y, w, h))
+				return 1;
+		}
+	}
+	return 0;
 }
 
 /* Marks what the frontend packet's splits write as stale in the guest VRAM. */
@@ -1805,7 +1860,7 @@ internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 int NativeGpu_QueueUpload(const u16 *vram, int x, int y, int w, int h)
 {
 	if (!s_gpuFrontendFramePrepared || s_gpuSynchronousFrame || vram == NULL ||
-	    (s_gpu.packetHasDraws && NativeGpu_PendingTiles(x, y, w, h, 0)) ||
+	    (s_gpu.packetHasDraws && NativeGpu_PendingTiles(x, y, w, h, 0) && NativeGpu_PendingSplitsAccess(x, y, w, h, 0)) ||
 	    w <= 0 || h <= 0 || w > VRAM_WIDTH || h > VRAM_HEIGHT ||
 	    s_gpu.splitIndex + 1 >= MAX_DRAW_SPLITS || w * h > NATIVE_GPU_UPLOAD_TEXELS - s_gpu.uploadTexels)
 	{
