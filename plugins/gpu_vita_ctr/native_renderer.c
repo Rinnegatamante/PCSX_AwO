@@ -950,7 +950,14 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 #define CTR_NATIVE_WIDESCREEN 0
 #endif
 #if CTR_NATIVE_WIDESCREEN
-	if (pcsx_vita_gl_hd && (g_windowWidth > 0) && (g_windowHeight > 0))
+	const RECT16 *displayed = &NativeGpu_GetRenderDispEnv()->disp;
+	/* Only a display page is drawn at the host's resolution. Games also
+	 * draw small areas elsewhere and read them back (Soul Calibur, every
+	 * frame): packed from a host-resolution target they read other values,
+	 * and the game diverged. */
+	const int displayPage = displayed->w > 0 && displayed->h > 0 && logicalWidth == displayed->w &&
+	                        logicalHeight <= displayed->h && 2 * logicalHeight >= displayed->h;
+	if (pcsx_vita_gl_hd && displayPage && (g_windowWidth > 0) && (g_windowHeight > 0))
 	{
 		/* One target pixel per presented pixel: the displayed rect fills the
 		 * viewport, and the draw area is usually a part of it (Soul Calibur
@@ -959,7 +966,7 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 		 * thin text. */
 		const int viewW = (s_presentViewport.w > 0) ? s_presentViewport.w : g_windowWidth;
 		const int viewH = (s_presentViewport.h > 0) ? s_presentViewport.h : g_windowHeight;
-		const RECT16 *disp = &NativeGpu_GetRenderDispEnv()->disp;
+		const RECT16 *disp = displayed;
 		physicalWidth = (disp->w > 0) ? (logicalWidth * viewW + disp->w / 2) / disp->w : viewW;
 		physicalHeight = (disp->h > 0) ? (logicalHeight * viewH + disp->h / 2) / disp->h : viewH;
 		if (physicalWidth < logicalWidth || physicalWidth > 2 * viewW)
