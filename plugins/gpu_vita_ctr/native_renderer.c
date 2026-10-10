@@ -929,6 +929,10 @@ internal void NativeRenderer_BindMainRenderTarget(void)
 	NativeRenderer_BindMainRect(&rect);
 }
 
+/* 0 renders the main target at the PSX resolution even in an HD build
+ * (the standalone frontend's --gl-1x), for comparisons on hardware. */
+int pcsx_vita_gl_hd = 1;
+
 internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 {
 	int logicalWidth = rect->w;
@@ -945,7 +949,7 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 #define CTR_NATIVE_WIDESCREEN 0
 #endif
 #if CTR_NATIVE_WIDESCREEN
-	if ((g_windowWidth > 0) && (g_windowHeight > 0))
+	if (pcsx_vita_gl_hd && (g_windowWidth > 0) && (g_windowHeight > 0))
 	{
 		/* One target pixel per presented pixel: the displayed rect fills the
 		 * viewport, and the draw area is usually a part of it (Soul Calibur

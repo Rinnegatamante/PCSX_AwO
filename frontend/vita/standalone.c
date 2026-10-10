@@ -1107,6 +1107,19 @@ int main(int argc, char **argv)
             continue;
         }
         if (!strcmp(argv[ret], "--fb-main")) { g_fb_main = true; continue; }
+#ifdef STANDALONE_VITAGL
+        /* A/B switches for hardware measurements of the HD presentation. */
+        if (!strcmp(argv[ret], "--gl-1x")) {
+            extern int pcsx_vita_gl_hd;
+            pcsx_vita_gl_hd = 0;
+            continue;
+        }
+        if (!strcmp(argv[ret], "--gl-msaa") && ret + 1 < argc) {
+            extern int pcsx_vita_gl_msaa;
+            pcsx_vita_gl_msaa = atoi(argv[++ret]);
+            continue;
+        }
+#endif
 #ifndef STANDALONE_VITAGL
         if (!strcmp(argv[ret], "--gxm")) { g_gxm = true; continue; }
 #endif

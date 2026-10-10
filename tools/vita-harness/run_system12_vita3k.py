@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--gpu-thread", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--app-arg", action="append", default=[],
+                        help="extra guest argument (repeat for each word, e.g. --app-arg=--gl-1x)")
     parser.add_argument("--inputs", type=Path,
                         help="frame,control,pressed CSV replayed by the guest (e.g. from tests/check_system12_gameplay.py)")
     parser.add_argument("--shader-compiler", type=Path,
@@ -93,6 +95,8 @@ def main():
             app_args += ", --gpu-thread"
         if args.inputs:
             app_args += f", --inputs, ux0:app/{h.TITLE_ID}/{name}/inputs.csv"
+        for extra in args.app_arg:
+            app_args += f", {extra}"
         expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
                     f"pcsx-vita: system12-capture PASS path={capture_guest}")
         screenshot_root = portable / "screenshots"

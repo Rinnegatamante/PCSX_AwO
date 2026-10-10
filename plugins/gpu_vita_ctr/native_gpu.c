@@ -329,6 +329,9 @@ internal void NativeGpu_BackendSyncVRAMToCPUTask(void *arg)
 	NativeRenderer_SyncVRAMToCPU(task->x, task->y, task->w, task->h);
 }
 
+/* vitaGL's multisampling: 4, 2 or 0 (the standalone frontend's --gl-msaa). */
+int pcsx_vita_gl_msaa = 4;
+
 internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 {
 	(void)args;
@@ -341,8 +344,12 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	 * display resolution. GL_FALSE is the normal exact-resolution result; it
 	 * does not mean initialization failed. This API has no failure result once
 	 * initialization has run to completion. */
+	extern int pcsx_vita_gl_msaa;
 	const GLboolean resolutionFallback = vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight,
-	                                                    4 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+	                                                    4 * 1024 * 1024,
+	                                                    pcsx_vita_gl_msaa >= 4 ? SCE_GXM_MULTISAMPLE_4X
+	                                                    : pcsx_vita_gl_msaa >= 2 ? SCE_GXM_MULTISAMPLE_2X
+	                                                    : SCE_GXM_MULTISAMPLE_NONE);
 	if (resolutionFallback)
 	{
 		NATIVE_GPU_LOG("%s\n", "vitaGL reduced display resolution to its maximum supported size");
