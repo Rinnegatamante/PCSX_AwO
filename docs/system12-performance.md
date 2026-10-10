@@ -1656,3 +1656,50 @@ Both report no illegal H8 instruction, no unmapped access, and C352 output
 prepared profile in an isolated Vita3K (it reuses the Soul Calibur runner's
 isolation and packaging) and keeps the report, the final frame and Vita3K's
 screenshots. Not yet run on the console.
+
+## vitaGL renderer: HD presentation and CPU-side overhead (2026-10-10)
+
+The vitaGL renderer (`gpu_vita_ctr`) drew into a multisampled target but
+showed every frame from VRAM, packed to 15-bit PSX pixels at 512x240: no
+host resolution and no antialiasing reached the screen. It now presents
+the target that drew the displayed page (the previous scene's one for
+double-buffered games, swapped, not copied), sized one target pixel per
+presented pixel (725x517 for Soul Calibur's 512x228 draw area on the
+Vita), with 4x MSAA. `--gl-1x` and `--gl-msaa 0|2|4` switch it back for
+measurements. Fixed on the way: untextured flat polygons and tiles drew
+the raw-texture bit's 128 grey (Tekken's shadows), Tekken Tag's ROMs did
+not fit the 128 MB newlib heap next to vitaGL's shader translation, and
+`--capture-ppm` now works for vitaGL builds (on hardware; Vita3K reads the
+display buffer back black).
+
+Vita3K runs vitaGL builds with `run_system12_vita3k.py --shader-compiler`
+(it then switches surface sync on: without it every textured polygon
+disappears, since VRAM is a render target the shaders sample). `--inputs`
+replays a gameplay CSV and `--app-arg` passes guest options.
+
+The hardware measurement before this work was ~11.5 fps in gameplay. The
+Mac vitaGL-like harness now counts what costs on the Vita
+(`PCSX_GL_STATS=1`, `PCSX_GL_STATS_SKIP=N`); `PCSX_GL_LOWDPI=1` gives it
+the Vita's 960x544 back buffer. Soul Calibur gameplay replay
+(`tests/check_system12_gameplay.py` inputs, presented frames after 2600):
+
+| per presented frame | before | now |
+| --- | --- | --- |
+| GL draw calls | 763.9 | 131.6 |
+| GXM scenes (render target switches) | 10.86 | 8.80 |
+| frames made synchronous (whole replay, 4883 frames) | 4147 | 52 |
+| synchronous renderer tasks (whole replay) | 39533 | 1486 |
+
+- Draws: a depth batch drew each member split separately; members are now
+  copied together into the frame's vertex buffer and drawn once.
+- Synchronous frames: each one made the emulation thread wait for the
+  renderer thread. CPU uploads are queued with the frame packet when no
+  pending split uses their VRAM, or start a new packet of the same frame
+  when one does; gpulib no longer syncs the renderer at every VRAM write
+  DMA; CPU reads of VRAM the renderer never drew into return at once.
+
+Final captures are unchanged by every step except where the Mac harness
+itself was fixed (it began a second scene in synchronous frames, reloading
+the HD target at PSX resolution). Soul Calibur (attract and gameplay),
+Tekken 3 and Tekken Tag run in Vita3K with the final VPK. Hardware fps not
+measured yet (the console was locked).
