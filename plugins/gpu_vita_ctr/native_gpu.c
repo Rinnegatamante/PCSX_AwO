@@ -183,6 +183,9 @@ global_variable NativeGpuState s_gpu;
 global_variable int s_gpuActiveRgb24SourceByteOffset;
 
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount);
+int NativeGpu_FrameUsesVRAMScanout(void);
+extern void NativeRenderer_SetOffscreenPageClip(const RECT16 *drawRect, const RECT16 *pageRect);
+extern void NativeRenderer_SetOffscreenPageProjection(const RECT16 *drawRect, const RECT16 *pageRect);
 
 void NativeGpu_ResetOrderDepth(void)
 {
@@ -265,7 +268,7 @@ typedef struct
 internal void NativeGpu_BackendStoreFrameBufferTask(void *arg)
 {
 	NativeGpuBackendRectTask *task = (NativeGpuBackendRectTask *)arg;
-	if (NativeGpu_GetRenderDrawEnv()->dfe)
+	if (NativeGpu_GetRenderDrawEnv()->dfe && !NativeGpu_FrameUsesVRAMScanout())
 	{
 		NativeRenderer_StoreFrameBuffer(task->x, task->y, task->w, task->h);
 	}
@@ -574,6 +577,62 @@ const DISPENV *NativeGpu_GetRenderDispEnv(void)
 	return &activeDispEnv;
 #endif
 }
+
+int NativeGpu_FrameUsesVRAMScanout(void)
+{
+#ifdef __vita__
+	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
+	const DISPENV *display = NativeGpu_GetRenderDispEnv();
+	// Reduced draw areas still require full VRAM scanout for HUD pixels.
+	return !display->isrgb24 && draw->clip.w > 0 && draw->clip.h > 0 &&
+	       display->disp.w > 0 && display->disp.h > 0 &&
+	       (draw->clip.w < display->disp.w || draw->clip.h < display->disp.h);
+#else
+	return 0;
+#endif
+}
+
+#ifdef __vita__
+// Keep a persistent VRAM-page FBO across GP0(E3/E4) clip changes.
+internal bool NativeGpu_GetVRAMPageRect(const GPUDrawSplit *split, RECT16 *page)
+{
+	const RECT16 *clip = &split->drawenv.clip;
+	const int width = split->dispenv.disp.w;
+	const int height = split->dispenv.disp.h;
+	if (!NativeGpu_FrameUsesVRAMScanout() || split->dispenv.isrgb24 ||
+	    width <= 0 || height <= 0 || width > 512 || height > 256 ||
+	    clip->x < 0 || clip->y < 0 || clip->w <= 0 || clip->h <= 0 ||
+	    clip->w > width || clip->h > height)
+	{
+		return false;
+	}
+
+	int x = (clip->x / width) * width;
+	int y = (clip->y / 256) * 256;
+	if (clip->x + clip->w > x + width)
+		x = split->drawenv.ofs[0];
+	if (clip->y + clip->h > y + height)
+		y = split->drawenv.ofs[1];
+	if (x < 0 || y < 0 || x + width > VRAM_WIDTH || y + height > VRAM_HEIGHT ||
+	    clip->x < x || clip->y < y || clip->x + clip->w > x + width || clip->y + clip->h > y + height)
+	{
+		return false;
+	}
+
+	page->x = (s16)x;
+	page->y = (s16)y;
+	page->w = (s16)width;
+	page->h = (s16)height;
+	return true;
+}
+#else
+internal bool NativeGpu_GetVRAMPageRect(const GPUDrawSplit *split, RECT16 *page)
+{
+	(void)split;
+	(void)page;
+	return false;
+}
+#endif
 
 int VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset(void)
 {
@@ -1573,14 +1632,18 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 	split->dispenv = activeDispEnv;
 	split->debugText = s_gpu.currentSplitDebugText;
 
-	split->drawenv.tw.w = s_gpu.overrideTextureWidth;
-	split->drawenv.tw.h = s_gpu.overrideTextureHeight;
+	if (s_gpu.overrideTexture != 0)
+	{
+		split->drawenv.tw.w = s_gpu.overrideTextureWidth;
+		split->drawenv.tw.h = s_gpu.overrideTextureHeight;
+	}
 
 	split->startVertex = s_gpu.vertexIndex;
 	split->numVerts = 0;
 }
 
-internal void NativeGpu_SetSplitShaderState(const GPUDrawSplit *split, int semiTransPass, BlendMode blendMode, bool offscreen)
+internal void NativeGpu_SetSplitShaderState(const GPUDrawSplit *split, int semiTransPass, BlendMode blendMode, bool offscreen,
+                                           const RECT16 *vramPage)
 {
 	TextureID texture = split->textureId;
 	int cachedP4 = 0;
@@ -1617,7 +1680,10 @@ internal void NativeGpu_SetSplitShaderState(const GPUDrawSplit *split, int semiT
 	}
 	NativeRenderer_SetPSXDrawMaskSet(split->psxDrawMaskSet);
 	NativeRenderer_SetPSXTextureOutputSTP(split->psxTextureOutputSTP);
-	NativeRenderer_SetProjection(&split->drawenv.clip, &split->dispenv, offscreen);
+	if (vramPage != NULL)
+		NativeRenderer_SetOffscreenPageProjection(&split->drawenv.clip, vramPage);
+	else
+		NativeRenderer_SetProjection(&split->drawenv.clip, &split->dispenv, offscreen);
 }
 
 #ifdef __vita__
@@ -1782,7 +1848,7 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 		NativeRenderer_PushDebugLabel(split->debugText);
 	}
 
-	const bool drawOnScreen = split->drawenv.dfe;
+	const bool drawOnScreen = split->drawenv.dfe && !NativeGpu_FrameUsesVRAMScanout();
 	if ((split->drawenv.clip.w <= 0) || (split->drawenv.clip.h <= 0))
 	{
 		// NOTE(aalhendi): VS/Battle end previews can shrink a losing viewport into an empty retail draw area. Empty clips should consume no pixels, and must not leak stale native offscreen/scissor state.
@@ -1797,9 +1863,18 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 
 	NativeRenderer_SetStencilMode(split->drawPrimMode); // draw with mask 0x16
 
-	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
-	NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
-	NativeGpu_SetSplitShaderState(split, semiTransPass, blendMode, !drawOnScreen);
+	RECT16 vramPage;
+	const bool useVramPage = !drawOnScreen && NativeGpu_GetVRAMPageRect(split, &vramPage);
+	if (useVramPage)
+	{
+		NativeRenderer_SetOffscreenPageClip(&split->drawenv.clip, &vramPage);
+	}
+	else
+	{
+		NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
+		NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
+	}
+	NativeGpu_SetSplitShaderState(split, semiTransPass, blendMode, !drawOnScreen, useVramPage ? &vramPage : NULL);
 	NativeRenderer_SetDepthState(1, depthWrite);
 	NativeRenderer_DrawTriangles(startVertex, numVerts / 3);
 
@@ -1819,6 +1894,8 @@ void DrawSplit(const GPUDrawSplit *split)
 #ifdef __vita__
 	if (split->drawPrimMode == 2)
 	{
+		// Flush pending offscreen draws before GP0 clears.
+		NativeRenderer_SetOffscreenState(&split->drawenv.clip, 0);
 		const DRAWENV savedDrawEnv = s_gpuBackendDrawEnv;
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
 		const int savedRgb24SourceByteOffset = s_gpuBackendRgb24SourceByteOffset;
@@ -1864,14 +1941,11 @@ internal bool NativeGpu_SplitsShareReorderDomain(const GPUDrawSplit *first, cons
 	{
 		return false;
 	}
-
-	if (!first->drawenv.dfe)
-	{
-		return first->drawenv.clip.x == second->drawenv.clip.x && first->drawenv.clip.y == second->drawenv.clip.y &&
-		       first->drawenv.clip.w == second->drawenv.clip.w && first->drawenv.clip.h == second->drawenv.clip.h;
-	}
-
-	return true;
+	// GP0(E3/E4) draw-area changes are primitive-order barriers.
+	return first->drawenv.clip.x == second->drawenv.clip.x && first->drawenv.clip.y == second->drawenv.clip.y &&
+	       first->drawenv.clip.w == second->drawenv.clip.w && first->drawenv.clip.h == second->drawenv.clip.h &&
+	       first->dispenv.disp.x == second->dispenv.disp.x && first->dispenv.disp.y == second->dispenv.disp.y &&
+	       first->dispenv.disp.w == second->dispenv.disp.w && first->dispenv.disp.h == second->dispenv.disp.h;
 }
 
 internal u32 NativeGpu_DepthHashMix(u32 hash, u32 value)
@@ -2021,11 +2095,20 @@ internal void NativeGpu_DrawDepthBatch(const NativeGpuDepthBatch *batch)
 		NativeRenderer_PushDebugLabel(split->debugText);
 	}
 
-	const bool drawOnScreen = split->drawenv.dfe;
+	const bool drawOnScreen = split->drawenv.dfe && !NativeGpu_FrameUsesVRAMScanout();
 	NativeRenderer_SetStencilMode(split->drawPrimMode);
-	NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
-	NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
-	NativeGpu_SetSplitShaderState(split, batch->semiTransPass, BM_NONE, !drawOnScreen);
+	RECT16 vramPage;
+	const bool useVramPage = !drawOnScreen && NativeGpu_GetVRAMPageRect(split, &vramPage);
+	if (useVramPage)
+	{
+		NativeRenderer_SetOffscreenPageClip(&split->drawenv.clip, &vramPage);
+	}
+	else
+	{
+		NativeRenderer_SetupClipMode(&split->drawenv.clip, &split->dispenv, drawOnScreen);
+		NativeRenderer_SetOffscreenState(&split->drawenv.clip, !drawOnScreen);
+	}
+	NativeGpu_SetSplitShaderState(split, batch->semiTransPass, BM_NONE, !drawOnScreen, useVramPage ? &vramPage : NULL);
 	NativeRenderer_SetDepthState(1, true);
 
 	for (int memberIndex = batch->representativeSplit; memberIndex > 0; memberIndex = s_gpuDepthNextSplit[memberIndex])
@@ -2549,7 +2632,7 @@ internal void SetPSXMaskState(u32 code)
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
 	extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
-	if (!NativeGpu_GetRenderDispEnv()->isrgb24)
+	if (!NativeGpu_GetRenderDispEnv()->isrgb24 && !NativeGpu_FrameUsesVRAMScanout())
 		VitaCtrNativeRenderer_ApplyMainCpuVRAM();
 
 	if (splitCount > 0)
@@ -2614,7 +2697,6 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 		DrawSplit(&s_gpuDrawSplits[i]);
 	}
 #endif
-
 }
 
 void DrawAllSplits(void)

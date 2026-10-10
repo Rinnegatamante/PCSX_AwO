@@ -58,6 +58,7 @@ extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
 extern void VitaCtrNativeRenderer_ReadGuestVRAM(u16 *dst, int x, int y, int w, int h);
 extern void NativeGpu_SetFrontendDisplayBlank(int blank);
 extern int NativeGpu_GetRenderDisplayBlank(void);
+extern int NativeGpu_FrameUsesVRAMScanout(void);
 extern void NativeGpu_ForceSynchronousFrame(void);
 extern void NativeRenderer_PresentBlank(void);
 
@@ -133,16 +134,17 @@ void Platform_EndScene(void)
     const DISPENV *display = NativeGpu_GetRenderDispEnv();
     const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
     const int blank = NativeGpu_GetRenderDisplayBlank();
+    const int use_vram_scanout = NativeGpu_FrameUsesVRAMScanout();
 
-    if (!display->isrgb24)
+    if (!display->isrgb24 && !use_vram_scanout)
         VitaCtrNativeRenderer_ApplyMainCpuVRAM();
     NativeRenderer_EndScene();
     if (blank) {
-        if (!display->isrgb24)
+        if (!display->isrgb24 && !use_vram_scanout)
             NativeRenderer_StoreFrameBuffer(draw->clip.x, draw->clip.y, draw->clip.w, draw->clip.h);
         NativeRenderer_PresentBlank();
     }
-    else if (display->isrgb24) {
+    else if (display->isrgb24 || use_vram_scanout) {
         NativeRenderer_PresentVRAMDisplay();
     }
     else {

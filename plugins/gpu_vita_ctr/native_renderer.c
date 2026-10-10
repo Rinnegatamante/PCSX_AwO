@@ -12,6 +12,7 @@
 #define NATIVE_GHOST_OVERLAY_TOUCH_REAR_RIGHT  (1u << 22)
 #endif
 extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX, u8 *stickLY, u8 *stickRX, u8 *stickRY);
+extern int NativeGpu_FrameUsesVRAMScanout(void);
 
 #include "platform/native_assets.h"
 #include "platform/native_gpu.h"
@@ -259,7 +260,9 @@ struct NativeRenderTarget
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
 global_variable struct NativeRenderTarget s_offscreenRenderTarget;
+global_variable struct NativeRenderTarget *s_activeOffscreenTarget = &s_offscreenRenderTarget;
 #ifdef __vita__
+global_variable struct NativeRenderTarget s_offscreenPageRenderTarget;
 global_variable struct NativeRenderTarget s_rgb24RenderTarget;
 #endif
 #define NATIVE_MAIN_CPU_DIRTY_CAP 32
@@ -529,6 +532,7 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyRenderTarget(&s_mainRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
 #ifdef __vita__
+	NativeRenderer_DestroyRenderTarget(&s_offscreenPageRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_rgb24RenderTarget);
 #endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
@@ -602,24 +606,28 @@ void NativeRenderer_BeginScene(void)
 	NativeRenderer_SetDepthState(0, 1);
 
 	NativeRenderer_UpdateVRAM();
-	if (!NativeGpu_GetRenderDrawEnv()->isbg)
+	// Page-backed frames must not initialize the unused main render target.
+	if (!NativeGpu_FrameUsesVRAMScanout())
 	{
-		NativeRenderer_LoadRenderTargetFromVRAM(&s_mainRenderTarget, NativeGpu_GetRenderDrawEnv()->clip.x, NativeGpu_GetRenderDrawEnv()->clip.y,
-		                                        s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight);
-		NativeRenderer_ClearMainCpuDirty();
-	}
-	else
-	{
-		const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
-		glDisable(GL_SCISSOR_TEST);
-#ifdef __vita__
-		glClear(GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#else
-		glClear(GL_STENCIL_BUFFER_BIT);
-#endif
-		if (previousScissorEnabled)
+		if (!NativeGpu_GetRenderDrawEnv()->isbg)
 		{
-			glEnable(GL_SCISSOR_TEST);
+			NativeRenderer_LoadRenderTargetFromVRAM(&s_mainRenderTarget, NativeGpu_GetRenderDrawEnv()->clip.x, NativeGpu_GetRenderDrawEnv()->clip.y,
+			                                        s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight);
+			NativeRenderer_ClearMainCpuDirty();
+		}
+		else
+		{
+			const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+			glDisable(GL_SCISSOR_TEST);
+#ifdef __vita__
+			glClear(GL_STENCIL_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#else
+			glClear(GL_STENCIL_BUFFER_BIT);
+#endif
+			if (previousScissorEnabled)
+			{
+				glEnable(GL_SCISSOR_TEST);
+			}
 		}
 	}
 	NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
@@ -2247,10 +2255,11 @@ int NativeRenderer_InitialisePSX(void)
 #endif
 
 	// Main and offscreen draws share one explicit render-target contract. The main target stays at CTR's logical display size; host scaling is deferred to presentation.
-	NativeRenderer_InitRenderTarget(&s_mainRenderTarget);
-	NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
+		NativeRenderer_InitRenderTarget(&s_mainRenderTarget);
+		NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
 #ifdef __vita__
-	NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
+		NativeRenderer_InitRenderTarget(&s_offscreenPageRenderTarget);
+		NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
 #endif
 
 	// gen VRAM texture (single, persistent - mirrors PS1's single 1MB VRAM)
@@ -3354,7 +3363,7 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	}
 
 	// NOTE(aalhendi): Native offscreen draws produce RGBA pixels. Pack them into the persistent 5:5:5:1 VRAM texture instead of reading them through the CPU.
-	NativeRenderer_GpuPackTextureToVRAM(s_offscreenRenderTarget.texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
+	NativeRenderer_GpuPackTextureToVRAM(s_activeOffscreenTarget->texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
 	                                    s_previousOffscreen.h, true);
 }
 
@@ -3376,9 +3385,9 @@ internal void NativeRenderer_SetScissorState(int enable)
 	s_previousScissorState = enable;
 }
 
-void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
+internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect, int enable, struct NativeRenderTarget *target)
 {
-	const int sameOffscreenRect = NativeRenderer_RectEquals(&s_previousOffscreen, offscreenRect);
+	const int sameOffscreenRect = s_activeOffscreenTarget == target && NativeRenderer_RectEquals(&s_previousOffscreen, offscreenRect);
 	if (!enable && !s_previousOffscreenState)
 	{
 		return;
@@ -3397,20 +3406,58 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 		}
 
 		s_previousOffscreenState = 1;
-		NativeRenderer_EnsureRenderTarget(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h);
-		s_offscreenRenderTarget.logicalWidth = offscreenRect->w;
-		s_offscreenRenderTarget.logicalHeight = offscreenRect->h;
+		s_activeOffscreenTarget = target;
+		NativeRenderer_EnsureRenderTarget(target, offscreenRect->w, offscreenRect->h);
+		target->logicalWidth = offscreenRect->w;
+		target->logicalHeight = offscreenRect->h;
 		s_previousOffscreen = *offscreenRect;
-		NativeRenderer_LoadRenderTargetFromVRAM(&s_offscreenRenderTarget, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
+		NativeRenderer_LoadRenderTargetFromVRAM(target, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
 	}
 	else
 	{
 		s_previousOffscreenState = 0;
 
 		NativeRenderer_FlushOffscreenToVRAM();
+		s_activeOffscreenTarget = &s_offscreenRenderTarget;
 		NativeRenderer_BindMainRenderTarget();
 		NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
 	}
+}
+
+void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
+{
+	NativeRenderer_SetOffscreenStateTarget(offscreenRect, enable, &s_offscreenRenderTarget);
+}
+
+// Apply PS1 draw-area scissor within its persistent VRAM page.
+void NativeRenderer_SetOffscreenPageClip(const RECT16 *drawRect, const RECT16 *pageRect)
+{
+	const int x0 = drawRect->x > pageRect->x ? drawRect->x : pageRect->x;
+	const int y0 = drawRect->y > pageRect->y ? drawRect->y : pageRect->y;
+	const int x1 = drawRect->x + drawRect->w < pageRect->x + pageRect->w ?
+	               drawRect->x + drawRect->w : pageRect->x + pageRect->w;
+	const int y1 = drawRect->y + drawRect->h < pageRect->y + pageRect->h ?
+	               drawRect->y + drawRect->h : pageRect->y + pageRect->h;
+
+#ifdef __vita__
+	NativeRenderer_SetOffscreenStateTarget(pageRect, 1, &s_offscreenPageRenderTarget);
+#else
+	NativeRenderer_SetOffscreenState(pageRect, 1);
+#endif
+	NativeRenderer_SetScissorState(1);
+	if (x1 <= x0 || y1 <= y0)
+	{
+		NativeRenderer_SetScissorRectCached(0, 0, 0, 0);
+		return;
+	}
+	NativeRenderer_SetScissorRectCached(x0 - pageRect->x, pageRect->y + pageRect->h - y1, x1 - x0, y1 - y0);
+}
+
+void NativeRenderer_SetOffscreenPageProjection(const RECT16 *drawRect, const RECT16 *pageRect)
+{
+	const float dx = (float)(drawRect->x - pageRect->x);
+	const float dy = (float)(drawRect->y - pageRect->y);
+	NativeRenderer_Ortho2D(-dx, (float)pageRect->w - dx, (float)pageRect->h - dy, -dy, -1.0f, 1.0f);
 }
 
 void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *displayEnv, int offscreen)
@@ -3466,8 +3513,8 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 
 	if (s_previousOffscreenState)
 	{
-		glBindFramebuffer(GL_FRAMEBUFFER, s_offscreenRenderTarget.framebuffer);
-		glViewport(0, 0, s_offscreenRenderTarget.width, s_offscreenRenderTarget.height);
+		glBindFramebuffer(GL_FRAMEBUFFER, s_activeOffscreenTarget->framebuffer);
+		glViewport(0, 0, s_activeOffscreenTarget->width, s_activeOffscreenTarget->height);
 	}
 	else
 	{
@@ -3587,6 +3634,13 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 	s_offscreenRenderTarget.height = 0;
 	s_offscreenRenderTarget.logicalWidth = 0;
 	s_offscreenRenderTarget.logicalHeight = 0;
+#ifdef __vita__
+	s_offscreenPageRenderTarget.width = 0;
+	s_offscreenPageRenderTarget.height = 0;
+	s_offscreenPageRenderTarget.logicalWidth = 0;
+	s_offscreenPageRenderTarget.logicalHeight = 0;
+#endif
+	s_activeOffscreenTarget = &s_offscreenRenderTarget;
 	s_previousOffscreen = zeroRect;
 	s_previousOffscreenState = 0;
 	s_previousShader = (ShaderID)-1;
