@@ -53,5 +53,7 @@ void NativeRenderer_PushDebugLabel(const char *label);
 void NativeRenderer_PopDebugLabel(void);
 void NativeRenderer_SyncVRAMToCPU(int x, int y, int w, int h);
 GrVertex *NativeRenderer_AllocateVertexBuffer(int count);
+GrVertex *NativeRenderer_MapVertexBuffer(int count);
+void NativeRenderer_CommitVertexBuffer(GrVertex *mapped);
 
 #endif

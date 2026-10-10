@@ -4662,6 +4662,27 @@ internal void NativeRenderer_SetWireframe(int enable)
 #endif
 }
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Binds the frame's vertex buffer and returns count vertices of GPU-visible
+ * scratch memory to fill before NativeRenderer_CommitVertexBuffer. */
+GrVertex *NativeRenderer_MapVertexBuffer(int count)
+{
+	if (count <= 0 || (u32)count > MAX_VERTEX_BUFFER_SIZE)
+	{
+		return NULL;
+	}
+	s_boundVertexBuffer = s_curVertexBuffer;
+	glBindVertexArray(s_glVertexArray[s_curVertexBuffer]);
+	glBindBuffer(GL_ARRAY_BUFFER, s_glVertexBuffer[s_curVertexBuffer]);
+	return NativeRenderer_AllocateVertexBuffer(count);
+}
+
+void NativeRenderer_CommitVertexBuffer(GrVertex *mapped)
+{
+	vglBufferData(GL_ARRAY_BUFFER, mapped);
+}
+#endif
+
 void NativeRenderer_UpdateVertexBuffer(const GrVertex *vertices, int num_vertices)
 {
 	if (num_vertices <= 0)

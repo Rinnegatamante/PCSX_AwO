@@ -1679,6 +1679,10 @@ typedef struct
 	int lastMemberSplit;
 	int semiTransPass;
 	NativeGpuPassCategory category;
+	/* The members' vertices copied together after the frame's own, so the
+	 * batch is one draw; drawCount < 0 when they were not. */
+	int drawStart;
+	int drawCount;
 } NativeGpuDepthBatch;
 
 typedef struct
@@ -2059,11 +2063,36 @@ internal void NativeGpu_DrawDepthBatch(const NativeGpuDepthBatch *batch)
 	NativeGpu_SetSplitShaderState(split, batch->semiTransPass, BM_NONE, !drawOnScreen);
 	NativeRenderer_SetDepthState(1, true);
 
+	if (batch->drawCount >= 0)
+	{
+		if (batch->drawCount > 0)
+			NativeRenderer_DrawTriangles(batch->drawStart, batch->drawCount / 3);
+		if (split->debugText)
+		{
+			NativeRenderer_PopDebugLabel();
+		}
+		return;
+	}
+
+	/* Members are in submission order; one draw covers each run of them
+	 * whose vertices are adjacent. */
+	int runStart = 0, runCount = 0;
 	for (int memberIndex = batch->representativeSplit; memberIndex > 0; memberIndex = s_gpuDepthNextSplit[memberIndex])
 	{
 		const GPUDrawSplit *member = &s_gpuDrawSplits[memberIndex];
-		NativeRenderer_DrawTriangles(member->startVertex, member->numVerts / 3);
+		const int count = member->numVerts / 3 * 3;
+		if (runCount > 0 && member->startVertex == runStart + runCount)
+		{
+			runCount += count;
+			continue;
+		}
+		if (runCount > 0)
+			NativeRenderer_DrawTriangles(runStart, runCount / 3);
+		runStart = member->startVertex;
+		runCount = count;
 	}
+	if (runCount > 0)
+		NativeRenderer_DrawTriangles(runStart, runCount / 3);
 
 	if (split->debugText)
 	{
@@ -2578,6 +2607,58 @@ internal void SetPSXMaskState(u32 code)
 	s_gpu.psxDrawMaskSet = (code & 1) != 0;
 }
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Uploads the frame's vertices, followed by each depth batch's members in
+ * member order: a batch collects splits of one state from the whole
+ * reorder domain, whose vertices are interleaved with other batches', and
+ * every vitaGL draw costs CPU time. Copied, each batch is a single draw. */
+internal void NativeGpu_UploadFrameVertices(bool depthBatchingReady)
+{
+	int total = s_gpuDrawVertexCount;
+	for (int b = 0; b < s_gpuDepthBatchCount; b++)
+	{
+		NativeGpuDepthBatch *batch = &s_gpuDepthBatches[b];
+		batch->drawCount = -1;
+		if (!depthBatchingReady)
+			continue;
+		int count = 0;
+		for (int m = batch->representativeSplit; m > 0; m = s_gpuDepthNextSplit[m])
+			count += s_gpuDrawSplits[m].numVerts / 3 * 3;
+		if ((u32)(total + count) > MAX_VERTEX_BUFFER_SIZE)
+			continue;
+		batch->drawStart = total;
+		batch->drawCount = count;
+		total += count;
+	}
+	if (s_gpuDrawVertexCount <= 0)
+		return;
+	GrVertex *dst = NativeRenderer_MapVertexBuffer(total);
+	if (dst == NULL)
+	{
+		for (int b = 0; b < s_gpuDepthBatchCount; b++)
+			s_gpuDepthBatches[b].drawCount = -1;
+		NativeRenderer_UpdateVertexBuffer(s_gpuDrawVertices, s_gpuDrawVertexCount);
+		return;
+	}
+	memcpy(dst, s_gpuDrawVertices, (size_t)s_gpuDrawVertexCount * sizeof(GrVertex));
+	for (int b = 0; b < s_gpuDepthBatchCount; b++)
+	{
+		const NativeGpuDepthBatch *batch = &s_gpuDepthBatches[b];
+		if (batch->drawCount <= 0)
+			continue;
+		GrVertex *out = dst + batch->drawStart;
+		for (int m = batch->representativeSplit; m > 0; m = s_gpuDepthNextSplit[m])
+		{
+			const GPUDrawSplit *member = &s_gpuDrawSplits[m];
+			const int count = member->numVerts / 3 * 3;
+			memcpy(out, s_gpuDrawVertices + member->startVertex, (size_t)count * sizeof(GrVertex));
+			out += count;
+		}
+	}
+	NativeRenderer_CommitVertexBuffer(dst);
+}
+#endif
+
 // Draws all polygons after AggregatePTAG
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
@@ -2639,7 +2720,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 	NativeGpu_CoalesceNonOverlappingSemiTransSplits();
 	NativeGpu_ClassifyOpaqueTextureSplits();
 	const bool depthBatchingReady = NativeGpu_BuildDepthBatches();
-	NativeRenderer_UpdateVertexBuffer(s_gpuDrawVertices, s_gpuDrawVertexCount);
+	NativeGpu_UploadFrameVertices(depthBatchingReady);
 #else
 	// next code ideally should be called before EndScene
 	NativeRenderer_UpdateVertexBuffer(s_gpuDrawVertices, s_gpuDrawVertexCount);
