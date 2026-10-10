@@ -97,6 +97,15 @@ static bool g_exit_requested;
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
 static int g_audio_queue_target_bytes;
+/* --pacing: vblank (default) shows one emulated frame per display refresh
+ * (59.94 Hz) and resamples audio dynamically to keep its queue level; audio
+ * runs the game at its own rate (59.83 Hz for System 12, as the arcade), the
+ * audio queue being the clock, at the cost of a repeated frame every ~9 s. */
+enum { PACING_VBLANK, PACING_AUDIO };
+static int g_pacing = PACING_VBLANK;
+static float g_audio_base_ratio = 1.0f; /* display rate / core frame rate */
+static float g_audio_ratio = 1.0f;
+static int g_last_vcount = -1;
 static uint64_t g_audio_put_frames; /* source frames handed to SDL */
 
 static SceUID g_vm_block = -1;
@@ -638,9 +647,11 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
     }
     g_audio_put_frames += frames;
 
+    /* With vblank pacing the queue only caps latency (the ratio holds it at the
+     * target); with audio pacing it is the clock. */
+    const int limit = g_pacing == PACING_VBLANK ? 3 * g_audio_queue_target_bytes : g_audio_queue_target_bytes;
     uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_AUDIO_WAIT, 1);
-    while (!g_exit_requested &&
-           SDL_GetAudioStreamQueued(g_audio_stream) > g_audio_queue_target_bytes)
+    while (!g_exit_requested && SDL_GetAudioStreamQueued(g_audio_stream) > limit)
         sceKernelDelayThread(1000);
     pcsx_profile_end(PCSX_PROF_AUDIO_WAIT, wait_started);
 
@@ -1137,6 +1148,30 @@ static void load_args_file(int *argc, char ***argv)
     *argv = g_args_argv;
 }
 
+/* Vblank pacing, once per emulated frame: at most one frame per display
+ * refresh (a frame finished late does not wait), and the audio resampling
+ * ratio follows the queue, within 0.5% of the nominal ratio, so the queue
+ * stays at its target without the emulation waiting on it. */
+static void pace_frame(void)
+{
+    if (g_pacing != PACING_VBLANK)
+        return;
+    if (g_audio_stream && g_audio_queue_target_bytes > 0) {
+        float fill = (float)(SDL_GetAudioStreamQueued(g_audio_stream) - g_audio_queue_target_bytes) /
+                     (float)g_audio_queue_target_bytes;
+        if (fill > 1.0f) fill = 1.0f;
+        if (fill < -1.0f) fill = -1.0f;
+        g_audio_ratio = g_audio_base_ratio * (1.0f + 0.005f * fill);
+        SDL_SetAudioStreamFrequencyRatio(g_audio_stream, g_audio_ratio);
+    }
+    int now = sceDisplayGetVcount();
+    if (now == g_last_vcount) {
+        sceDisplayWaitVblankStart();
+        now = sceDisplayGetVcount();
+    }
+    g_last_vcount = now;
+}
+
 int main(int argc, char **argv)
 {
     struct retro_game_info game;
@@ -1172,6 +1207,10 @@ int main(int argc, char **argv)
         /* Needs a VITA_GPU_THREAD=1 build; otherwise the core has no worker. */
         if (!strcmp(argv[ret], "--gpu-thread")) { g_gpu_thread = true; continue; }
         if (!strcmp(argv[ret], "--board-thread")) { g_board_thread = true; continue; }
+        if (!strcmp(argv[ret], "--pacing") && ret + 1 < argc) {
+            g_pacing = !strcmp(argv[++ret], "audio") ? PACING_AUDIO : PACING_VBLANK;
+            continue;
+        }
         if (!strcmp(argv[ret], "--scale") && ret + 1 < argc) {
             const char *mode = argv[++ret];
             g_scale_mode = !strcmp(mode, "nearest") ? SCALE_NEAREST
@@ -1408,6 +1447,16 @@ int main(int argc, char **argv)
         sceClibPrintf("pcsx-vita: audio init failed 0x%x; continuing silent\n", ret);
     else
         sceClibPrintf("pcsx-vita: audio initialized\n");
+    {
+        float refresh = 0.0f;
+        if (sceDisplayGetRefreshRate(&refresh) < 0 || refresh <= 0.0f)
+            refresh = 59.94f;
+        if (av.timing.fps > 0.0)
+            g_audio_base_ratio = (float)(refresh / av.timing.fps);
+        sceClibPrintf("pcsx-vita: pacing=%s display=%.4fHz core=%.4fHz audio_ratio=%.5f\n",
+            g_pacing == PACING_VBLANK ? "vblank" : "audio", refresh, av.timing.fps,
+            g_pacing == PACING_VBLANK ? g_audio_base_ratio : 1.0f);
+    }
 
     unsigned runs = 0;
 #ifdef ARCADE_SYSTEM12
@@ -1428,6 +1477,7 @@ int main(int argc, char **argv)
         }
 #endif
         retro_run(); ++runs;
+        pace_frame();
         /* Keep the console awake: no auto suspend or screen off while
          * emulating (input from the replay never touches the system). */
         if (runs % 60 == 0)
@@ -1444,7 +1494,10 @@ int main(int argc, char **argv)
                 ? (unsigned)((consumed - last_consumed) * 1000 / (now_ms - last_ms)) : 0;
             last_consumed = consumed;
             last_ms = now_ms;
-            sceClibPrintf("pcsx-vita: audio consumed_src_hz=%u\n", audio_hz);
+            sceClibPrintf("pcsx-vita: audio consumed_src_hz=%u ratio=%.5f queued_ms=%u\n", audio_hz,
+                g_audio_ratio, g_audio_stream && av.timing.sample_rate > 0
+                    ? (unsigned)((uint64_t)SDL_GetAudioStreamQueued(g_audio_stream) / AUDIO_FRAME_BYTES * 1000 /
+                                 (uint64_t)av.timing.sample_rate) : 0u);
             SceKernelFreeMemorySizeInfo mem = { .size = sizeof(mem) };
             sceKernelGetFreeMemorySize(&mem);
 #ifdef STANDALONE_VITAGL
