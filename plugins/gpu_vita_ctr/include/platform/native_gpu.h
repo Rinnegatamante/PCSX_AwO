@@ -19,7 +19,11 @@ extern int g_GPUDisabledState;
 
 int NativeGpu_HasPendingSplits(void);
 int NativeGpu_PendingSplitsTouch(int x, int y, int w, int h);
-int NativeGpu_QueueLeadingUpload(const unsigned short *vram, int x, int y, int w, int h);
+int NativeGpu_QueueUpload(const unsigned short *vram, int x, int y, int w, int h);
+int NativeGpu_SubmitPartialFrame(void);
+int NativeGpu_GuestVRAMStale(int x, int y, int w, int h);
+void NativeGpu_GuestVRAMSynced(int x, int y, int w, int h);
+void NativeGpu_GuestVRAMWritten(int x, int y, int w, int h);
 void ClearSplits(void);
 void DrawAllSplits(void);
 void ParsePrimitivesLinkedList(u32 *p, int singlePrimitive);

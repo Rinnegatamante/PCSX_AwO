@@ -153,8 +153,9 @@ typedef struct
 	/* Set once the packet holds anything but queued uploads. */
 	bool packetHasDraws;
 	/* 64x64 VRAM tiles the pending splits read (texture pages, CLUTs) or
-	 * write (draw areas, fills); an upload elsewhere needs no flush. */
+	 * write (draw areas, fills), and those of the queued uploads. */
 	u32 pendingTiles[NATIVE_GPU_PENDING_TILE_WORDS];
+	u32 uploadTiles[NATIVE_GPU_PENDING_TILE_WORDS];
 #endif
 } NativeGpuState;
 
@@ -172,6 +173,11 @@ typedef struct
 	int vertexCount;
 	int splitCount;
 	int blankDisplay;
+	/* A frame is one packet, or several when an upload had to be ordered
+	 * between its draws: only the first begins the scene and only the last
+	 * ends (presents) it. */
+	int beginScene;
+	int endScene;
 } NativeGpuFramePacket;
 
 #define NATIVE_GPU_FRAME_PACKET_COUNT 2
@@ -180,6 +186,12 @@ global_variable NativeGpuFramePacket s_gpuFramePackets[NATIVE_GPU_FRAME_PACKET_C
 global_variable int s_gpuFrontendPacketIndex;
 global_variable int s_gpuFrontendFramePrepared;
 global_variable int s_gpuSynchronousFrame;
+/* The frame being built already had a packet submitted: its scene began. */
+global_variable int s_gpuFrameBegun;
+/* 64x64 VRAM tiles where splits handed to the backend may have drawn since
+ * the guest VRAM was last read back: elsewhere the guest copy is current,
+ * as only the CPU wrote there. */
+global_variable u32 s_gpuGuestStaleTiles[NATIVE_GPU_PENDING_TILE_WORDS];
 #ifdef __vita__
 global_variable NativeGpuFramePacket *s_gpuBackendPacket;
 global_variable NativeGpuBackendTaskFn s_gpuBackendTask;
@@ -211,7 +223,9 @@ global_variable NativeGpuState s_gpu;
 
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-internal void NativeGpu_ApplyLeadingUploads(GPUDrawSplit *splits, int splitCount);
+internal void NativeGpu_ApplyQueuedUploads(GPUDrawSplit *splits, int splitCount);
+internal void NativeGpu_MarkPacketWrites(void);
+internal bool NativeGpu_RectOverlaps(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh);
 #endif
 
 void NativeGpu_ResetOrderDepth(void)
@@ -364,11 +378,15 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 		NativeGpu_BackendUnlock();
 		if (packet != NULL)
 		{
-			s_pcsxRenderHadGeometry = (packet->vertexCount > 0 || packet->splitCount > 0) ? 1 : 0;
-			NativeGpu_ApplyLeadingUploads(packet->splits, packet->splitCount);
-			Platform_BeginScene();
+			if (packet->beginScene)
+				s_pcsxRenderHadGeometry = 0;
+			s_pcsxRenderHadGeometry |= (packet->vertexCount > 0 || packet->splitCount > 0) ? 1 : 0;
+			NativeGpu_ApplyQueuedUploads(packet->splits, packet->splitCount);
+			if (packet->beginScene)
+				Platform_BeginScene();
 			NativeGpu_DrawPreparedFrame(packet->vertices, packet->splits, packet->vertexCount, packet->splitCount);
-			Platform_EndScene();
+			if (packet->endScene)
+				Platform_EndScene();
 		}
 		else if (task != NULL)
 		{
@@ -625,13 +643,17 @@ void NativeGpu_ForceSynchronousFrame(void)
 #ifdef __vita__
     if (!s_gpuSynchronousFrame)
     {
-        NativeGpu_RunBackendTaskSync(NativeGpu_BackendBeginSceneTask, NULL);
+        if (s_gpuFrameBegun)
+            NativeGpu_SyncBackend();
+        else
+            NativeGpu_RunBackendTaskSync(NativeGpu_BackendBeginSceneTask, NULL);
         s_gpuSynchronousFrame = 1;
     }
 #elif defined(PCSX_NATIVE_VITA_PATH)
 	if (!s_gpuSynchronousFrame)
 	{
-		Platform_BeginScene();
+		if (!s_gpuFrameBegun)
+			Platform_BeginScene();
 		s_gpuSynchronousFrame = 1;
 	}
 #endif
@@ -639,6 +661,9 @@ void NativeGpu_ForceSynchronousFrame(void)
 
 void NativeGpu_FlushFrontendSplitsSync(void)
 {
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	NativeGpu_MarkPacketWrites();
+#endif
 #ifdef __vita__
 	if (!NativeGpu_HasPendingSplits())
 	{
@@ -669,6 +694,7 @@ void NativeGpu_FinishSynchronousFrame(void)
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendEndSceneTask, NULL);
 	s_gpuSynchronousFrame = 0;
 	s_gpuFrontendFramePrepared = 0;
+	s_gpuFrameBegun = 0;
 #elif defined(PCSX_NATIVE_VITA_PATH)
 	if (s_gpuSynchronousFrame)
 	{
@@ -676,6 +702,7 @@ void NativeGpu_FinishSynchronousFrame(void)
 		Platform_EndScene();
 		s_gpuSynchronousFrame = 0;
 		s_gpuFrontendFramePrepared = 0;
+		s_gpuFrameBegun = 0;
 	}
 #endif
 }
@@ -698,6 +725,61 @@ int NativeGpu_IsFrontendFrameActive(void)
 #endif
 }
 
+/* Hands the splits built so far to the backend without ending the frame,
+ * and continues it in the other packet. An upload that pending splits read
+ * or write is then queued at the start of the new packet, instead of making
+ * the rest of the frame synchronous. Returns 0 when it cannot. */
+int NativeGpu_SubmitPartialFrame(void)
+{
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	if (!s_gpuFrontendFramePrepared || s_gpuSynchronousFrame || s_gpu.splitIndex <= 0)
+	{
+		return 0;
+	}
+	NativeGpu_MarkPacketWrites();
+	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
+	packet->vertexCount = s_gpu.vertexIndex;
+	packet->splitCount = s_gpu.splitIndex;
+	GPUDrawSplit *lastSplit = &s_gpu.splits[s_gpu.splitIndex];
+	lastSplit->numVerts = s_gpu.vertexIndex - lastSplit->startVertex;
+#ifdef __vita__
+	if (!s_gpuBackendEnabled)
+	{
+		return 0;
+	}
+	const int blankDisplay = packet->blankDisplay;
+	packet->beginScene = !s_gpuFrameBegun;
+	packet->endScene = 0;
+	NativeGpu_BackendLock();
+	NativeGpu_BackendWaitIdleLocked();
+	s_gpuBackendPacket = packet;
+	s_gpuBackendTask = NULL;
+	s_gpuBackendTaskArg = NULL;
+	s_gpuBackendBusy = 1;
+	s_gpuBackendWorkReady = 1;
+	s_gpuFrontendPacketIndex ^= 1;
+	NativeGpu_BindFrontendPacket();
+	sceKernelSignalLwCond(&s_gpuBackendCond);
+	NativeGpu_BackendUnlock();
+#else
+	const int blankDisplay = packet->blankDisplay;
+	NativeGpu_ApplyQueuedUploads(s_gpu.splits, s_gpu.splitIndex);
+	if (!s_gpuFrameBegun)
+		Platform_BeginScene();
+	DrawAllSplits();
+#endif
+	ClearSplits();
+	NativeGpuFramePacket *next = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
+	next->drawEnv = activeDrawEnv;
+	next->dispEnv = activeDispEnv;
+	next->blankDisplay = blankDisplay;
+	s_gpuFrameBegun = 1;
+	return 1;
+#else
+	return 0;
+#endif
+}
+
 int NativeGpu_SubmitFrontendFrame(void)
 {
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -705,6 +787,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 	{
 		return 0;
 	}
+	NativeGpu_MarkPacketWrites();
 
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
 	packet->vertexCount = s_gpu.vertexIndex;
@@ -713,7 +796,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 #ifdef __vita__
 	if (!s_gpuBackendEnabled)
 	{
-		NativeGpu_ApplyLeadingUploads(s_gpu.splits, s_gpu.splitIndex);
+		NativeGpu_ApplyQueuedUploads(s_gpu.splits, s_gpu.splitIndex);
 		Platform_BeginScene();
 		if (s_gpu.splitIndex > 0)
 		{
@@ -735,6 +818,8 @@ int NativeGpu_SubmitFrontendFrame(void)
             return 1;
         }
 
+	packet->beginScene = !s_gpuFrameBegun;
+	packet->endScene = 1;
 	NativeGpu_BackendLock();
 	NativeGpu_BackendWaitIdleLocked();
 	s_gpuBackendPacket = packet;
@@ -747,12 +832,19 @@ int NativeGpu_SubmitFrontendFrame(void)
 	ClearSplits();
 	s_gpuFrontendFramePrepared = 0;
 	s_gpuSynchronousFrame = 0;
+	s_gpuFrameBegun = 0;
 	sceKernelSignalLwCond(&s_gpuBackendCond);
 	NativeGpu_BackendUnlock();
 	return 1;
 #else
-	NativeGpu_ApplyLeadingUploads(s_gpu.splits, s_gpu.splitIndex);
-	Platform_BeginScene();
+	if (s_gpuSynchronousFrame)
+	{
+		NativeGpu_FinishSynchronousFrame();
+		return 1;
+	}
+	NativeGpu_ApplyQueuedUploads(s_gpu.splits, s_gpu.splitIndex);
+	if (!s_gpuFrameBegun)
+		Platform_BeginScene();
 	if (s_gpu.splitIndex > 0)
 		DrawAllSplits();
 	else
@@ -760,6 +852,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 	Platform_EndScene();
 	s_gpuFrontendFramePrepared = 0;
 	s_gpuSynchronousFrame = 0;
+	s_gpuFrameBegun = 0;
 	return 1;
 #endif
 #else
@@ -805,8 +898,9 @@ int NativeGpu_HasPendingSplits(void)
 }
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-/* Visits the 64x64 tiles of a VRAM rect, wrapping at the VRAM edges. */
-internal int NativeGpu_PendingTiles(int x, int y, int w, int h, int mark)
+/* Visits the 64x64 tiles of a VRAM rect, wrapping at the VRAM edges:
+ * marks them in, or tests them against, the given tile set. */
+internal int NativeGpu_VisitTiles(u32 *tiles, int x, int y, int w, int h, int mark)
 {
 	if (w <= 0 || h <= 0)
 		return 0;
@@ -824,18 +918,114 @@ internal int NativeGpu_PendingTiles(int x, int y, int w, int h, int mark)
 			const int col = (xx & (VRAM_WIDTH - 1)) >> NATIVE_GPU_PENDING_TILE_SHIFT;
 			const int tile = row * NATIVE_GPU_PENDING_TILE_COLS + col;
 			if (mark)
-				s_gpu.pendingTiles[tile >> 5] |= 1u << (tile & 31);
-			else if (s_gpu.pendingTiles[tile >> 5] & (1u << (tile & 31)))
+				tiles[tile >> 5] |= 1u << (tile & 31);
+			else if (tiles[tile >> 5] & (1u << (tile & 31)))
 				return 1;
 		}
 	}
 	return 0;
 }
 
-/* Whether the splits not yet drawn read or write any of this VRAM rect. */
+internal int NativeGpu_PendingTiles(int x, int y, int w, int h, int mark)
+{
+	return NativeGpu_VisitTiles(s_gpu.pendingTiles, x, y, w, h, mark);
+}
+
+/* Whether the splits not yet drawn read or write any of this VRAM rect,
+ * or a queued upload writes it. */
 int NativeGpu_PendingSplitsTouch(int x, int y, int w, int h)
 {
-	return s_gpu.splitIndex > 0 && NativeGpu_PendingTiles(x, y, w, h, 0);
+	return s_gpu.splitIndex > 0 &&
+	       (NativeGpu_PendingTiles(x, y, w, h, 0) || NativeGpu_VisitTiles(s_gpu.uploadTiles, x, y, w, h, 0));
+}
+
+/* The VRAM rect a frontend split writes: the bounds of its vertices within
+ * its draw area, or its fill. Returns 0 when it writes nothing (queued
+ * uploads write what the guest VRAM already holds). */
+internal int NativeGpu_SplitWriteRect(int i, RECT16 *rect)
+{
+	const GPUDrawSplit *split = &s_gpu.splits[i];
+	if (split->drawPrimMode == 2)
+	{
+		if (split->uploadPixels != NULL)
+			return 0;
+		*rect = split->clearRect;
+		return rect->w > 0 && rect->h > 0;
+	}
+	{
+		const int count = i == s_gpu.splitIndex ? s_gpu.vertexIndex - split->startVertex : split->numVerts;
+		if (count <= 0 || split->drawenv.clip.w <= 0 || split->drawenv.clip.h <= 0)
+			return 0;
+		const GrVertex *v = &s_gpu.vertexBuffer[split->startVertex];
+		int minX = v->x, maxX = v->x, minY = v->y, maxY = v->y;
+		for (int k = 1; k < count; k++)
+		{
+			minX = v[k].x < minX ? v[k].x : minX;
+			maxX = v[k].x > maxX ? v[k].x : maxX;
+			minY = v[k].y < minY ? v[k].y : minY;
+			maxY = v[k].y > maxY ? v[k].y : maxY;
+		}
+		/* Vertices are relative to the draw area; keep a pixel of margin. */
+		minX = minX - 1 < 0 ? 0 : minX - 1;
+		minY = minY - 1 < 0 ? 0 : minY - 1;
+		maxX = maxX + 1 > split->drawenv.clip.w ? split->drawenv.clip.w : maxX + 1;
+		maxY = maxY + 1 > split->drawenv.clip.h ? split->drawenv.clip.h : maxY + 1;
+		if (maxX <= minX || maxY <= minY)
+			return 0;
+		rect->x = (s16)(split->drawenv.clip.x + minX);
+		rect->y = (s16)(split->drawenv.clip.y + minY);
+		rect->w = (s16)(maxX - minX);
+		rect->h = (s16)(maxY - minY);
+		return 1;
+	}
+}
+
+/* Marks what the frontend packet's splits write as stale in the guest VRAM. */
+internal void NativeGpu_MarkPacketWrites(void)
+{
+	RECT16 rect;
+	for (int i = 1; i <= s_gpu.splitIndex; i++)
+		if (NativeGpu_SplitWriteRect(i, &rect))
+			NativeGpu_VisitTiles(s_gpuGuestStaleTiles, rect.x, rect.y, rect.w, rect.h, 1);
+}
+
+/* Whether a pending frontend split writes into this VRAM rect. */
+internal int NativeGpu_PendingWritesTouch(int x, int y, int w, int h)
+{
+	RECT16 rect;
+	for (int i = 1; i <= s_gpu.splitIndex; i++)
+		if (NativeGpu_SplitWriteRect(i, &rect) && NativeGpu_RectOverlaps(rect.x, rect.y, rect.w, rect.h, x, y, w, h))
+			return 1;
+	return 0;
+}
+
+/* The renderer wrote this rect outside a packet (synchronous fills and
+ * image copies). */
+void NativeGpu_GuestVRAMWritten(int x, int y, int w, int h)
+{
+	NativeGpu_VisitTiles(s_gpuGuestStaleTiles, x, y, w, h, 1);
+}
+
+/* Whether a CPU read of this rect needs the renderer's VRAM: something the
+ * renderer drew (or will draw from the pending splits) may be there. */
+int NativeGpu_GuestVRAMStale(int x, int y, int w, int h)
+{
+	if (x < 0 || y < 0 || x + w > VRAM_WIDTH || y + h > VRAM_HEIGHT)
+		return 1;
+	return NativeGpu_VisitTiles(s_gpuGuestStaleTiles, x, y, w, h, 0) || NativeGpu_PendingWritesTouch(x, y, w, h);
+}
+
+/* After a read-back the guest VRAM is current in the tiles the rect covers. */
+void NativeGpu_GuestVRAMSynced(int x, int y, int w, int h)
+{
+	if (x < 0 || y < 0 || x + w > VRAM_WIDTH || y + h > VRAM_HEIGHT)
+		return;
+	for (int row = (y + 63) >> 6; (row + 1) << 6 <= y + h; row++)
+		for (int col = (x + 63) >> 6; (col + 1) << 6 <= x + w; col++)
+		{
+			const int tile = row * NATIVE_GPU_PENDING_TILE_COLS + col;
+			s_gpuGuestStaleTiles[tile >> 5] &= ~(1u << (tile & 31));
+		}
 }
 
 internal void NativeGpu_MarkPendingSources(int textured, int tpage, int clut)
@@ -876,6 +1066,7 @@ void ClearSplits(void)
 	s_gpu.splitIndex = 0;
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	memset(s_gpu.pendingTiles, 0, sizeof(s_gpu.pendingTiles));
+	memset(s_gpu.uploadTiles, 0, sizeof(s_gpu.uploadTiles));
 	s_gpu.uploadTexels = 0;
 	s_gpu.packetHasDraws = false;
 #endif
@@ -1593,15 +1784,17 @@ internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 	return true;
 }
 
-/* Queues a CPU upload made before anything was drawn into this frame
- * packet, instead of copying it on the backend at once: that waited for the
- * backend to finish the previous frame, several times a frame (Soul Calibur
- * uploads palettes and textures at the start of each frame). The backend
- * applies such leading uploads when it starts the packet, before it reads
- * any palette. Returns 0 when the upload must take the synchronous path. */
-int NativeGpu_QueueLeadingUpload(const u16 *vram, int x, int y, int w, int h)
+/* Queues a CPU upload into this frame packet instead of copying it on the
+ * backend at once, which waited for the backend to finish the previous
+ * frame, several times a frame. The backend applies the queued uploads, in
+ * order, when it starts the packet, before it reads any palette: so only an
+ * upload no pending split reads or writes can be queued (the earlier splits
+ * then draw the same pixels with it applied first). Returns 0 when the
+ * upload must take the synchronous path. */
+int NativeGpu_QueueUpload(const u16 *vram, int x, int y, int w, int h)
 {
-	if (!s_gpuFrontendFramePrepared || s_gpuSynchronousFrame || s_gpu.packetHasDraws || vram == NULL ||
+	if (!s_gpuFrontendFramePrepared || s_gpuSynchronousFrame || vram == NULL ||
+	    (s_gpu.packetHasDraws && NativeGpu_PendingTiles(x, y, w, h, 0)) ||
 	    w <= 0 || h <= 0 || w > VRAM_WIDTH || h > VRAM_HEIGHT ||
 	    s_gpu.splitIndex + 1 >= MAX_DRAW_SPLITS || w * h > NATIVE_GPU_UPLOAD_TEXELS - s_gpu.uploadTexels)
 	{
@@ -1636,20 +1829,20 @@ int NativeGpu_QueueLeadingUpload(const u16 *vram, int x, int y, int w, int h)
 	split->uploadPixels = s_gpu.uploadStorage + s_gpu.uploadTexels;
 	split->startVertex = s_gpu.vertexIndex;
 	s_gpu.uploadTexels += w * h;
-	NativeGpu_PendingTiles(x, y, w, h, 1);
+	NativeGpu_VisitTiles(s_gpu.uploadTiles, x, y, w, h, 1);
 	return 1;
 }
 
-/* Applies the uploads queued at the start of a packet; DrawSplit then skips
- * them. Called before the packet's Platform_BeginScene, so the main target
- * is loaded with them, and again (a no-op) when the packet is drawn. */
-internal void NativeGpu_ApplyLeadingUploads(GPUDrawSplit *splits, int splitCount)
+/* Applies a packet's queued uploads; DrawSplit then skips them. Called
+ * before the packet's Platform_BeginScene, so the main target is loaded
+ * with them, and again (a no-op) when the packet is drawn. */
+internal void NativeGpu_ApplyQueuedUploads(GPUDrawSplit *splits, int splitCount)
 {
 	int applied = 0;
-	for (int i = 1; i <= splitCount && splits[i].drawPrimMode == 2 && splits[i].uploadPixels != NULL; i++)
+	for (int i = 1; i <= splitCount; i++)
 	{
 		GPUDrawSplit *split = &splits[i];
-		if (split->uploadApplied)
+		if (split->drawPrimMode != 2 || split->uploadPixels == NULL || split->uploadApplied)
 			continue;
 		VitaCtrNativeRenderer_CopyPackedVRAM(split->uploadPixels, split->clearRect.x, split->clearRect.y,
 		                                     split->clearRect.w, split->clearRect.h);
@@ -2878,7 +3071,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 #endif
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	NativeGpu_ApplyLeadingUploads(s_gpuDrawSplits, s_gpuDrawSplitCount);
+	NativeGpu_ApplyQueuedUploads(s_gpuDrawSplits, s_gpuDrawSplitCount);
 	NativeGpu_CoalesceNonOverlappingSemiTransSplits();
 	NativeGpu_ClassifyOpaqueTextureSplits();
 	const bool depthBatchingReady = NativeGpu_BuildDepthBatches();
@@ -3763,6 +3956,7 @@ int ParsePrimitive(P_TAG *polyTag)
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
                 if (!NativeGpu_AppendClearSplit(&rect, fill->r0, fill->g0, fill->b0))
                 {
+                    NativeGpu_GuestVRAMWritten(rect.x, rect.y, rect.w, rect.h);
                     NativeGpu_ForceSynchronousFrame();
                     NativeGpu_FlushFrontendSplitsSync();
 #ifdef __vita__

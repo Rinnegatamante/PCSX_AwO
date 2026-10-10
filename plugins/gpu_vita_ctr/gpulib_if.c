@@ -245,6 +245,9 @@ static void backend_read_guest(void *arg)
 
 static void vram_task_sync(NativeGpuBackendTaskFn callback, VitaCtrVramTask *task)
 {
+    /* Fills and image copies write the renderer's VRAM, not the guest's. */
+    NativeGpu_GuestVRAMWritten(task->x, task->y, task->w, task->h);
+    NativeGpu_GuestVRAMWritten(task->dst_x, task->dst_y, task->w, task->h);
     if (NativeGpu_HasPendingSplits()) {
         NativeGpu_ForceSynchronousFrame();
         NativeGpu_FlushFrontendSplitsSync();
@@ -979,10 +982,15 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
      * has not submitted its frame packet yet. Flush those splits before the
      * backend copies guest VRAM into the persistent GL texture, unless none
      * of them reads or writes the uploaded rect: then they can still be
-     * drawn after it, and the frame stays one asynchronous packet. Uploads
-     * before the frame's first draw are queued with the packet instead. This
-     * callback runs on the GPU/frontend thread; backend tasks never call it. */
-    if (NativeGpu_QueueLeadingUpload(s_guest_vram, x, y, w, h))
+     * drawn after it, and the frame stays one asynchronous packet. Such
+     * uploads are queued with the packet instead, when there is room. One
+     * they do touch ends the packet without ending the frame, and is queued
+     * at the start of the next packet. This callback runs on the
+     * GPU/frontend thread; backend tasks never call it. */
+    if (NativeGpu_QueueUpload(s_guest_vram, x, y, w, h))
+        return;
+    if (NativeGpu_PendingSplitsTouch(x, y, w, h) && NativeGpu_SubmitPartialFrame() &&
+        NativeGpu_QueueUpload(s_guest_vram, x, y, w, h))
         return;
     if (NativeGpu_PendingSplitsTouch(x, y, w, h))
         renderer_barrier();
@@ -1018,7 +1026,22 @@ void renderer_sync_vram_to_cpu(int x, int y, int w, int h)
     VitaCtrVramTask task;
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
         return;
+    /* Where the renderer never drew, the guest VRAM already holds what the
+     * CPU wrote: no flush, no wait for the renderer thread. */
+    if (!NativeGpu_GuestVRAMStale(x, y, w, h))
+        return;
 
+    /* Read back whole 64x64 tiles, so later reads near this one find the
+     * guest copy current (a few draws at boot otherwise keep the whole VRAM
+     * stale, and Soul Calibur reads small rects there every frame). The
+     * barrier applies queued uploads first: the renderer's copy is newest. */
+    if (x + w <= VRAM_WIDTH && y + h <= VRAM_HEIGHT) {
+        const int x1 = (x + w + 63) & ~63, y1 = (y + h + 63) & ~63;
+        x &= ~63;
+        y &= ~63;
+        w = (x1 < VRAM_WIDTH ? x1 : VRAM_WIDTH) - x;
+        h = (y1 < VRAM_HEIGHT ? y1 : VRAM_HEIGHT) - y;
+    }
     renderer_barrier();
     memset(&task, 0, sizeof(task));
     task.x = x;
@@ -1026,6 +1049,7 @@ void renderer_sync_vram_to_cpu(int x, int y, int w, int h)
     task.w = w;
     task.h = h;
     NativeGpu_RunBackendTaskSync(backend_read_guest, &task);
+    NativeGpu_GuestVRAMSynced(x, y, w, h);
 }
 
 void renderer_set_interlace(int enable, int is_odd)
