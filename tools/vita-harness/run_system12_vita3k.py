@@ -21,6 +21,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "tools/vita-harness/check_system12_gameplay_vita3k.py"
+CHECKER = ROOT / "tools/vita-harness/check_vita3k.py"
 GAME_FILES = ("board.cfg", "main.bin", "banked.bin", "sub.bin", "wave.bin")
 
 
@@ -44,6 +45,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--gpu-thread", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--shader-compiler", type=Path,
+                        help="local libshacccg.suprx; a vitaGL VPK compiles its shaders with it")
     parser.add_argument("--vita-pack-vpk", type=Path, default=shutil.which("vita-pack-vpk"))
     parser.add_argument("--vita-mksfoex", type=Path, default=shutil.which("vita-mksfoex"))
     args = parser.parse_args()
@@ -59,6 +62,18 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pcsx-vita-system12-run-") as temp:
         base = Path(temp)
         emulator, fs, portable = h.read_cli(base, args)
+        if args.shader_compiler:
+            load(CHECKER).install_local_shader_compiler(emulator, args.shader_compiler)
+            # vitaGL samples textures it rendered into (VRAM is a render
+            # target); without surface sync Vita3K reads them as stale memory
+            # and every textured polygon disappears.
+            config = portable / "config.yml"
+            text = config.read_text()
+            if "\ndisable-surface-sync:" not in "\n" + text:
+                raise SystemExit("Vita3K config has no disable-surface-sync key")
+            config.write_text("\n".join("disable-surface-sync: false"
+                                         if line.startswith("disable-surface-sync:") else line
+                                         for line in text.splitlines()) + "\n")
         files = [(args.profile / f, f"{name}/{f}") for f in GAME_FILES]
         vpk = h.make_vpk(args.vpk.resolve(), args.vita_pack_vpk, args.vita_mksfoex,
                          base / f"{name}.vpk", base, h.TITLE_ID, f"PCSX Vita System12 {name}", files)
