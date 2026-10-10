@@ -344,9 +344,13 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	 * display resolution. GL_FALSE is the normal exact-resolution result; it
 	 * does not mean initialization failed. This API has no failure result once
 	 * initialization has run to completion. */
+	/* vitaGL takes all free user memory but the threshold for its pool. GXM
+	 * allocates render targets' driver memory outside it, on the fly as draw
+	 * areas change: with 4 MB, HD 4x MSAA targets ran out of physical pages
+	 * on hardware and sceGxmBeginScene failed. */
 	extern int pcsx_vita_gl_msaa;
 	const GLboolean resolutionFallback = vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight,
-	                                                    4 * 1024 * 1024,
+	                                                    32 * 1024 * 1024,
 	                                                    pcsx_vita_gl_msaa >= 4 ? SCE_GXM_MULTISAMPLE_4X
 	                                                    : pcsx_vita_gl_msaa >= 2 ? SCE_GXM_MULTISAMPLE_2X
 	                                                    : SCE_GXM_MULTISAMPLE_NONE);
