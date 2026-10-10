@@ -85,6 +85,12 @@ static uint32_t g_audio_put_errors;
 
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
+#ifdef STANDALONE_VITAGL
+/* Board ROMs live in the newlib heap (77 MB for Tekken Tag) and vitaGL's
+ * runtime shader translation allocates there too: the default 128 MB ran out
+ * at renderer start. vitaGL keeps the memory left after this. */
+int _newlib_heap_size_user = 160 * 1024 * 1024;
+#endif
 
 int getVMBlock(void)
 {
