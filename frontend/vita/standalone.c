@@ -357,6 +357,7 @@ static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, 
     if (w <= 0 || h <= 0) return 0;
     if (w > 1024) w = 1024;
     if (h > 512) h = 512;
+    sceGxmTextureSetFormat(&t->gxm_tex, SCE_GXM_TEXTURE_FORMAT_X1U5U5U5_1BGR);
     bytes = (unsigned)w * 2;
     copy_started = pcsx_profile_begin(PCSX_PROF_PRESENT_COPY, 1);
     for (r = 0; r < (unsigned)h; r++) {
@@ -376,6 +377,25 @@ static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, 
     g_gxm_ready = g_gxm_next;
     g_gxm_next = (g_gxm_next + 1) % GXM_TEX_COUNT;
     return 1;
+}
+
+/* Frames the raw VRAM copy does not take (24-bit display mode: the games'
+ * movies) arrive converted to RGB565 by the core; upload those instead. */
+static void gxm_rgb565_frame(const void *data, unsigned width, unsigned height, size_t pitch)
+{
+    vita2d_texture *t = g_gxm_tex[g_gxm_next];
+    uint8_t *dst = vita2d_texture_get_datap(t);
+    const unsigned dst_stride = vita2d_texture_get_stride(t);
+    unsigned w = width > 1024 ? 1024 : width, h = height > 512 ? 512 : height, r;
+    uint64_t copy_started = pcsx_profile_begin(PCSX_PROF_PRESENT_COPY, 1);
+    sceGxmTextureSetFormat(&t->gxm_tex, SCE_GXM_TEXTURE_FORMAT_U5U6U5_RGB);
+    for (r = 0; r < h; r++)
+        memcpy(dst + r * dst_stride, (const uint8_t *)data + r * pitch, w * 2);
+    pcsx_profile_end(PCSX_PROF_PRESENT_COPY, copy_started);
+    g_gxm_w = (int)w;
+    g_gxm_h = (int)h;
+    g_gxm_ready = g_gxm_next;
+    g_gxm_next = (g_gxm_next + 1) % GXM_TEX_COUNT;
 }
 
 static void gxm_present(void)
@@ -478,6 +498,8 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     int y, x;
 
     if (g_gxm) {
+        if (g_gxm_ready < 0 && data && width && height)
+            gxm_rgb565_frame(data, width, height, pitch);
         gxm_present();
         return;
     }
