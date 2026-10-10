@@ -289,6 +289,15 @@ global_variable int s_offscreenDirty;
  * page one frame after drawing it, so presentation needs the target that
  * drew that page. It is valid until a VRAM write overlaps its rect. */
 global_variable struct NativeRenderTarget s_prevMainRenderTarget;
+/* Drawn bounding boxes per target area (see NativeRenderer_NoteTargetDraw). */
+#define NATIVE_DRAWN_AREAS 16
+global_variable struct
+{
+	RECT16 area;
+	s32 x0, y0, x1, y1; /* drawn bounding box, x1/y1 exclusive */
+} s_drawnAreas[NATIVE_DRAWN_AREAS];
+global_variable int s_drawnAreaCount;
+global_variable int s_drawnAreasOverflow;
 /* Spare targets by size. The main target alternates between a few sizes (the
  * display page at host resolution, small areas at 1x) and resizing it in
  * place reallocated its store and GXM render target each time: a target of
@@ -2569,6 +2578,10 @@ int NativeRenderer_InitialisePSX(void)
 	s_vram.cpuDirtyRectCount = 1;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	s_drawnAreaCount = 0;
+	s_drawnAreasOverflow = 0;
+#endif
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	SDL_memset(s_p4Cache, 0, sizeof(s_p4Cache));
 	s_p4CacheUseCounter = 0;
 	s_p4FrameSerial = 1;
@@ -3422,6 +3435,32 @@ internal void NativeRenderer_AppendCpuDirtyRect(const RECT16 *rect)
 	}
 }
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* The CPU copy is the newest for what a CPU write covers: its upload puts it
+ * in the GPU's VRAM too. Tiles the write covers whole stop being GPU-newer
+ * (only a CPU read cleared them before, so pages drawn over once, as games do
+ * across VRAM at boot, kept the 4-bit texture cache off for the rest of the
+ * game). Callers that mark a write row by row pass its whole rect here. */
+internal void NativeRenderer_ClearGpuNewerCovered(int x, int y, int w, int h)
+{
+	RECT16 rect;
+	if (!NativeRenderer_ClipVRAMRect(&rect, x, y, w, h))
+		return;
+	const int tileX0 = (rect.x + NATIVE_VRAM_TILE_SIZE - 1) / NATIVE_VRAM_TILE_SIZE;
+	const int tileY0 = (rect.y + NATIVE_VRAM_TILE_SIZE - 1) / NATIVE_VRAM_TILE_SIZE;
+	const int tileX1 = (rect.x + rect.w) / NATIVE_VRAM_TILE_SIZE; /* exclusive */
+	const int tileY1 = (rect.y + rect.h) / NATIVE_VRAM_TILE_SIZE;
+	for (int tileY = tileY0; tileY < tileY1; tileY++)
+	{
+		for (int tileX = tileX0; tileX < tileX1; tileX++)
+		{
+			const int tileIndex = tileY * NATIVE_VRAM_TILE_COLS + tileX;
+			s_vram.gpuNewerTiles[tileIndex >> 5] &= ~(1u << (tileIndex & 31));
+		}
+	}
+}
+#endif
+
 internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 {
 	RECT16 rect;
@@ -3442,9 +3481,80 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 		s_prevMainValid = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
+	NativeRenderer_ClearGpuNewerCovered(rect.x, rect.y, rect.w, rect.h);
 #endif
 	NativeRenderer_AppendCpuDirtyRect(&rect);
 }
+
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* What primitives drew into each target area since it was last packed, in
+ * VRAM coordinates. A pack writes the target's whole area to VRAM, but where
+ * nothing was drawn it writes back what was loaded (load and pack sample at
+ * pixel centres: the round trip is exact), so only the drawn part is newer on
+ * the GPU. Marking all of it disabled the 4-bit texture cache over texture
+ * pages forever: games draw over all of VRAM at boot, and a texture page the
+ * CPU never writes again stayed GPU-newer. */
+
+void NativeRenderer_NoteTargetDraw(const RECT16 *area, int minX, int minY, int maxX, int maxY)
+{
+	/* Vertices are relative to the area; primitives cover up to their last
+	 * vertex, and the area clips them. */
+	const int x0 = area->x + SDL_max(minX, 0);
+	const int y0 = area->y + SDL_max(minY, 0);
+	const int x1 = area->x + SDL_min(maxX + 1, (int)area->w);
+	const int y1 = area->y + SDL_min(maxY + 1, (int)area->h);
+	if (x1 <= x0 || y1 <= y0)
+		return;
+	for (int i = 0; i < s_drawnAreaCount; i++)
+	{
+		if (NativeRenderer_RectEquals(&s_drawnAreas[i].area, area))
+		{
+			s_drawnAreas[i].x0 = SDL_min(s_drawnAreas[i].x0, x0);
+			s_drawnAreas[i].y0 = SDL_min(s_drawnAreas[i].y0, y0);
+			s_drawnAreas[i].x1 = SDL_max(s_drawnAreas[i].x1, x1);
+			s_drawnAreas[i].y1 = SDL_max(s_drawnAreas[i].y1, y1);
+			return;
+		}
+	}
+	if (s_drawnAreaCount == NATIVE_DRAWN_AREAS)
+	{
+		s_drawnAreasOverflow = 1;
+		return;
+	}
+	s_drawnAreas[s_drawnAreaCount].area = *area;
+	s_drawnAreas[s_drawnAreaCount].x0 = x0;
+	s_drawnAreas[s_drawnAreaCount].y0 = y0;
+	s_drawnAreas[s_drawnAreaCount].x1 = x1;
+	s_drawnAreas[s_drawnAreaCount].y1 = y1;
+	s_drawnAreaCount++;
+}
+
+internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h);
+
+/* After packing the rect: mark GPU-newer what was drawn in it, and forget
+ * the drawing it covered. Without a record (overflow) the whole rect is. */
+internal void NativeRenderer_MarkPackedDraws(int x, int y, int w, int h)
+{
+	if (s_drawnAreasOverflow)
+	{
+		NativeRenderer_MarkGpuVRAMNewer(x, y, w, h);
+		s_drawnAreasOverflow = 0;
+		s_drawnAreaCount = 0;
+		return;
+	}
+	for (int i = 0; i < s_drawnAreaCount;)
+	{
+		const int ix0 = SDL_max(s_drawnAreas[i].x0, x), iy0 = SDL_max(s_drawnAreas[i].y0, y);
+		const int ix1 = SDL_min(s_drawnAreas[i].x1, x + w), iy1 = SDL_min(s_drawnAreas[i].y1, y + h);
+		if (ix1 > ix0 && iy1 > iy0)
+			NativeRenderer_MarkGpuVRAMNewer(ix0, iy0, ix1 - ix0, iy1 - iy0);
+		if (s_drawnAreas[i].x0 >= x && s_drawnAreas[i].y0 >= y && s_drawnAreas[i].x1 <= x + w && s_drawnAreas[i].y1 <= y + h)
+			s_drawnAreas[i] = s_drawnAreas[--s_drawnAreaCount];
+		else
+			i++;
+	}
+}
+#endif
 
 internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h)
 {
@@ -3499,6 +3609,9 @@ void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
         if (firstWidth < w)
             NativeRenderer_MarkVRAMDirty(0, yy, w - firstWidth, 1);
     }
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+    NativeRenderer_ClearGpuNewerCovered(x, y, firstWidth, h);
+#endif
 }
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -4056,7 +4169,8 @@ internal void NativeRenderer_GpuPackTextureToVRAM(const struct NativeRenderTarge
 	}
 	NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
 	NativeRenderer_SetScissorState(previousScissorState);
-	NativeRenderer_MarkGpuVRAMNewer(x, y, w, h);
+	NativeRenderer_MarkPackedDraws(x, y, w, h);
+	NATIVE_GPU_LABEL(1, NULL, 0);
 }
 
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
@@ -4181,6 +4295,10 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 	// NOTE(aalhendi): Restored VRAM is authoritative PSX state. Host GL caches are rebuildable, so mark all of VRAM dirty and drop stale bindings.
 	s_vram.cpuDirtyRectCount = 0;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	s_drawnAreaCount = 0;
+	s_drawnAreasOverflow = 0;
+#endif
 	NativeRenderer_MarkVRAMDirty(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 	s_mainRenderTarget.width = 0;
 	s_mainRenderTarget.height = 0;
@@ -5195,6 +5313,9 @@ void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, in
             xx = 0;
         }
     }
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+    NativeRenderer_ClearGpuNewerCovered(x & (VRAM_WIDTH - 1), y & (VRAM_HEIGHT - 1), w, h);
+#endif
 }
 
 /* CopyGuestVRAM from a packed w x h block; marks each wrap segment once. */
