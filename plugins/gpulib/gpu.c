@@ -720,8 +720,14 @@ static int do_vram_io(struct psx_gpu *gpu, uint32_t *data, int count, int is_rea
     finish_vram_transfer(gpu, 0, 1);
     return count;
   }
+#ifndef GPU_VITA_CTR
   if (o == 0)
     sync_renderer(gpu);
+#endif
+  /* GPU_VITA_CTR keeps its own VRAM: these writes reach it only through
+   * renderer_update_caches, which orders them after earlier draws, and a
+   * read was synced by start_vram_transfer. A barrier here waited for the
+   * renderer thread at every upload. */
 
   count *= 2; // operate in 16bpp pixels
   if (gpu->dma.offset) {

@@ -977,9 +977,17 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
 
     /* A GP0 upload is ordered after any earlier draws even if the frontend
      * has not submitted its frame packet yet. Flush those splits before the
-     * backend copies guest VRAM into the persistent GL texture. This callback
-     * runs on the GPU/frontend thread; backend tasks never call it. */
-    renderer_barrier();
+     * backend copies guest VRAM into the persistent GL texture, unless none
+     * of them reads or writes the uploaded rect: then they can still be
+     * drawn after it, and the frame stays one asynchronous packet. Uploads
+     * before the frame's first draw are queued with the packet instead. This
+     * callback runs on the GPU/frontend thread; backend tasks never call it. */
+    if (NativeGpu_QueueLeadingUpload(s_guest_vram, x, y, w, h))
+        return;
+    if (NativeGpu_PendingSplitsTouch(x, y, w, h))
+        renderer_barrier();
+    else
+        NativeGpu_SyncBackend();
 
     memset(&task, 0, sizeof(task));
     task.x = x;

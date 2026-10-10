@@ -89,6 +89,10 @@ typedef struct
 	u8 clearR;
 	u8 clearG;
 	u8 clearB;
+	/* A CPU upload of clearRect queued with the frame (a drawPrimMode 2
+	 * split): its texels, packed, in the packet's upload storage. */
+	const u16 *uploadPixels;
+	bool uploadApplied;
 #endif
 	bool psxTexturedSemiTrans;
 	bool psxTextureOutputSTP;
@@ -112,6 +116,11 @@ typedef struct
 } GPUDrawSplit;
 
 #define MAX_DRAW_SPLITS 4096
+
+#define NATIVE_GPU_PENDING_TILE_SHIFT 6
+#define NATIVE_GPU_PENDING_TILE_COLS (1024 >> NATIVE_GPU_PENDING_TILE_SHIFT)
+#define NATIVE_GPU_PENDING_TILE_ROWS (1024 >> NATIVE_GPU_PENDING_TILE_SHIFT)
+#define NATIVE_GPU_PENDING_TILE_WORDS (NATIVE_GPU_PENDING_TILE_COLS * NATIVE_GPU_PENDING_TILE_ROWS / 32)
 
 typedef struct
 {
@@ -138,13 +147,26 @@ typedef struct
 #endif
 	int vertexIndex;
 	int splitIndex;
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	u16 *uploadStorage;
+	int uploadTexels;
+	/* Set once the packet holds anything but queued uploads. */
+	bool packetHasDraws;
+	/* 64x64 VRAM tiles the pending splits read (texture pages, CLUTs) or
+	 * write (draw areas, fills); an upload elsewhere needs no flush. */
+	u32 pendingTiles[NATIVE_GPU_PENDING_TILE_WORDS];
+#endif
 } NativeGpuState;
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Texels of CPU VRAM uploads a frame packet can carry (512 KB). */
+#define NATIVE_GPU_UPLOAD_TEXELS (256 * 1024)
+
 typedef struct
 {
 	GrVertex vertices[MAX_VERTEX_BUFFER_SIZE];
 	GPUDrawSplit splits[MAX_DRAW_SPLITS];
+	u16 uploads[NATIVE_GPU_UPLOAD_TEXELS];
 	DRAWENV drawEnv;
 	DISPENV dispEnv;
 	int vertexCount;
@@ -188,6 +210,9 @@ global_variable int s_pcsxRenderHadGeometry;
 global_variable NativeGpuState s_gpu;
 
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+internal void NativeGpu_ApplyLeadingUploads(GPUDrawSplit *splits, int splitCount);
+#endif
 
 void NativeGpu_ResetOrderDepth(void)
 {
@@ -203,6 +228,7 @@ internal void NativeGpu_BindFrontendPacket(void)
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
 	s_gpu.vertexBuffer = packet->vertices;
 	s_gpu.splits = packet->splits;
+	s_gpu.uploadStorage = packet->uploads;
 }
 #endif
 
@@ -339,6 +365,7 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 		if (packet != NULL)
 		{
 			s_pcsxRenderHadGeometry = (packet->vertexCount > 0 || packet->splitCount > 0) ? 1 : 0;
+			NativeGpu_ApplyLeadingUploads(packet->splits, packet->splitCount);
 			Platform_BeginScene();
 			NativeGpu_DrawPreparedFrame(packet->vertices, packet->splits, packet->vertexCount, packet->splitCount);
 			Platform_EndScene();
@@ -686,6 +713,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 #ifdef __vita__
 	if (!s_gpuBackendEnabled)
 	{
+		NativeGpu_ApplyLeadingUploads(s_gpu.splits, s_gpu.splitIndex);
 		Platform_BeginScene();
 		if (s_gpu.splitIndex > 0)
 		{
@@ -723,6 +751,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 	NativeGpu_BackendUnlock();
 	return 1;
 #else
+	NativeGpu_ApplyLeadingUploads(s_gpu.splits, s_gpu.splitIndex);
 	Platform_BeginScene();
 	if (s_gpu.splitIndex > 0)
 		DrawAllSplits();
@@ -775,6 +804,52 @@ int NativeGpu_HasPendingSplits(void)
 	return s_gpu.splitIndex > 0;
 }
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Visits the 64x64 tiles of a VRAM rect, wrapping at the VRAM edges. */
+internal int NativeGpu_PendingTiles(int x, int y, int w, int h, int mark)
+{
+	if (w <= 0 || h <= 0)
+		return 0;
+	if (w > VRAM_WIDTH)
+		w = VRAM_WIDTH;
+	if (h > VRAM_HEIGHT)
+		h = VRAM_HEIGHT;
+	x &= VRAM_WIDTH - 1;
+	y &= VRAM_HEIGHT - 1;
+	for (int yy = y; yy < y + h; yy = (yy | 63) + 1)
+	{
+		const int row = (yy & (VRAM_HEIGHT - 1)) >> NATIVE_GPU_PENDING_TILE_SHIFT;
+		for (int xx = x; xx < x + w; xx = (xx | 63) + 1)
+		{
+			const int col = (xx & (VRAM_WIDTH - 1)) >> NATIVE_GPU_PENDING_TILE_SHIFT;
+			const int tile = row * NATIVE_GPU_PENDING_TILE_COLS + col;
+			if (mark)
+				s_gpu.pendingTiles[tile >> 5] |= 1u << (tile & 31);
+			else if (s_gpu.pendingTiles[tile >> 5] & (1u << (tile & 31)))
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/* Whether the splits not yet drawn read or write any of this VRAM rect. */
+int NativeGpu_PendingSplitsTouch(int x, int y, int w, int h)
+{
+	return s_gpu.splitIndex > 0 && NativeGpu_PendingTiles(x, y, w, h, 0);
+}
+
+internal void NativeGpu_MarkPendingSources(int textured, int tpage, int clut)
+{
+	if (!textured)
+		return;
+	const TexFormat format = GetTPageFormat(tpage);
+	const int pageWidth = format == TF_4_BIT ? 64 : format == TF_8_BIT ? 128 : 256;
+	NativeGpu_PendingTiles((tpage & 0xf) << 6, (GetTPageBase(tpage) >> 4) * 256, pageWidth, 256, 1);
+	if (format == TF_4_BIT || format == TF_8_BIT)
+		NativeGpu_PendingTiles((clut & 0x3f) << 4, (clut >> 6) & 0x3ff, format == TF_4_BIT ? 16 : 256, 1, 1);
+}
+#endif
+
 internal void NativeGpu_SetVertexOrderDepth(GrVertex *vertex, int count)
 {
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -799,6 +874,11 @@ void ClearSplits(void)
 #endif
 	s_gpu.vertexIndex = 0;
 	s_gpu.splitIndex = 0;
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	memset(s_gpu.pendingTiles, 0, sizeof(s_gpu.pendingTiles));
+	s_gpu.uploadTexels = 0;
+	s_gpu.packetHasDraws = false;
+#endif
 	s_gpu.splits[0].texFormat = (TexFormat)0xFFFF;
 	s_gpu.splits[0].psxTexturedSemiTrans = false;
 	s_gpu.splits[0].psxTextureOutputSTP = false;
@@ -1489,6 +1569,7 @@ internal void NativeGpu_PrepareFramebufferFeedback(int tpage)
 }
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+void VitaCtrNativeRenderer_CopyPackedVRAM(const u16 *src, int x, int y, int w, int h);
 internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 {
 	GPUDrawSplit *current = &s_gpu.splits[s_gpu.splitIndex];
@@ -1499,6 +1580,8 @@ internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 	}
 	GPUDrawSplit *split = &s_gpu.splits[++s_gpu.splitIndex];
 	memset(split, 0, sizeof(*split));
+	s_gpu.packetHasDraws = true;
+	NativeGpu_PendingTiles(rect->x, rect->y, rect->w, rect->h, 1);
 	split->drawPrimMode = 2;
 	split->drawenv = activeDrawEnv;
 	split->dispenv = activeDispEnv;
@@ -1508,6 +1591,75 @@ internal bool NativeGpu_AppendClearSplit(const RECT16 *rect, u8 r, u8 g, u8 b)
 	split->clearB = b;
 	split->startVertex = s_gpu.vertexIndex;
 	return true;
+}
+
+/* Queues a CPU upload made before anything was drawn into this frame
+ * packet, instead of copying it on the backend at once: that waited for the
+ * backend to finish the previous frame, several times a frame (Soul Calibur
+ * uploads palettes and textures at the start of each frame). The backend
+ * applies such leading uploads when it starts the packet, before it reads
+ * any palette. Returns 0 when the upload must take the synchronous path. */
+int NativeGpu_QueueLeadingUpload(const u16 *vram, int x, int y, int w, int h)
+{
+	if (!s_gpuFrontendFramePrepared || s_gpuSynchronousFrame || s_gpu.packetHasDraws || vram == NULL ||
+	    w <= 0 || h <= 0 || w > VRAM_WIDTH || h > VRAM_HEIGHT ||
+	    s_gpu.splitIndex + 1 >= MAX_DRAW_SPLITS || w * h > NATIVE_GPU_UPLOAD_TEXELS - s_gpu.uploadTexels)
+	{
+		return 0;
+	}
+	u16 *dst = s_gpu.uploadStorage + s_gpu.uploadTexels;
+	for (int row = 0; row < h; row++)
+	{
+		const int yy = (y + row) & (VRAM_HEIGHT - 1);
+		int xx = x & (VRAM_WIDTH - 1);
+		int remaining = w;
+		while (remaining > 0)
+		{
+			const int chunk = remaining < VRAM_WIDTH - xx ? remaining : VRAM_WIDTH - xx;
+			memcpy(dst, vram + yy * VRAM_WIDTH + xx, (size_t)chunk * sizeof(u16));
+			dst += chunk;
+			remaining -= chunk;
+			xx = 0;
+		}
+	}
+	GPUDrawSplit *current = &s_gpu.splits[s_gpu.splitIndex];
+	current->numVerts = s_gpu.vertexIndex - current->startVertex;
+	GPUDrawSplit *split = &s_gpu.splits[++s_gpu.splitIndex];
+	memset(split, 0, sizeof(*split));
+	split->drawPrimMode = 2;
+	split->drawenv = activeDrawEnv;
+	split->dispenv = activeDispEnv;
+	split->clearRect.x = (s16)x;
+	split->clearRect.y = (s16)y;
+	split->clearRect.w = (s16)w;
+	split->clearRect.h = (s16)h;
+	split->uploadPixels = s_gpu.uploadStorage + s_gpu.uploadTexels;
+	split->startVertex = s_gpu.vertexIndex;
+	s_gpu.uploadTexels += w * h;
+	NativeGpu_PendingTiles(x, y, w, h, 1);
+	return 1;
+}
+
+/* Applies the uploads queued at the start of a packet; DrawSplit then skips
+ * them. Called before the packet's Platform_BeginScene, so the main target
+ * is loaded with them, and again (a no-op) when the packet is drawn. */
+internal void NativeGpu_ApplyLeadingUploads(GPUDrawSplit *splits, int splitCount)
+{
+	int applied = 0;
+	for (int i = 1; i <= splitCount && splits[i].drawPrimMode == 2 && splits[i].uploadPixels != NULL; i++)
+	{
+		GPUDrawSplit *split = &splits[i];
+		if (split->uploadApplied)
+			continue;
+		VitaCtrNativeRenderer_CopyPackedVRAM(split->uploadPixels, split->clearRect.x, split->clearRect.y,
+		                                     split->clearRect.w, split->clearRect.h);
+		split->uploadApplied = true;
+		applied = 1;
+	}
+	if (applied)
+	{
+		NativeRenderer_UpdateVRAM();
+	}
 }
 #endif
 
@@ -1536,6 +1688,11 @@ internal void AddSplit(bool semiTrans, bool textured, bool framebufferFeedback, 
 
 	BlendMode blendMode = semiTrans ? GET_TPAGE_BLEND(tpage) : BM_NONE;
 	TexFormat texFormat = GetTPageFormat(tpage);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	s_gpu.packetHasDraws = true;
+	NativeGpu_PendingTiles(activeDrawEnv.clip.x, activeDrawEnv.clip.y, activeDrawEnv.clip.w, activeDrawEnv.clip.h, 1);
+	NativeGpu_MarkPendingSources(textured, tpage, clut);
+#endif
 	TextureID textureId = textured ? NativeRenderer_GetVRAMTexture() : NativeRenderer_GetWhiteTexture();
 	bool psxTexturedSemiTrans = semiTrans && textured && (s_gpu.overrideTexture == 0 || s_gpu.overrideTexturePsxStp);
 	// NOTE(aalhendi): PS1 framebuffer bit 15 follows sampled texture STP for textured draws unless E6 forces it. Recursive screen-copy effects depend on this bit surviving after the blended textured pass.
@@ -1855,6 +2012,10 @@ internal void NativeGpu_DrawSplitPass(const GPUDrawSplit *split, int semiTransPa
 void DrawSplit(const GPUDrawSplit *split)
 {
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	if (split->drawPrimMode == 2 && split->uploadPixels != NULL)
+	{
+		return;
+	}
 	if (split->drawPrimMode == 2)
 	{
 #ifdef __vita__
@@ -2717,6 +2878,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 #endif
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	NativeGpu_ApplyLeadingUploads(s_gpuDrawSplits, s_gpuDrawSplitCount);
 	NativeGpu_CoalesceNonOverlappingSemiTransSplits();
 	NativeGpu_ClassifyOpaqueTextureSplits();
 	const bool depthBatchingReady = NativeGpu_BuildDepthBatches();

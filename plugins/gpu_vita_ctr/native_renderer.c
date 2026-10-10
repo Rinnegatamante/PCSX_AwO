@@ -971,6 +971,7 @@ internal void NativeRenderer_DrawVRAMRegion(int x, int y, int width, int height)
 
 internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget *target, int x, int y, int logicalWidth, int logicalHeight)
 {
+
 	const ShaderID previousShader = s_previousShader;
 	const TextureID previousTexture = s_lastBoundTexture;
 	const BlendMode previousBlendMode = s_previousBlendMode;
@@ -4801,6 +4802,36 @@ void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, in
             remaining -= chunk;
             xx = 0;
         }
+    }
+}
+
+/* CopyGuestVRAM from a packed w x h block; marks each wrap segment once. */
+void VitaCtrNativeRenderer_CopyPackedVRAM(const u16 *src, int x, int y, int w, int h)
+{
+    if (src == NULL || w <= 0 || h <= 0)
+        return;
+
+    NativeRenderer_CommitTargets();
+    x &= VRAM_WIDTH - 1;
+    y &= VRAM_HEIGHT - 1;
+    const int firstWidth = SDL_min(w, VRAM_WIDTH - x);
+    for (int row = 0; row < h; row++)
+    {
+        const int yy = (y + row) & (VRAM_HEIGHT - 1);
+        SDL_memcpy(s_vram.cpuPixels + yy * VRAM_WIDTH + x, src, (size_t)firstWidth * sizeof(u16));
+        if (firstWidth < w)
+            SDL_memcpy(s_vram.cpuPixels + yy * VRAM_WIDTH, src + firstWidth, (size_t)(w - firstWidth) * sizeof(u16));
+        src += w;
+    }
+    const int firstHeight = SDL_min(h, VRAM_HEIGHT - y);
+    NativeRenderer_MarkVRAMDirty(x, y, firstWidth, firstHeight);
+    if (firstWidth < w)
+        NativeRenderer_MarkVRAMDirty(0, y, w - firstWidth, firstHeight);
+    if (firstHeight < h)
+    {
+        NativeRenderer_MarkVRAMDirty(x, 0, firstWidth, h - firstHeight);
+        if (firstWidth < w)
+            NativeRenderer_MarkVRAMDirty(0, 0, w - firstWidth, h - firstHeight);
     }
 }
 
