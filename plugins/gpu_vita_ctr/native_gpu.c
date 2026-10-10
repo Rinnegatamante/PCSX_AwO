@@ -2954,7 +2954,8 @@ internal int ProcessFlatPoly(P_TAG *polyTag)
 		GrVertex *firstVertex = &s_gpu.vertexBuffer[s_gpu.vertexIndex];
 		MakeVertexTriangle(firstVertex, &poly->x0, &poly->x1, &poly->x2);
 		MakeTexcoordTriangleZero(firstVertex, 0);
-		MakeColourTriangle(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0);
+		/* The raw-texture bit only affects textured primitives. */
+		MakeColourTriangle(firstVertex, true, &poly->r0, &poly->r0, &poly->r0);
 
 		s_gpu.vertexIndex += 3;
 
@@ -2989,7 +2990,7 @@ internal int ProcessFlatPoly(P_TAG *polyTag)
 		GrVertex *firstVertex = &s_gpu.vertexBuffer[s_gpu.vertexIndex];
 		MakeVertexQuad(firstVertex, &poly->x0, &poly->x1, &poly->x3, &poly->x2);
 		MakeTexcoordQuadZero(firstVertex, 0);
-		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
+		MakeColourQuad(firstVertex, true, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
 
 		TriangulateQuad();
 
@@ -3110,7 +3111,7 @@ internal int ProcessGouraudPoly(P_TAG *polyTag)
 
 internal int ProcessTileAndSprt(P_TAG *polyTag)
 {
-	// NOTE: TILE does not support switching shadeTex on real PSX
+	// NOTE: TILE does not support switching shadeTex on real PSX; only SPRT uses it
 	const bool shadeTexOn = (polyTag->code & 1) == 0;
 	const bool semiTrans = (polyTag->code & 2);
 
@@ -3125,7 +3126,7 @@ internal int ProcessTileAndSprt(P_TAG *polyTag)
 		GrVertex *firstVertex = &s_gpu.vertexBuffer[s_gpu.vertexIndex];
 		MakeVertexRect(firstVertex, &poly->x0, poly->w, poly->h);
 		MakeTexcoordQuadZero(firstVertex, 0);
-		MakeColourQuad(firstVertex, shadeTexOn, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
+		MakeColourQuad(firstVertex, true, &poly->r0, &poly->r0, &poly->r0, &poly->r0);
 
 		TriangulateQuad();
 
