@@ -4825,7 +4825,21 @@ void VitaCtrNativeRenderer_CopyPackedVRAM(const u16 *src, int x, int y, int w, i
     if (src == NULL || w <= 0 || h <= 0)
         return;
 
-    NativeRenderer_CommitTargets();
+    /* A target is packed into VRAM first only when the upload writes into
+     * its rect (its later store would overwrite the upload); a CLUT row
+     * elsewhere leaves the targets as they are. */
+    {
+        RECT16 rect;
+        rect.x = (s16)(x & (VRAM_WIDTH - 1));
+        rect.y = (s16)(y & (VRAM_HEIGHT - 1));
+        rect.w = (s16)w;
+        rect.h = (s16)h;
+        const int wraps = rect.x + w > VRAM_WIDTH || rect.y + h > VRAM_HEIGHT;
+        if (wraps || NativeRenderer_VRAMRectsOverlap(&rect, &s_mainDrawRect))
+            NativeRenderer_FlushMainToVRAM();
+        if (wraps || NativeRenderer_VRAMRectsOverlap(&rect, &s_previousOffscreen))
+            NativeRenderer_FlushOffscreenToVRAM();
+    }
     x &= VRAM_WIDTH - 1;
     y &= VRAM_HEIGHT - 1;
     const int firstWidth = SDL_min(w, VRAM_WIDTH - x);
