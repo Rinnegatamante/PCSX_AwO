@@ -1130,6 +1130,13 @@ typedef struct
 #endif
 	GLint psxDrawMaskSetLoc;
 	GLint psxTextureOutputStpLoc;
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	/* The program applies no texture window (PSX_TEXTURE_WINDOW undefined):
+	 * the twin with one is compiled from the same source on first use. */
+	const char *source;
+	const char *defines;
+	void *windowed;
+#endif
 } GTEShader;
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -1154,6 +1161,9 @@ internal int NativeRenderer_Shader_CheckProgramStatus(GLuint program);
 internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxShader, const char *fragmentDefines);
 internal void NativeRenderer_GenerateCommonTextures(void);
 internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+internal void NativeRenderer_DestroyPSXShader(GTEShader *sh);
+#endif
 internal int NativeRenderer_InitialisePSXShaders(void);
 internal void NativeRenderer_InitRG8LUT(void);
 internal void NativeRenderer_Ortho2D(float left, float right, float bottom, float top, float znear, float zfar);
@@ -1165,6 +1175,9 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable GTEShader s_gteShaderVariants[4][NATIVE_PSX_SHADER_VARIANT_COUNT];
 global_variable GTEShader s_gteCachedP4ShaderVariants[NATIVE_PSX_SHADER_VARIANT_COUNT];
+/* Cached 4-bit textures whose palettes have no transparent entry: no discard,
+ * so PowerVR's hidden surface removal skips occluded fragments. */
+global_variable GTEShader s_gteCachedP4FullyOpaqueShaderVariants[3];
 global_variable GTEShader s_gteFullyOpaqueShaderVariants[2][3];
 global_variable GTEShader s_gteUntexturedShaderVariants[3];
 #else
@@ -1194,35 +1207,25 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	{
 		for (int variant = 0; variant < NATIVE_PSX_SHADER_VARIANT_COUNT; variant++)
 		{
-			if (s_gteShaderVariants[format][variant].shader != 0)
-			{
-				glDeleteProgram(s_gteShaderVariants[format][variant].shader);
-			}
+			NativeRenderer_DestroyPSXShader(&s_gteShaderVariants[format][variant]);
 		}
 	}
 	for (int variant = 0; variant < NATIVE_PSX_SHADER_VARIANT_COUNT; variant++)
 	{
-		if (s_gteCachedP4ShaderVariants[variant].shader != 0)
-		{
-			glDeleteProgram(s_gteCachedP4ShaderVariants[variant].shader);
-		}
+		NativeRenderer_DestroyPSXShader(&s_gteCachedP4ShaderVariants[variant]);
+		if (variant < 3)
+			NativeRenderer_DestroyPSXShader(&s_gteCachedP4FullyOpaqueShaderVariants[variant]);
 	}
 	for (int format = TF_4_BIT; format <= TF_8_BIT; format++)
 	{
 		for (int variant = 0; variant < 3; variant++)
 		{
-			if (s_gteFullyOpaqueShaderVariants[format][variant].shader != 0)
-			{
-				glDeleteProgram(s_gteFullyOpaqueShaderVariants[format][variant].shader);
-			}
+			NativeRenderer_DestroyPSXShader(&s_gteFullyOpaqueShaderVariants[format][variant]);
 		}
 	}
 	for (int variant = 0; variant < 3; variant++)
 	{
-		if (s_gteUntexturedShaderVariants[variant].shader != 0)
-		{
-			glDeleteProgram(s_gteUntexturedShaderVariants[variant].shader);
-		}
+		NativeRenderer_DestroyPSXShader(&s_gteUntexturedShaderVariants[variant]);
 	}
 #else
 	if (s_gteShader4.shader != 0)
@@ -1347,6 +1350,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 #define GPU_TEXTURE_WINDOW_FUNC                                                                    \
+	"#ifdef PSX_TEXTURE_WINDOW\n"                                                                  \
 	"\tuniform vec4 s_textureWindow;\n"                                                           \
 	"\tfloat textureWindowBit(float texel, float mask, float offset, float bitValue) {\n" \
 	"\t\tfloat sourceBit = mod(floor(texel / bitValue), 2.0);\n"                          \
@@ -1369,7 +1373,10 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 64.0);\n" \
 	"\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 128.0);\n" \
 	"\t\treturn result + fract(tc);\n"                                                           \
-	"\t}\n"
+	"\t}\n"                                                                                         \
+	"#else\n"                                                                                       \
+	"\tvec2 applyTextureWindow(vec2 tc) { return floor(tc) + fract(tc); }\n"                      \
+	"#endif\n"
 #else
 #define GPU_TEXTURE_WINDOW_FUNC "vec2 applyTextureWindow(vec2 tc) { return tc; }\n"
 #endif
@@ -1531,6 +1538,7 @@ internal void NativeRenderer_DestroyPSXShaders(void)
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable const char *gte_shader_cached_p4 =
     "\tuniform sampler2D s_texture;\n"
+    "#ifdef PSX_TEXTURE_WINDOW\n"
     "\tuniform vec4 s_textureWindow;\n"
     "\tfloat textureWindowBit(float texel, float mask, float offset, float bitValue) {\n"
     "\t\tfloat sourceBit = mod(floor(texel / bitValue), 2.0);\n"
@@ -1553,6 +1561,9 @@ global_variable const char *gte_shader_cached_p4 =
     "\t\tresult.y += textureWindowBit(texel.y, s_textureWindow.y, s_textureWindow.w, 128.0);\n"
     "\t\treturn result + fract(tc);\n"
     "\t}\n"
+    "#else\n"
+    "\tvec2 applyTextureWindow(vec2 tc) { return floor(tc) + fract(tc); }\n"
+    "#endif\n"
     "\tuniform float psxDrawMaskSet;\n"
     "\tuniform float psxTextureOutputStp;\n"
     "\tfloat sampledStp = 0.0;\n"
@@ -1567,7 +1578,9 @@ global_variable const char *gte_shader_cached_p4 =
     "\t\tvec4 t = texture2D(s_texture, (texel + vec2(0.5)) * (1.0 / 256.0));\n"
     "\t\tfloat visible = step(0.25, t.a);\n"
     "\t\tsampledStp = step(0.75, t.a);\n"
+    "#ifndef PSX_FULLY_OPAQUE\n"
     "\t\tif (discardCachedP4(visible, sampledStp)) { discard; }\n"
+    "#endif\n"
     "\t\tt.a = 1.0;\n"
     "\t\treturn t;\n"
     "\t}\n"
@@ -2000,8 +2013,49 @@ internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, 
 #endif
 	sh->psxDrawMaskSetLoc = glGetUniformLocation(sh->shader, "psxDrawMaskSet");
 	sh->psxTextureOutputStpLoc = glGetUniformLocation(sh->shader, "psxTextureOutputStp");
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	sh->source = source;
+	sh->defines = fragmentDefines;
+#endif
 	return 1;
 }
+
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* A texture window with a mask costs ~130 ALU operations per fragment; with
+ * mask 0 it is the identity, so programs leave it out and get a twin with it
+ * when a draw first needs one. */
+internal GTEShader *NativeRenderer_WindowedShader(GTEShader *base)
+{
+	if (base->windowed == NULL && base->source != NULL)
+	{
+		GTEShader *windowed = (GTEShader *)SDL_calloc(1, sizeof(*windowed));
+		char defines[256];
+		SDL_snprintf(defines, sizeof(defines), "#define PSX_TEXTURE_WINDOW\n%s", base->defines ? base->defines : "");
+		if (windowed == NULL || !NativeRenderer_CompilePSXShader(windowed, base->source, defines))
+		{
+			SDL_free(windowed);
+			return base;
+		}
+		windowed->defines = NULL;
+		base->windowed = windowed;
+	}
+	return base->windowed ? (GTEShader *)base->windowed : base;
+}
+
+internal void NativeRenderer_DestroyPSXShader(GTEShader *sh)
+{
+	if (sh->windowed != NULL)
+	{
+		GTEShader *windowed = (GTEShader *)sh->windowed;
+		if (windowed->shader != 0)
+			glDeleteProgram(windowed->shader);
+		SDL_free(windowed);
+	}
+	if (sh->shader != 0)
+		glDeleteProgram(sh->shader);
+	SDL_memset(sh, 0, sizeof(*sh));
+}
+#endif
 
 internal int NativeRenderer_InitialisePSXShaders(void)
 {
@@ -2039,6 +2093,14 @@ internal int NativeRenderer_InitialisePSXShaders(void)
 	for (int variant = 0; variant < NATIVE_PSX_SHADER_VARIANT_COUNT; variant++)
 	{
 		if (!NativeRenderer_CompilePSXShader(&s_gteCachedP4ShaderVariants[variant], gte_shader_cached_p4, variantDefines[variant]))
+		{
+			return 0;
+		}
+	}
+	for (int variant = 0; variant < 3; variant++)
+	{
+		if (!NativeRenderer_CompilePSXShader(&s_gteCachedP4FullyOpaqueShaderVariants[variant], gte_shader_cached_p4,
+		                                     fullyOpaqueVariantDefines[variant]))
 		{
 			return 0;
 		}
@@ -2591,7 +2653,14 @@ void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiT
 		return;
 	}
 	GTEShader *shader;
-	if (cachedP4)
+	const int opaqueVariant = blendMode == BM_AVERAGE              ? NATIVE_PSX_SHADER_OPAQUE_AVERAGE
+	                          : blendMode == BM_ADD_QUATER_SOURCE ? NATIVE_PSX_SHADER_OPAQUE_QUARTER
+	                                                               : NATIVE_PSX_SHADER_OPAQUE;
+	if (cachedP4 && textureFullyOpaque)
+	{
+		shader = &s_gteCachedP4FullyOpaqueShaderVariants[opaqueVariant];
+	}
+	else if (cachedP4)
 	{
 		shader = &s_gteCachedP4ShaderVariants[variant];
 	}
@@ -2601,14 +2670,15 @@ void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiT
 	}
 	else if (textureFullyOpaque && texFormat <= TF_8_BIT)
 	{
-		const int opaqueVariant = blendMode == BM_AVERAGE              ? NATIVE_PSX_SHADER_OPAQUE_AVERAGE
-		                          : blendMode == BM_ADD_QUATER_SOURCE ? NATIVE_PSX_SHADER_OPAQUE_QUARTER
-		                                                               : NATIVE_PSX_SHADER_OPAQUE;
 		shader = &s_gteFullyOpaqueShaderVariants[texFormat][opaqueVariant];
 	}
 	else
 	{
 		shader = &s_gteShaderVariants[texFormat][variant];
+	}
+	if (textured && textureWindow != NULL && (textureWindow->w != 0 || textureWindow->h != 0))
+	{
+		shader = NativeRenderer_WindowedShader(shader);
 	}
 #else
 	(void)textured;
