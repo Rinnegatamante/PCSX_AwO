@@ -398,8 +398,12 @@ static void gxm_present(void)
                     SCE_GXM_TEXTURE_FILTER_LINEAR);
         }
         if (g_gxm_prescale) {
+            /* vita2d keeps the display's 960x544 projection on render
+             * targets too: covering it covers the whole pw x ph target, kx by
+             * ky target pixels per source texel. */
             vita2d_start_drawing_advanced(g_gxm_prescale, 0);
-            vita2d_draw_texture_part_scale(src, 0, 0, 0, 0, g_gxm_w, g_gxm_h, (float)kx, (float)ky);
+            vita2d_draw_texture_part_scale(src, 0, 0, 0, 0, g_gxm_w, g_gxm_h,
+                (float)DISPLAY_W / g_gxm_w, (float)DISPLAY_H / g_gxm_h);
             vita2d_end_drawing();
             src = g_gxm_prescale;
             src_w = pw;
