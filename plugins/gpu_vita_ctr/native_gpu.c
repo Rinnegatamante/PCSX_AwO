@@ -2227,8 +2227,13 @@ void DrawSplit(const GPUDrawSplit *split)
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
 		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv);
 #endif
-		NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
-		NativeRenderer_UpdateVRAM();
+		if (!NativeRenderer_FillMainTarget(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h,
+		                                   split->clearR, split->clearG, split->clearB))
+		{
+			NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR,
+			                         split->clearG, split->clearB);
+			NativeRenderer_UpdateVRAM();
+		}
 #ifdef __vita__
 		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv);
 #endif

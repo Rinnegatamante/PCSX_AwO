@@ -3501,6 +3501,88 @@ void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
     }
 }
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* A GP0 fill inside the area the main target holds is cleared in the target
+ * itself, in the scene already open. Going through VRAM cost a CPU fill, a
+ * texture upload into the VRAM framebuffer (a scene) and a reload of the
+ * whole target (another scene and a full-target quad). The CPU copy of VRAM
+ * gets the colour too, exactly, and the target's next pack writes the same
+ * pixels to the GPU's VRAM. Returns 0 when the fill must go through VRAM. */
+/* The first host pixel whose centre lies at or after PSX edge e (0..psx):
+ * ceil((e * host - psx / 2) / psx), in integers. */
+internal int NativeRenderer_HostEdge(int e, int host, int psx)
+{
+	const int n = 2 * e * host - psx;
+	return n <= 0 ? 0 : (n + 2 * psx - 1) / (2 * psx);
+}
+
+int NativeRenderer_FillMainTarget(int x, int y, int w, int h, u8 r, u8 g, u8 b)
+{
+	const RECT16 *area = &s_mainDrawRect;
+	if (!s_mainLoaded || s_previousOffscreenState || w <= 0 || h <= 0 || area->w <= 0 || area->h <= 0 ||
+	    s_mainRenderTarget.width <= 0 || s_mainRenderTarget.height <= 0)
+		return 0;
+	if (x < area->x || y < area->y || x + w > area->x + area->w || y + h > area->y + area->h ||
+	    x + w > VRAM_WIDTH || y + h > (int)VRAM_HEIGHT)
+		return 0;
+
+	const u16 color = NativeRenderer_PackRGB24ToPSX15(r, g, b);
+	for (int row = 0; row < h; row++)
+	{
+		u16 *dst = s_vram.cpuPixels + (size_t)(y + row) * VRAM_WIDTH + x;
+		for (int col = 0; col < w; col++)
+			dst[col] = color;
+	}
+	/* The CPU copy holds the fill exactly; the target's pack writes the same
+	 * pixels to the GPU's VRAM. Only caches built from the old pixels go. */
+	const RECT16 fillRect = {(s16)x, (s16)y, (s16)w, (s16)h};
+	if (NativeRenderer_VRAMRectsOverlap(&fillRect, &s_prevMainRect))
+		s_prevMainValid = 0;
+	NativeRenderer_InvalidateP4CacheRect(&fillRect);
+	NativeRenderer_InvalidatePaletteCacheRows(&fillRect);
+
+	/* A host pixel belongs to the PSX pixel under its centre, as when the
+	 * target is loaded from VRAM and packed back: host pixel i covers the PSX
+	 * pixels from ceil(i * area / target - 0.5). Rows go down in PSX space and
+	 * up in GL's (the area's top is the target's top). */
+	const int targetW = s_mainRenderTarget.width;
+	const int targetH = s_mainRenderTarget.height;
+	const int left = NativeRenderer_HostEdge(x - area->x, targetW, area->w);
+	const int right = NativeRenderer_HostEdge(x + w - area->x, targetW, area->w);
+	const int rowTop = NativeRenderer_HostEdge(y - area->y, targetH, area->h);
+	const int rowBottom = NativeRenderer_HostEdge(y + h - area->y, targetH, area->h);
+	const int bottom = targetH - rowBottom;
+	const int top = targetH - rowTop;
+	if (right <= left || top <= bottom)
+		return 1; /* covers no host pixel's centre */
+
+	NATIVE_GPU_LABEL(2, "fill-target", 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, s_mainRenderTarget.framebuffer);
+	GLint previousScissorBox[4];
+	const GLboolean previousScissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+	glGetIntegerv(GL_SCISSOR_BOX, previousScissorBox);
+	glEnable(GL_SCISSOR_TEST);
+	glScissor(left, bottom, right - left, top - bottom);
+	/* The 5-bit colour expanded as loading the target from VRAM does
+	 * ((c << 3) | (c >> 2)): blending over the fill must see the same
+	 * destination as before. */
+	const float r8 = (float)(((r >> 3) << 3) | (r >> 5)) / 255.0f;
+	const float g8 = (float)(((g >> 3) << 3) | (g >> 5)) / 255.0f;
+	const float b8 = (float)(((b >> 3) << 3) | (b >> 5)) / 255.0f;
+	glClearColor(r8, g8, b8, 0.0f);
+	glClearStencil(0);
+	glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	if (previousScissorEnabled)
+		glScissor(previousScissorBox[0], previousScissorBox[1], previousScissorBox[2], previousScissorBox[3]);
+	else
+		glDisable(GL_SCISSOR_TEST);
+	s_previousScissorState = previousScissorEnabled ? 1 : 0;
+	NativeRenderer_InvalidateScissorRectCache();
+	s_mainDirty = 1;
+	return 1;
+}
+#endif
+
 void NativeRenderer_Clear(int x, int y, int w, int h, u8 r, u8 g, u8 b)
 {
 	NATIVE_GPU_LABEL(2, "clear", 0);
