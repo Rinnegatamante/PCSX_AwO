@@ -1,0 +1,62 @@
+diff --git a/source/framebuffers.c b/source/framebuffers.c
+index d2309b8..f0eb6d2 100644
+--- a/source/framebuffers.c
++++ b/source/framebuffers.c
+@@ -292,6 +292,9 @@ void glDeleteFramebuffers(GLsizei n, const GLuint *ids) {
+ #ifndef DEPTH_STENCIL_HACK
+ 			if (fb->depthbuffer_ptr) {
+ 				mark_as_dirty(fb->depthbuffer_ptr->depthData);
++				if (fb->depthbuffer_ptr->stencilData) {
++					mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++				}
+ 			}
+ #endif
+ 		}
+@@ -386,6 +389,9 @@ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbu
+ 	if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
+ 		mark_as_dirty(fb->depthbuffer_ptr->depthData);
++		if (fb->depthbuffer_ptr->stencilData) {
++			mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++		}
+ #endif
+ 	}
+ 	fb->depthbuffer_ptr = NULL;
+@@ -427,6 +433,9 @@ void glNamedFramebufferRenderbuffer(GLuint target, GLenum attachment, GLenum ren
+ 	if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
+ 		mark_as_dirty(fb->depthbuffer_ptr->depthData);
++		if (fb->depthbuffer_ptr->stencilData) {
++			mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++		}
+ #endif
+ 		fb->depthbuffer_ptr = NULL;
+ 	}
+diff --git a/source/shared.h b/source/shared.h
+index 051de2a..f5f186b 100644
+--- a/source/shared.h
++++ b/source/shared.h
+@@ -1378,6 +1378,9 @@ static inline __attribute__((always_inline)) void _glFramebufferTexture2D(frameb
+ 			if (fb->depthbuffer_ptr) {
+ #ifndef DEPTH_STENCIL_HACK
+ 				mark_as_dirty(fb->depthbuffer_ptr->depthData);
++				if (fb->depthbuffer_ptr->stencilData) {
++					mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++				}
+ #endif
+ 				fb->depthbuffer_ptr = NULL;
+ 				fb->depthbuffer_state &= ~DEPTHBUFFER_READY;
+diff --git a/source/textures.c b/source/textures.c
+index 909a82b..62e6ada 100644
+--- a/source/textures.c
++++ b/source/textures.c
+@@ -1855,6 +1855,9 @@ void glDeleteTextures(GLsizei n, const GLuint *gl_textures) {
+ 							gpu_free_texture(&texture_slots[i]);
+ 							if (fb->depthbuffer_ptr) {
+ 								mark_as_dirty(fb->depthbuffer_ptr->depthData);
++								if (fb->depthbuffer_ptr->stencilData) {
++									mark_as_dirty(fb->depthbuffer_ptr->stencilData);
++								}
+ 								fb->depthbuffer_ptr = NULL;
+ 								fb->depthbuffer_state = DEPTHBUFFER_MISSING;
+ 							}
