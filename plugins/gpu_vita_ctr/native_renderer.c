@@ -465,7 +465,9 @@ internal int NativeRenderer_InitialiseGLContext(char *windowName, int fullscreen
 {
 	SDL_WindowFlags windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
 #ifndef __vita__
-	windowFlags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+	/* PCSX_GL_LOWDPI=1: the Vita's 960x544 back buffer on a Retina Mac. */
+	if (!getenv("PCSX_GL_LOWDPI"))
+		windowFlags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #endif
 
 	if (fullscreen)
@@ -945,8 +947,20 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 #if CTR_NATIVE_WIDESCREEN
 	if ((g_windowWidth > 0) && (g_windowHeight > 0))
 	{
-		physicalWidth = (s_presentViewport.w > 0) ? s_presentViewport.w : g_windowWidth;
-		physicalHeight = (s_presentViewport.h > 0) ? s_presentViewport.h : g_windowHeight;
+		/* One target pixel per presented pixel: the displayed rect fills the
+		 * viewport, and the draw area is usually a part of it (Soul Calibur
+		 * draws 228 of 240 lines). A target the size of the whole viewport
+		 * was shrunk when presented, and nearest sampling dropped rows of
+		 * thin text. */
+		const int viewW = (s_presentViewport.w > 0) ? s_presentViewport.w : g_windowWidth;
+		const int viewH = (s_presentViewport.h > 0) ? s_presentViewport.h : g_windowHeight;
+		const RECT16 *disp = &NativeGpu_GetRenderDispEnv()->disp;
+		physicalWidth = (disp->w > 0) ? (logicalWidth * viewW + disp->w / 2) / disp->w : viewW;
+		physicalHeight = (disp->h > 0) ? (logicalHeight * viewH + disp->h / 2) / disp->h : viewH;
+		if (physicalWidth < logicalWidth || physicalWidth > 2 * viewW)
+			physicalWidth = viewW;
+		if (physicalHeight < logicalHeight || physicalHeight > 2 * viewH)
+			physicalHeight = viewH;
 	}
 #endif
 
