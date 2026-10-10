@@ -371,16 +371,15 @@ static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, 
 
 static void gxm_present(void)
 {
-    static unsigned presents;
     if (g_gxm_ready < 0)
         return;
-    /* vita2d_start_drawing() resets its vertex pool every frame, which needs
-     * the GPU done with the previous frames' vertices. Each frame takes a few
-     * hundred bytes of the 1 MB pool: drain the GPU and reset it rarely. */
-    if (++presents % 1024 == 0) {
-        vita2d_wait_rendering_done();
+    /* vita2d_start_drawing() resets its vertex pool every frame, while the GPU
+     * may still read the last frames' vertices. Use it as a ring instead: a
+     * frame takes a few hundred bytes of the 1 MB pool, so it restarts after
+     * hundreds of frames, and with at most two swaps pending everything that
+     * old is complete. */
+    if (vita2d_pool_free_space() < 64 * 1024)
         vita2d_pool_reset();
-    }
     vita2d_texture *src = g_gxm_tex[g_gxm_ready];
     int src_w = g_gxm_w, src_h = g_gxm_h;
     if (g_scale_mode == SCALE_SHARP) {
