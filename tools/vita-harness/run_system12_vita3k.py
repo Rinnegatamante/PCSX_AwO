@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--gpu-thread", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--inputs", type=Path,
+                        help="frame,control,pressed CSV replayed by the guest (e.g. from tests/check_system12_gameplay.py)")
     parser.add_argument("--shader-compiler", type=Path,
                         help="local libshacccg.suprx; a vitaGL VPK compiles its shaders with it")
     parser.add_argument("--vita-pack-vpk", type=Path, default=shutil.which("vita-pack-vpk"))
@@ -75,6 +77,8 @@ def main():
                                          if line.startswith("disable-surface-sync:") else line
                                          for line in text.splitlines()) + "\n")
         files = [(args.profile / f, f"{name}/{f}") for f in GAME_FILES]
+        if args.inputs:
+            files.append((args.inputs, f"{name}/inputs.csv"))
         vpk = h.make_vpk(args.vpk.resolve(), args.vita_pack_vpk, args.vita_mksfoex,
                          base / f"{name}.vpk", base, h.TITLE_ID, f"PCSX Vita System12 {name}", files)
         log = args.output_dir / "vita3k.log"
@@ -87,6 +91,8 @@ def main():
                     f"--report-system12, {report_guest}, --capture-ppm, {capture_guest}")
         if args.gpu_thread:
             app_args += ", --gpu-thread"
+        if args.inputs:
+            app_args += f", --inputs, ux0:app/{h.TITLE_ID}/{name}/inputs.csv"
         expected = (f"pcsx-vita: system12-report PASS path={report_guest}",
                     f"pcsx-vita: system12-capture PASS path={capture_guest}")
         screenshot_root = portable / "screenshots"
