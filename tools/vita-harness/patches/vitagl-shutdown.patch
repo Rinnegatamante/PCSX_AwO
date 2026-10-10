@@ -12,7 +12,7 @@ index 60fd386..ab36eff 100644
  
  EGLContext eglGetCurrentContext(void) {
 diff --git a/source/gxm.c b/source/gxm.c
-index f74e4af..0174523 100644
+index 3894e19..5fa3cca 100644
 --- a/source/gxm.c
 +++ b/source/gxm.c
 @@ -58,7 +58,7 @@ static void *gxm_shader_patcher_fragment_usse_addr; // Shader Patcher fragment U
@@ -29,10 +29,10 @@ index f74e4af..0174523 100644
  static GLboolean needs_scene_reset = GL_TRUE; // Flag for when a scene reset is required
  static GLboolean scene_not_flushed = GL_FALSE; // Flag for when a scene had been forcibly flushed as last operation
 +static inline void scene_end(void);
- uint32_t vgl_debug_scene_splits = 0; // DEBUG: mid-frame scene splits (scene_end called from scene_reset)
- uint32_t vgl_debug_log_draws = 0; // DEBUG: per-draw ffp logging switch
  
-@@ -101,6 +102,8 @@ float DISPLAY_HEIGHT_FLOAT; // Display height in pixels (float)
+ SceGxmContext *gxm_context; // sceGxm context instance
+ GLenum vgl_error = GL_NO_ERROR; // Error returned by glGetError
+@@ -99,6 +100,8 @@ float DISPLAY_HEIGHT_FLOAT; // Display height in pixels (float)
  
  GLboolean system_app_mode = GL_FALSE; // Flag for system app mode usage
  static GLboolean gxm_initialized = GL_FALSE; // Current sceGxm state
@@ -41,7 +41,7 @@ index f74e4af..0174523 100644
  GLboolean is_rendering_display = GL_TRUE; // Flag for when drawing without fbo is being performed
  
  float *legacy_pool = NULL; // Mempool for GL1 immediate draw pipeline
-@@ -273,6 +276,28 @@ static void display_queue_callback(const void *callbackData) {
+@@ -271,6 +274,28 @@ static void display_queue_callback(const void *callbackData) {
  }
  
  // Garbage collector
@@ -70,7 +70,7 @@ index f74e4af..0174523 100644
  #if defined(HAVE_PTHREAD) && !defined(HAVE_SINGLE_THREADED_GC)
  void garbage_collector(void *arg) {
  #else
-@@ -282,32 +307,19 @@ int garbage_collector(unsigned int args, void *arg) {
+@@ -280,32 +305,19 @@ int garbage_collector(unsigned int args, void *arg) {
  	for (;;) {
  		// Waiting for garbage collection request
  		sceKernelWaitSema(gc_mutex[0], 1, NULL);
@@ -112,7 +112,7 @@ index f74e4af..0174523 100644
  #endif
  }
  
-@@ -330,6 +342,7 @@ GLboolean start_shader_compiler(void) {
+@@ -328,6 +340,7 @@ GLboolean start_shader_compiler(void) {
  void init_gxm(void) {
  	if (gxm_initialized)
  		return;
@@ -120,12 +120,8 @@ index f74e4af..0174523 100644
  
  #ifdef HAVE_RAZOR
  	// Initializing sceRazor debugger
-@@ -360,12 +373,14 @@ void init_gxm(void) {
- 	// Initializing garbage collector
- 	gc_mutex[0] = sceKernelCreateSema("vitaGL GC Sema Push", 0, 0, FRAME_PURGE_FREQ, NULL);
- 	gc_mutex[1] = sceKernelCreateSema("vitaGL GC Sema Pull", 0, FRAME_PURGE_FREQ, FRAME_PURGE_FREQ, NULL);
--#ifdef HAVE_PTRHEAD
-+#ifdef HAVE_PTHREAD
+@@ -361,9 +374,11 @@ void init_gxm(void) {
+ #ifdef HAVE_PTHREAD
  	pthread_create(&gc_thread, NULL, garbage_collector, NULL);
  	pthread_setaffinity_np(gc_thread, 4, &gc_thread_affinity);
 +	gc_started = GL_TRUE;
@@ -137,7 +133,7 @@ index f74e4af..0174523 100644
  #endif
  #endif
  
-@@ -401,6 +416,173 @@ void init_gxm(void) {
+@@ -399,6 +414,173 @@ void init_gxm(void) {
  #endif
  }
  
@@ -311,7 +307,7 @@ index f74e4af..0174523 100644
  void init_gxm_context(SceGxmContext **ctx, uint8_t ctx_slot) {
  	// Allocating VDM ring buffer
  	vdm_ring_buffer_addr[ctx_slot] = gpu_alloc_mapped_aligned_for_gpu(4096, gxm_vdm_buf_size);
-@@ -451,9 +633,10 @@ void init_display_color_surfaces(GLboolean is_swap) {
+@@ -449,9 +631,10 @@ void init_display_color_surfaces(GLboolean is_swap) {
  		shared_fb = sceSharedFbOpen(1);
  		vgl_memset(&shared_fb_info, 0, sizeof(SceSharedFbInfo));
  		sceSharedFbGetInfo(shared_fb, &shared_fb_info);
@@ -324,7 +320,7 @@ index f74e4af..0174523 100644
  			sceGxmMapMemory(shared_fb_info.fb_base, shared_fb_info.fb_size, SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE);
  			gxm_color_surfaces_addr[0] = shared_fb_info.fb_base;
  			gxm_color_surfaces_addr[1] = shared_fb_info.fb_base2;
-@@ -606,14 +789,11 @@ void scene_reset(void) {
+@@ -603,14 +786,11 @@ void scene_reset(void) {
  		}
  
  #ifndef SKIP_SPLASHSCREEN	
@@ -344,10 +340,10 @@ index f74e4af..0174523 100644
  #endif
  
 diff --git a/source/shared.h b/source/shared.h
-index 5e3e91d..051de2a 100644
+index 07d8f47..1bfa896 100644
 --- a/source/shared.h
 +++ b/source/shared.h
-@@ -1275,6 +1275,7 @@ void update_polygon_offset(); // Updates current polygon offset mode
+@@ -1278,6 +1278,7 @@ void update_polygon_offset(); // Updates current polygon offset mode
  /* splashscreen.c */
  void invoke_splashscreen(void);
  void clear_splashscreen();
@@ -356,7 +352,7 @@ index 5e3e91d..051de2a 100644
  /* misc functions */
  static inline __attribute__((always_inline)) void vector4f_convert_to_local_space(vector4f *out, int x, int y, int width, int height) { // Converts screen coords to local space
 diff --git a/source/splashscreen.c b/source/splashscreen.c
-index 51673ba..e16a8b4 100644
+index 87c1006..b7691ac 100644
 --- a/source/splashscreen.c
 +++ b/source/splashscreen.c
 @@ -49,6 +49,10 @@ const SceGxmProgramParameter *splash_normal_mat;
@@ -381,10 +377,10 @@ index 51673ba..e16a8b4 100644
  	lz77_decompress(&vgl_splash_data[SPLASH_MDL_OFFS], tmp, SPLASH_VTX_PACKED + SPLASH_IDX_COUNT * 2);
  	uint8_t *p = tmp;
  	float *v_out = (float*)gpu_splash_vtxs;
-@@ -6471,19 +6475,10 @@ int splashscreen_thread(unsigned int args, void *arg) {
- 
- 	// Notify main renderer thread that splashscreen is over
- 	sceGxmFinish(splash_gxm_context);
+@@ -6477,19 +6481,10 @@ int splashscreen_thread(unsigned int args, void *arg) {
+ #ifndef STORE_DEPTH_STENCIL
+ 	vglDepthStencilSurfaceSetBackgroundMask(&gxm_depth_stencil_surface, GL_FALSE);
+ #endif
 +	splash_finished = GL_TRUE;
  	sceKernelSignalSema(splash_mutex[1], 1);
  	
@@ -403,7 +399,7 @@ index 51673ba..e16a8b4 100644
  }
  
  void invoke_splashscreen() {
-@@ -6525,11 +6520,56 @@ void invoke_splashscreen() {
+@@ -6531,11 +6526,56 @@ void invoke_splashscreen() {
  	// Starting dedicated thread for splashscreen rendering
  	splash_mutex[0] = sceKernelCreateSema("vitaGL Splashscreen Sema Push", 0, 0, 1, NULL);
  	splash_mutex[1] = sceKernelCreateSema("vitaGL Splashscreen Sema Pull", 0, 0, 1, NULL);
@@ -657,7 +653,7 @@ index 80f3f86..8c49cf3 100644
  size_t vgl_mem_get_total_space(vglMemType type);
  vglMemType vgl_mem_get_type_by_addr(void *addr);
 diff --git a/source/vitaGL.h b/source/vitaGL.h
-index bdc6350..25ea58f 100644
+index 336bc14..67efa41 100644
 --- a/source/vitaGL.h
 +++ b/source/vitaGL.h
 @@ -780,6 +780,9 @@ void glEnd(void);

@@ -30,10 +30,14 @@ VitaGL is built in an isolated local checkout, using exactly:
 HAVE_SHADER_CACHE=1 NO_DEBUG=1 READBACKS_SPEEDHACK=1 CIRCULAR_POOL_SPEEDHACK=1
 ```
 
-`tools/vita-harness/build_vitagl.py` clones the clean local `../vitaGL` source
-into `build/vita-deps/vitaGL`, builds there, and records the source commit,
-ordered shutdown/shader-cache/readback/finish patch hashes, flags and archive SHA-256 in
-`pcsx-build.json`. It rejects any extra edits in its build copy, including
+`tools/vita-harness/build_vitagl.py` clones vitaGL at the commit pinned in the
+script (`VITAGL_COMMIT`, from github.com/Rinnegatamante/vitaGL, or from a local
+clone given with `--source`) into `build/vita-deps/vitaGL`, applies the patch
+series (shutdown, shader cache, readback, finish, FBO last frame, FBO stencil
+free, FBO resize re-attach), builds there, and records the commit, patch
+hashes, flags and archive SHA-256 in `pcsx-build.json`. To move to a newer
+vitaGL, change the pinned commit and rebase any patch that no longer applies;
+`--commit` tries one without editing the script. It rejects any extra edits in its build copy, including
 changes outside patch hunks in the same files. It does not install over the
 SDK library. The standalone build calls the helper and uses that checkout's
 header and archive. A matching recorded archive can be reused. To build:

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Build an isolated local VitaGL checkout with the required PCSX flags."""
+"""Build vitaGL for the Vita frontend: a pinned upstream commit, PCSX's patch
+series on top (tools/vita-harness/patches/vitagl-*.patch) and the required
+flags, in an isolated copy (build/vita-deps/vitaGL by default).
+
+The commit is pinned here so that builds do not depend on whatever a sibling
+checkout holds. To move to a newer vitaGL, change VITAGL_COMMIT, check that
+the series still applies, and rebase the patches that do not. --source takes
+a local clone (or mirror) holding that commit instead of fetching it."""
 import argparse
 import hashlib
 import json
@@ -9,6 +16,10 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+VITAGL_REPO = "https://github.com/Rinnegatamante/vitaGL"
+# 2026-10-07: GLSL translator fixes (negative mod, comparisons), precomputed
+# draws for clears and framebuffer blits, scissor refresh.
+VITAGL_COMMIT = "dca4b9d143290d78ec043131a19be36c78cdc7b5"
 FLAGS = {name: "1" for name in ("HAVE_SHADER_CACHE", "NO_DEBUG",
                                "READBACKS_SPEEDHACK", "CIRCULAR_POOL_SPEEDHACK")}
 PATCHES = (
@@ -71,7 +82,10 @@ def apply_patch_series(output, patch_series):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, default=ROOT.parent / "vitaGL")
+    parser.add_argument("--source", type=Path,
+                        help="local clone holding the pinned commit (default: fetch " + VITAGL_REPO + ")")
+    parser.add_argument("--commit", default=VITAGL_COMMIT,
+                        help="override the pinned commit (to try a newer vitaGL)")
     parser.add_argument("--output", type=Path, default=ROOT / "build/vita-deps/vitaGL")
     parser.add_argument("--trace-sampler-bindings", action="store_true",
                         help="Build bounded diagnostic logs for fragment sampler selection")
@@ -80,12 +94,12 @@ def main():
     parser.add_argument("--trace-allocator-failures", action="store_true",
                         help="Build a private archive with bounded mapped-allocation retry logs")
     args = parser.parse_args()
-    source, output = args.source.resolve(), args.output.resolve()
-    if source == output or source in output.parents or output in source.parents:
+    output = args.output.resolve()
+    source = str(args.source.resolve()) if args.source else VITAGL_REPO
+    if args.source and (args.source.resolve() == output or args.source.resolve() in output.parents
+                        or output in args.source.resolve().parents):
         parser.error("source and build copy must be separate directories")
-    if git(source, "status", "--porcelain", "--untracked-files=no"):
-        parser.error("local VitaGL source has tracked changes; commit them before cloning")
-    commit = git(source, "rev-parse", "HEAD")
+    commit = args.commit
     patch_series = []
     optional_patches = ()
     if args.trace_sampler_bindings:
@@ -104,9 +118,12 @@ def main():
                    for patch, _, patch_sha256 in patch_series]
     if not output.exists():
         output.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", "--no-hardlinks", str(source), str(output)], check=True)
-    if git(output, "rev-parse", "HEAD") != commit:
-        parser.error("build copy differs from source; select a fresh output directory")
+        subprocess.run(["git", "clone", "--no-checkout", "--no-hardlinks", source, str(output)], check=True)
+        if subprocess.run(["git", "-C", str(output), "checkout", "-q", "--detach", commit]).returncode:
+            parser.error(f"{source} has no commit {commit}; fetch it there or drop --source")
+    if git(output, "rev-parse", "HEAD") != git(output, "rev-parse", commit + "^{commit}"):
+        parser.error("build copy is at another vitaGL commit; delete it or select a fresh output directory")
+    commit = git(output, "rev-parse", "HEAD")
     try:
         apply_patch_series(output, patch_series)
     except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
@@ -124,7 +141,7 @@ def main():
     env = dict(os.environ, VITASDK=str(sdk), PATH=str(sdk / "bin") + os.pathsep + os.environ["PATH"])
     subprocess.run(["make", "-B", "-j4", *(f"{k}={v}" for k, v in FLAGS.items())],
                    cwd=output, env=env, check=True)
-    facts = {"source": str(source), "commit": commit, "flags": FLAGS,
+    facts = {"source": source, "commit": commit, "flags": FLAGS,
              "patches": patch_facts,
              "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
     record.write_text(json.dumps(facts, indent=2) + "\n")
