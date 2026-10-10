@@ -62,6 +62,7 @@ static unsigned g_capture_width;
 static unsigned g_capture_height;
 static uint8_t *g_capture_rgb;
 #ifdef STANDALONE_VITAGL
+#include <vitaGL.h>
 /* The vitaGL GPU presents by itself, so video_cb never sees its pixels: it
  * reads its next picture back once asked, into capture_gl_frame. */
 extern volatile int pcsx_vita_gl_capture_request;
@@ -1357,11 +1358,19 @@ int main(int argc, char **argv)
         if (runs % 60 == 0)
             sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
 #ifdef ARCADE_SYSTEM12
-        if (report_progress && (runs % 600 == 0 || runs == validation_frames))
-            sceClibPrintf("pcsx-vita: system12-progress frames=%u/%u elapsed_ms=%llu inputs=%u/%u\n",
+        if (report_progress && (runs % 600 == 0 || runs == validation_frames)) {
+            SceKernelFreeMemorySizeInfo mem = { .size = sizeof(mem) };
+            sceKernelGetFreeMemorySize(&mem);
+#ifdef STANDALONE_VITAGL
+            const unsigned gl_free_kb = (unsigned)(vglMemFree(VGL_MEM_ALL) / 1024);
+#else
+            const unsigned gl_free_kb = 0;
+#endif
+            sceClibPrintf("pcsx-vita: system12-progress frames=%u/%u elapsed_ms=%llu inputs=%u/%u free_user_kb=%u gl_free_kb=%u\n",
                 runs, validation_frames,
                 (unsigned long long)(SDL_GetTicks() - validation_started_ms),
-                g_next_input_event, g_input_event_count);
+                g_next_input_event, g_input_event_count, (unsigned)(mem.size_user / 1024), gl_free_kb);
+        }
 #endif
     }
     int validation_result = 0;
