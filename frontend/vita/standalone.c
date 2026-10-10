@@ -323,7 +323,11 @@ static void gpuprof_swap(void)
  * no CPU color conversion, and 245 KB written per frame instead of 1.6 MB. */
 extern int (*pcsx_raw_frame_cb)(const void *vram, int ofs, int stride, unsigned mask,
     int w, int h);
-static vita2d_texture *g_gxm_tex[2];
+/* Three textures: the display queue allows two pending swaps, so when a frame
+ * writes the texture of the frame three before, that frame's swap has been
+ * processed and its rendering is complete. No sceGxmFinish per frame. */
+#define GXM_TEX_COUNT 3
+static vita2d_texture *g_gxm_tex[GXM_TEX_COUNT];
 static int g_gxm_next, g_gxm_ready = -1, g_gxm_w, g_gxm_h;
 
 static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, int w, int h)
@@ -338,8 +342,6 @@ static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, 
     if (h > 512) h = 512;
     bytes = (unsigned)w * 2;
     copy_started = pcsx_profile_begin(PCSX_PROF_PRESENT_COPY, 1);
-    /* This texture was drawn two frames ago; the GPU may still read it. */
-    vita2d_wait_rendering_done();
     for (r = 0; r < (unsigned)h; r++) {
         unsigned row = ((unsigned)ofs + r * (unsigned)stride) & mask;
         unsigned col = row & 2047u;
@@ -355,15 +357,23 @@ static int gxm_raw_frame(const void *vram_, int ofs, int stride, unsigned mask, 
     g_gxm_w = w;
     g_gxm_h = h;
     g_gxm_ready = g_gxm_next;
-    g_gxm_next ^= 1;
+    g_gxm_next = (g_gxm_next + 1) % GXM_TEX_COUNT;
     return 1;
 }
 
 static void gxm_present(void)
 {
+    static unsigned presents;
     if (g_gxm_ready < 0)
         return;
-    vita2d_start_drawing();
+    /* vita2d_start_drawing() resets its vertex pool every frame, which needs
+     * the GPU done with the previous frames' vertices. Each frame takes a few
+     * hundred bytes of the 1 MB pool: drain the GPU and reset it rarely. */
+    if (++presents % 1024 == 0) {
+        vita2d_wait_rendering_done();
+        vita2d_pool_reset();
+    }
+    vita2d_start_drawing_advanced(NULL, 0);
     vita2d_clear_screen();
     vita2d_draw_texture_part_scale(g_gxm_tex[g_gxm_ready], GAME_X, 0, 0, 0,
         g_gxm_w, g_gxm_h, (float)GAME_W / g_gxm_w, (float)DISPLAY_H / g_gxm_h);
@@ -385,7 +395,7 @@ static int gxm_init(void)
     vita2d_set_vblank_wait(0);
     vita2d_set_clear_color(0xff000000u);
     vita2d_texture_set_alloc_memblock_type(SCE_KERNEL_MEMBLOCK_TYPE_USER_RW_UNCACHE);
-    for (i = 0; i < 2; i++) {
+    for (i = 0; i < GXM_TEX_COUNT; i++) {
         g_gxm_tex[i] = vita2d_create_empty_texture_format(1024, 512,
             SCE_GXM_TEXTURE_FORMAT_X1U5U5U5_1BGR);
         if (!g_gxm_tex[i])
@@ -402,7 +412,7 @@ static void gxm_finish(void)
     int i;
     pcsx_raw_frame_cb = NULL;
     vita2d_wait_rendering_done();
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < GXM_TEX_COUNT; i++)
         if (g_gxm_tex[i]) vita2d_free_texture(g_gxm_tex[i]);
     vita2d_fini();
 }
