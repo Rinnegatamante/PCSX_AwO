@@ -156,26 +156,47 @@ void (*pcsx_vita_gpu_label_cb)(int kind, const char *name, unsigned handle);
 #define NATIVE_P4_UPLOAD_BYTES   (NATIVE_P4_PALETTE_BYTES + NATIVE_P4_INDEX_BYTES)
 #define NATIVE_PALETTE_CLUT_COUNT (64 * VRAM_MAX_HEIGHT)
 
+/* A cached 4-bit texture: one (page, CLUT, tint), built from the CPU's VRAM
+ * copy. It is current while the versions it was built from are those of
+ * its page and CLUT (s_p4PageVersion, s_p4ClutVersion). */
 struct NativeP4CacheEntry
 {
-	TextureID texture[2];
+	TextureID texture;
 	s16 page;
 	u16 clut;
 	u8 superTurboTint;
 	u32 lastUse;
 	u32 lastUseFrame;
-	u32 pageVersion;
-	u32 paletteVersion;
-	u32 bufferPageVersion[2];
-	u32 bufferPaletteVersion[2];
-	u32 bufferWriteFrame[2];
-	u8 activeBuffer;
+	u32 builtPageVersion; /* 0: not built */
+	u32 builtClutVersion;
+#if defined(__vita__)
+	void *palette; /* GXM palette (16 ABGR words) of this entry */
+#endif
 	b32 occupied;
 };
 
+/* Bumped by every VRAM write over a 64x256 page or a 16-texel CLUT; never 0. */
+global_variable u32 s_p4VersionSerial = 1;
+global_variable u32 s_p4PageVersion[(1024 / TPAGE_HEIGHT) * 16];
+global_variable u32 s_p4ClutVersion[NATIVE_PALETTE_CLUT_COUNT];
+#if defined(__vita__)
+/* A page's indices in GXM P4 layout (the PSX's: 4-bit texels, first in the
+ * low nibble), shared by every entry of that page. A new version goes to a
+ * new buffer: the old one is freed once the GPU is done with it. */
+#define NATIVE_P4_PAGE_BYTES (TPAGE_WIDTH / 2 * TPAGE_HEIGHT)
+global_variable struct
+{
+	void *data;
+	u32 version;
+} s_p4PageData[(1024 / TPAGE_HEIGHT) * 16];
+#endif
+
 global_variable struct NativeP4CacheEntry s_p4Cache[NATIVE_P4_CACHE_CAPACITY];
 global_variable u32 s_p4CacheUseCounter;
+#if !defined(__vita__)
+/* A cached texture as GL_PALETTE4_RGBA8_OES data, for the macOS harness. */
 global_variable u8 s_p4UploadData[NATIVE_P4_UPLOAD_BYTES];
+#endif
 global_variable u32 s_p4FrameSerial = 1;
 global_variable s32 s_p4LastLookupIndex = -1;
 global_variable u32 s_p4LastLookupKey = 0xffffffffu;
@@ -289,15 +310,19 @@ global_variable int s_offscreenDirty;
  * page one frame after drawing it, so presentation needs the target that
  * drew that page. It is valid until a VRAM write overlaps its rect. */
 global_variable struct NativeRenderTarget s_prevMainRenderTarget;
-/* Drawn bounding boxes per target area (see NativeRenderer_NoteTargetDraw). */
-#define NATIVE_DRAWN_AREAS 16
+/* VRAM rects drawn since they were last packed (see
+ * NativeRenderer_NoteTargetDraw). */
+#define NATIVE_DRAWN_RECTS 32
 global_variable struct
 {
-	RECT16 area;
-	s32 x0, y0, x1, y1; /* drawn bounding box, x1/y1 exclusive */
-} s_drawnAreas[NATIVE_DRAWN_AREAS];
-global_variable int s_drawnAreaCount;
-global_variable int s_drawnAreasOverflow;
+	s32 x0, y0, x1, y1; /* x1/y1 exclusive */
+} s_drawnRects[NATIVE_DRAWN_RECTS];
+global_variable int s_drawnRectCount;
+/* The frame each 64x256 texture page last had tiles marked GPU-newer (0:
+ * none since it was found clean), and the stale ones to read back. */
+#define NATIVE_STALE_P4_FRAMES 30
+global_variable u32 s_gpuNewerPageFrame[(1024 / TPAGE_HEIGHT) * 16];
+global_variable RECT16 s_staleP4Sync;
 /* Spare targets by size. The main target alternates between a few sizes (the
  * display page at host resolution, small areas at 1x) and resizing it in
  * place reallocated its store and GXM render target each time: a target of
@@ -670,14 +695,25 @@ void NativeRenderer_Shutdown(void)
 	#endif
 	for (int cacheIndex = 0; cacheIndex < NATIVE_P4_CACHE_CAPACITY; cacheIndex++)
 	{
-		for (int bufferIndex = 0; bufferIndex < 2; bufferIndex++)
+		struct NativeP4CacheEntry *entry = &s_p4Cache[cacheIndex];
+		if (entry->texture != 0)
 		{
-			if (s_p4Cache[cacheIndex].texture[bufferIndex] != 0)
-			{
-				NativeRenderer_DestroyTexture(s_p4Cache[cacheIndex].texture[bufferIndex]);
-			}
+#if defined(__vita__)
+			/* The texture's indices are the page's buffer, freed below. */
+			glBindTexture(GL_TEXTURE_2D, entry->texture);
+			vglOverloadTexDataPointer(GL_TEXTURE_2D, NULL);
+#endif
+			NativeRenderer_DestroyTexture(entry->texture);
 		}
+#if defined(__vita__)
+		vglLazyFree(entry->palette);
+#endif
 	}
+#if defined(__vita__)
+	for (int page = 0; page < (int)SDL_arraysize(s_p4PageData); page++)
+		vglLazyFree(s_p4PageData[page].data);
+	SDL_memset(s_p4PageData, 0, sizeof(s_p4PageData));
+#endif
 	NativeRenderer_DestroyTexture(s_presentLutTexture);
 #endif
 #if defined(__vita__) && defined(VITA_CTR_GPU_TRACE)
@@ -726,14 +762,7 @@ void NativeRenderer_BeginScene(void)
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	if (++s_p4FrameSerial == 0)
-	{
 		s_p4FrameSerial = 1;
-		for (int cacheIndex = 0; cacheIndex < NATIVE_P4_CACHE_CAPACITY; cacheIndex++)
-		{
-			s_p4Cache[cacheIndex].bufferWriteFrame[0] = 0;
-			s_p4Cache[cacheIndex].bufferWriteFrame[1] = 0;
-		}
-	}
 	NativeRenderer_RebuildP4Hash();
 #endif
 	s_lastBoundTexture = 0;
@@ -2578,11 +2607,22 @@ int NativeRenderer_InitialisePSX(void)
 	s_vram.cpuDirtyRectCount = 1;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	s_drawnAreaCount = 0;
-	s_drawnAreasOverflow = 0;
+	s_drawnRectCount = 0;
+	SDL_memset(s_gpuNewerPageFrame, 0, sizeof(s_gpuNewerPageFrame));
+	s_staleP4Sync.w = 0;
 #endif
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	SDL_memset(s_p4Cache, 0, sizeof(s_p4Cache));
+	s_p4VersionSerial = 1;
+	for (int page = 0; page < (int)SDL_arraysize(s_p4PageVersion); page++)
+		s_p4PageVersion[page] = 1;
+	for (int clut = 0; clut < (int)SDL_arraysize(s_p4ClutVersion); clut++)
+		s_p4ClutVersion[clut] = 1;
+#if defined(__vita__)
+	for (int page = 0; page < (int)SDL_arraysize(s_p4PageData); page++)
+		vglLazyFree(s_p4PageData[page].data);
+	SDL_memset(s_p4PageData, 0, sizeof(s_p4PageData));
+#endif
 	s_p4CacheUseCounter = 0;
 	s_p4FrameSerial = 1;
 	s_p4LastLookupIndex = -1;
@@ -3084,53 +3124,36 @@ internal void NativeRenderer_InvalidatePaletteCacheRows(const RECT16 *rect)
 
 internal void NativeRenderer_InvalidateP4CacheRect(const RECT16 *rect)
 {
-	for (int cacheIndex = 0; cacheIndex < NATIVE_P4_CACHE_CAPACITY; cacheIndex++)
+	if (++s_p4VersionSerial == 0)
+		s_p4VersionSerial = 1;
+	const u32 version = s_p4VersionSerial;
+	for (int pageY = rect->y / TPAGE_HEIGHT; pageY <= (rect->y + rect->h - 1) / TPAGE_HEIGHT; pageY++)
 	{
-		struct NativeP4CacheEntry *entry = &s_p4Cache[cacheIndex];
-		if (!entry->occupied)
-		{
-			continue;
-		}
-
-		RECT16 pageRect;
-		RECT16 clutRect;
-		NativeRenderer_GetP4SourceRects(entry->page, entry->clut, &pageRect, &clutRect);
-		if (NativeRenderer_VRAMRectsOverlap(rect, &pageRect))
-		{
-			if (++entry->pageVersion == 0)
-			{
-				entry->pageVersion = 1;
-				entry->bufferPageVersion[0] = 0;
-				entry->bufferPageVersion[1] = 0;
-			}
-		}
-		if (NativeRenderer_VRAMRectsOverlap(rect, &clutRect))
-		{
-			if (++entry->paletteVersion == 0)
-			{
-				entry->paletteVersion = 1;
-				entry->bufferPaletteVersion[0] = 0;
-				entry->bufferPaletteVersion[1] = 0;
-			}
-		}
+		for (int pageX = rect->x / 64; pageX <= (rect->x + rect->w - 1) / 64; pageX++)
+			s_p4PageVersion[pageY * 16 + pageX] = version;
+	}
+	for (int row = rect->y; row < rect->y + rect->h; row++)
+	{
+		for (int clutX = rect->x / 16; clutX <= (rect->x + rect->w - 1) / 16; clutX++)
+			s_p4ClutVersion[row * 64 + clutX] = version;
 	}
 }
 
-internal int NativeRenderer_EnsureP4Buffer(struct NativeP4CacheEntry *entry, int bufferIndex)
+internal int NativeRenderer_EnsureP4Texture(struct NativeP4CacheEntry *entry)
 {
-	if (entry->texture[bufferIndex] != 0)
+	if (entry->texture != 0)
 	{
 		return 1;
 	}
 
-	glGenTextures(1, &entry->texture[bufferIndex]);
-	if (entry->texture[bufferIndex] == 0)
+	glGenTextures(1, &entry->texture);
+	if (entry->texture == 0)
 	{
 		return 0;
 	}
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, entry->texture[bufferIndex]);
+	glBindTexture(GL_TEXTURE_2D, entry->texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -3139,9 +3162,9 @@ internal int NativeRenderer_EnsureP4Buffer(struct NativeP4CacheEntry *entry, int
 	return 1;
 }
 
-internal void NativeRenderer_UpdateP4Buffer(struct NativeP4CacheEntry *entry, int bufferIndex, const RECT16 *pageRect, const RECT16 *clutRect)
+/* The entry's palette as GXM P4_ABGR words (byte order R, G, B, A). */
+internal void NativeRenderer_ConvertP4Palette(const struct NativeP4CacheEntry *entry, const RECT16 *clutRect, u8 *paletteOut)
 {
-	u8 *paletteOut = s_p4UploadData;
 	const u16 *palette = s_vram.cpuPixels + (size_t)clutRect->y * VRAM_WIDTH + clutRect->x;
 	for (int colorIndex = 0; colorIndex < 16; colorIndex++)
 	{
@@ -3162,7 +3185,47 @@ internal void NativeRenderer_UpdateP4Buffer(struct NativeP4CacheEntry *entry, in
 		paletteOut[colorIndex * 4 + 2] = (u8)(b << 3);
 		paletteOut[colorIndex * 4 + 3] = color == 0 ? 0 : (color & 0x8000) != 0 ? 255 : 128;
 	}
+}
 
+internal int NativeRenderer_BuildP4Texture(struct NativeP4CacheEntry *entry, const RECT16 *pageRect, const RECT16 *clutRect)
+{
+	const u32 pageVersion = s_p4PageVersion[entry->page];
+	const u32 clutVersion = s_p4ClutVersion[clutRect->y * 64 + clutRect->x / 16];
+	if (!NativeRenderer_EnsureP4Texture(entry))
+		return 0;
+#if defined(__vita__)
+	/* The page's indices once for all its CLUTs, the entry's palette, and a
+	 * texture pointing at both: nothing is copied per entry. */
+	if (s_p4PageData[entry->page].data == NULL || s_p4PageData[entry->page].version != pageVersion)
+	{
+		u8 *indices = (u8 *)vglMemalign(128, NATIVE_P4_PAGE_BYTES);
+		if (indices == NULL)
+			return 0;
+		for (int row = 0; row < TPAGE_HEIGHT; row++)
+			SDL_memcpy(indices + row * (TPAGE_WIDTH / 2),
+			           s_vram.cpuPixels + (size_t)(pageRect->y + row) * VRAM_WIDTH + pageRect->x, TPAGE_WIDTH / 2);
+		vglLazyFree(s_p4PageData[entry->page].data);
+		s_p4PageData[entry->page].data = indices;
+		s_p4PageData[entry->page].version = pageVersion;
+	}
+	if (entry->palette == NULL || entry->builtClutVersion != clutVersion)
+	{
+		u8 *palette = (u8 *)vglMemalign(SCE_GXM_PALETTE_ALIGNMENT, NATIVE_P4_PALETTE_BYTES);
+		if (palette == NULL)
+			return 0;
+		NativeRenderer_ConvertP4Palette(entry, clutRect, palette);
+		vglLazyFree(entry->palette);
+		entry->palette = palette;
+	}
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, entry->texture);
+	/* Keep vitaGL from freeing the page's buffer the texture pointed at. */
+	vglOverloadTexDataPointer(GL_TEXTURE_2D, NULL);
+	vglSetupTexture(GL_TEXTURE_2D, s_p4PageData[entry->page].data, SCE_GXM_TEXTURE_FORMAT_P4_ABGR,
+	                SCE_GXM_TEXTURE_LINEAR, TPAGE_WIDTH, TPAGE_HEIGHT, 1);
+	sceGxmTextureSetPalette(vglGetGxmTexture(GL_TEXTURE_2D), entry->palette);
+#else
+	NativeRenderer_ConvertP4Palette(entry, clutRect, s_p4UploadData);
 	u8 *indicesOut = s_p4UploadData + NATIVE_P4_PALETTE_BYTES;
 	for (int row = 0; row < TPAGE_HEIGHT; row++)
 	{
@@ -3174,18 +3237,66 @@ internal void NativeRenderer_UpdateP4Buffer(struct NativeP4CacheEntry *entry, in
 			dst[packedIndex] = (u8)((packed << 4) | (packed >> 4));
 		}
 	}
-
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, entry->texture[bufferIndex]);
-#if defined(PCSX_NATIVE_VITA_PATH) && !defined(__vita__)
+	glBindTexture(GL_TEXTURE_2D, entry->texture);
 	PCSXMacVitaGL_UploadP4Texture(TPAGE_WIDTH, TPAGE_HEIGHT, s_p4UploadData);
-#else
-	glCompressedTexImage2D(GL_TEXTURE_2D, 0, GL_PALETTE4_RGBA8_OES, TPAGE_WIDTH, TPAGE_HEIGHT, 0,
-	                       NATIVE_P4_UPLOAD_BYTES, s_p4UploadData);
 #endif
 	s_lastBoundTexture = (TextureID)-1;
-	entry->bufferPageVersion[bufferIndex] = entry->pageVersion;
-	entry->bufferPaletteVersion[bufferIndex] = entry->paletteVersion;
+	entry->builtPageVersion = pageVersion;
+	entry->builtClutVersion = clutVersion;
+	return 1;
+}
+
+/* A source rect the GPU drew long ago and nothing drew since keeps the
+ * 4-bit cache off for good (a boot-time clear under textures the game
+ * then never rewrites whole). Such rects are read back once, before the
+ * frame draws, so the cache can build from VRAM again. */
+internal void NativeRenderer_QueueStaleP4Rect(const RECT16 *rect, int wholePage)
+{
+	u32 *frame = &s_gpuNewerPageFrame[(rect->y / TPAGE_HEIGHT) * 16 + rect->x / 64];
+	if (*frame == 0 || s_p4FrameSerial - *frame < NATIVE_STALE_P4_FRAMES)
+		return;
+	if (!NativeRenderer_HasGpuNewerVRAMTiles(rect->x, rect->y, rect->w, rect->h))
+	{
+		if (wholePage)
+			*frame = 0;
+		return;
+	}
+	if (s_staleP4Sync.w == 0)
+	{
+		s_staleP4Sync = *rect;
+		return;
+	}
+	const int x0 = SDL_min(s_staleP4Sync.x, rect->x), y0 = SDL_min(s_staleP4Sync.y, rect->y);
+	const int x1 = SDL_max(s_staleP4Sync.x + s_staleP4Sync.w, rect->x + rect->w);
+	const int y1 = SDL_max(s_staleP4Sync.y + s_staleP4Sync.h, rect->y + rect->h);
+	s_staleP4Sync.x = (s16)x0;
+	s_staleP4Sync.y = (s16)y0;
+	s_staleP4Sync.w = (s16)(x1 - x0);
+	s_staleP4Sync.h = (s16)(y1 - y0);
+}
+
+void NativeRenderer_QueueStaleP4Sources(int page, int clut)
+{
+	if (page < 0 || page >= (int)(VRAM_HEIGHT / TPAGE_HEIGHT) * 16 || clut < 0)
+		return;
+	RECT16 pageRect;
+	RECT16 clutRect;
+	NativeRenderer_GetP4SourceRects(page, clut, &pageRect, &clutRect);
+	if (clutRect.y < 0 || clutRect.y >= VRAM_HEIGHT || clutRect.x < 0 || clutRect.x + clutRect.w > VRAM_WIDTH)
+		return;
+	NativeRenderer_QueueStaleP4Rect(&pageRect, 1);
+	NativeRenderer_QueueStaleP4Rect(&clutRect, 0);
+}
+
+void NativeRenderer_SyncStaleP4Sources(void)
+{
+	if (s_staleP4Sync.w == 0)
+		return;
+	NATIVE_GPU_LABEL(0, "stale p4 sync", 0);
+	NativeRenderer_SyncGpuVRAMToCPU(s_staleP4Sync.x, s_staleP4Sync.y, s_staleP4Sync.w, s_staleP4Sync.h);
+	NATIVE_GPU_LABEL(1, NULL, 0);
+	s_staleP4Sync.w = 0;
 }
 
 TextureID NativeRenderer_GetCachedP4Texture(int page, int clut, int superTurboTint)
@@ -3229,13 +3340,12 @@ TextureID NativeRenderer_GetCachedP4Texture(int page, int clut, int superTurboTi
 		}
 	}
 
-	if (entry != NULL && entry->texture[entry->activeBuffer] != 0 &&
-	    entry->bufferPageVersion[entry->activeBuffer] == entry->pageVersion &&
-	    entry->bufferPaletteVersion[entry->activeBuffer] == entry->paletteVersion)
+	if (entry != NULL && entry->builtPageVersion == s_p4PageVersion[page] &&
+	    entry->builtClutVersion == s_p4ClutVersion[clutRect.y * 64 + clutRect.x / 16])
 	{
 		entry->lastUse = ++s_p4CacheUseCounter;
 		entry->lastUseFrame = s_p4FrameSerial;
-		return (entry->texture[entry->activeBuffer]);
+		return (entry->texture);
 	}
 
 	if (NativeRenderer_HasGpuNewerVRAMTiles(pageRect.x, pageRect.y, pageRect.w, pageRect.h) ||
@@ -3277,10 +3387,8 @@ TextureID NativeRenderer_GetCachedP4Texture(int page, int clut, int superTurboTi
 		entry->clut = (u16)clut;
 		entry->superTurboTint = tint;
 		entry->occupied = true;
-		if (++entry->pageVersion == 0)
-			entry->pageVersion = 1;
-		if (++entry->paletteVersion == 0)
-			entry->paletteVersion = 1;
+		entry->builtPageVersion = 0;
+		entry->builtClutVersion = 0;
 		s_p4LastLookupIndex = entryIndex;
 		s_p4LastLookupKey = key;
 		NativeRenderer_InsertP4Hash(key, entryIndex);
@@ -3288,28 +3396,11 @@ TextureID NativeRenderer_GetCachedP4Texture(int page, int clut, int superTurboTi
 
 	entry->lastUse = ++s_p4CacheUseCounter;
 	entry->lastUseFrame = s_p4FrameSerial;
-
-	int targetBuffer = entry->activeBuffer ^ 1;
-	if (entry->texture[entry->activeBuffer] == 0)
-	{
-		targetBuffer = entry->activeBuffer;
-	}
-	if (entry->bufferWriteFrame[targetBuffer] == s_p4FrameSerial)
-	{
-		targetBuffer ^= 1;
-		if (entry->bufferWriteFrame[targetBuffer] == s_p4FrameSerial)
-		{
-			return (0);
-		}
-	}
-	if (!NativeRenderer_EnsureP4Buffer(entry, targetBuffer))
+	if (!NativeRenderer_BuildP4Texture(entry, &pageRect, &clutRect))
 	{
 		return (0);
 	}
-	NativeRenderer_UpdateP4Buffer(entry, targetBuffer, &pageRect, &clutRect);
-	entry->bufferWriteFrame[targetBuffer] = s_p4FrameSerial;
-	entry->activeBuffer = (u8)targetBuffer;
-	return (entry->texture[targetBuffer]);
+	return (entry->texture);
 }
 
 int NativeRenderer_GetPaletteProperties(TexFormat format, int clut)
@@ -3495,61 +3586,88 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
  * pages forever: games draw over all of VRAM at boot, and a texture page the
  * CPU never writes again stayed GPU-newer. */
 
+/* Vertices are relative to the area; primitives cover up to their last
+ * vertex, and the area clips them. */
+internal int NativeRenderer_DrawnRect(const RECT16 *area, int minX, int minY, int maxX, int maxY, s32 *x0, s32 *y0, s32 *x1, s32 *y1)
+{
+	*x0 = area->x + SDL_max(minX, 0);
+	*y0 = area->y + SDL_max(minY, 0);
+	*x1 = area->x + SDL_min(maxX + 1, (int)area->w);
+	*y1 = area->y + SDL_min(maxY + 1, (int)area->h);
+	return *x1 > *x0 && *y1 > *y0;
+}
+
+int NativeRenderer_TargetDrawCovered(const RECT16 *area, int minX, int minY, int maxX, int maxY)
+{
+	s32 x0, y0, x1, y1;
+	if (!NativeRenderer_DrawnRect(area, minX, minY, maxX, maxY, &x0, &y0, &x1, &y1))
+		return 1;
+	for (int i = 0; i < s_drawnRectCount; i++)
+	{
+		if (s_drawnRects[i].x0 <= x0 && s_drawnRects[i].y0 <= y0 && s_drawnRects[i].x1 >= x1 && s_drawnRects[i].y1 >= y1)
+			return 1;
+	}
+	return 0;
+}
+
+/* A drawn rect joins a recorded one when their bounding box is no larger
+ * than both, so separate draws keep separate rects (marking the box
+ * between them would block the 4-bit cache there). When the record is
+ * full, it joins the one that grows least. */
 void NativeRenderer_NoteTargetDraw(const RECT16 *area, int minX, int minY, int maxX, int maxY)
 {
-	/* Vertices are relative to the area; primitives cover up to their last
-	 * vertex, and the area clips them. */
-	const int x0 = area->x + SDL_max(minX, 0);
-	const int y0 = area->y + SDL_max(minY, 0);
-	const int x1 = area->x + SDL_min(maxX + 1, (int)area->w);
-	const int y1 = area->y + SDL_min(maxY + 1, (int)area->h);
-	if (x1 <= x0 || y1 <= y0)
+	s32 x0, y0, x1, y1;
+	if (!NativeRenderer_DrawnRect(area, minX, minY, maxX, maxY, &x0, &y0, &x1, &y1))
 		return;
-	for (int i = 0; i < s_drawnAreaCount; i++)
+	const s64 drawnArea = (s64)(x1 - x0) * (y1 - y0);
+	int best = -1;
+	s64 bestGrowth = 0;
+	for (int i = 0; i < s_drawnRectCount; i++)
 	{
-		if (NativeRenderer_RectEquals(&s_drawnAreas[i].area, area))
+		const s64 recorded = (s64)(s_drawnRects[i].x1 - s_drawnRects[i].x0) * (s_drawnRects[i].y1 - s_drawnRects[i].y0);
+		const s64 joined = (s64)(SDL_max(s_drawnRects[i].x1, x1) - SDL_min(s_drawnRects[i].x0, x0)) *
+		                   (SDL_max(s_drawnRects[i].y1, y1) - SDL_min(s_drawnRects[i].y0, y0));
+		if (joined <= recorded + drawnArea)
 		{
-			s_drawnAreas[i].x0 = SDL_min(s_drawnAreas[i].x0, x0);
-			s_drawnAreas[i].y0 = SDL_min(s_drawnAreas[i].y0, y0);
-			s_drawnAreas[i].x1 = SDL_max(s_drawnAreas[i].x1, x1);
-			s_drawnAreas[i].y1 = SDL_max(s_drawnAreas[i].y1, y1);
-			return;
+			best = i;
+			bestGrowth = 0;
+			break;
+		}
+		if (best < 0 || joined - recorded < bestGrowth)
+		{
+			best = i;
+			bestGrowth = joined - recorded;
 		}
 	}
-	if (s_drawnAreaCount == NATIVE_DRAWN_AREAS)
+	if (best < 0 || (bestGrowth > 0 && s_drawnRectCount < NATIVE_DRAWN_RECTS))
 	{
-		s_drawnAreasOverflow = 1;
+		s_drawnRects[s_drawnRectCount].x0 = x0;
+		s_drawnRects[s_drawnRectCount].y0 = y0;
+		s_drawnRects[s_drawnRectCount].x1 = x1;
+		s_drawnRects[s_drawnRectCount].y1 = y1;
+		s_drawnRectCount++;
 		return;
 	}
-	s_drawnAreas[s_drawnAreaCount].area = *area;
-	s_drawnAreas[s_drawnAreaCount].x0 = x0;
-	s_drawnAreas[s_drawnAreaCount].y0 = y0;
-	s_drawnAreas[s_drawnAreaCount].x1 = x1;
-	s_drawnAreas[s_drawnAreaCount].y1 = y1;
-	s_drawnAreaCount++;
+	s_drawnRects[best].x0 = SDL_min(s_drawnRects[best].x0, x0);
+	s_drawnRects[best].y0 = SDL_min(s_drawnRects[best].y0, y0);
+	s_drawnRects[best].x1 = SDL_max(s_drawnRects[best].x1, x1);
+	s_drawnRects[best].y1 = SDL_max(s_drawnRects[best].y1, y1);
 }
 
 internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h);
 
 /* After packing the rect: mark GPU-newer what was drawn in it, and forget
- * the drawing it covered. Without a record (overflow) the whole rect is. */
+ * the drawing it covered. */
 internal void NativeRenderer_MarkPackedDraws(int x, int y, int w, int h)
 {
-	if (s_drawnAreasOverflow)
+	for (int i = 0; i < s_drawnRectCount;)
 	{
-		NativeRenderer_MarkGpuVRAMNewer(x, y, w, h);
-		s_drawnAreasOverflow = 0;
-		s_drawnAreaCount = 0;
-		return;
-	}
-	for (int i = 0; i < s_drawnAreaCount;)
-	{
-		const int ix0 = SDL_max(s_drawnAreas[i].x0, x), iy0 = SDL_max(s_drawnAreas[i].y0, y);
-		const int ix1 = SDL_min(s_drawnAreas[i].x1, x + w), iy1 = SDL_min(s_drawnAreas[i].y1, y + h);
+		const int ix0 = SDL_max(s_drawnRects[i].x0, x), iy0 = SDL_max(s_drawnRects[i].y0, y);
+		const int ix1 = SDL_min(s_drawnRects[i].x1, x + w), iy1 = SDL_min(s_drawnRects[i].y1, y + h);
 		if (ix1 > ix0 && iy1 > iy0)
 			NativeRenderer_MarkGpuVRAMNewer(ix0, iy0, ix1 - ix0, iy1 - iy0);
-		if (s_drawnAreas[i].x0 >= x && s_drawnAreas[i].y0 >= y && s_drawnAreas[i].x1 <= x + w && s_drawnAreas[i].y1 <= y + h)
-			s_drawnAreas[i] = s_drawnAreas[--s_drawnAreaCount];
+		if (s_drawnRects[i].x0 >= x && s_drawnRects[i].y0 >= y && s_drawnRects[i].x1 <= x + w && s_drawnRects[i].y1 <= y + h)
+			s_drawnRects[i] = s_drawnRects[--s_drawnRectCount];
 		else
 			i++;
 	}
@@ -3570,6 +3688,11 @@ internal void NativeRenderer_MarkGpuVRAMNewer(int x, int y, int w, int h)
 		s_prevMainValid = 0;
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
+	for (int pageY = rect.y / TPAGE_HEIGHT; pageY <= (rect.y + rect.h - 1) / TPAGE_HEIGHT; pageY++)
+	{
+		for (int pageX = rect.x / 64; pageX <= (rect.x + rect.w - 1) / 64; pageX++)
+			s_gpuNewerPageFrame[pageY * 16 + pageX] = s_p4FrameSerial;
+	}
 #endif
 	const int tileX0 = rect.x / NATIVE_VRAM_TILE_SIZE;
 	const int tileY0 = rect.y / NATIVE_VRAM_TILE_SIZE;
@@ -3605,9 +3728,17 @@ void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
             dst[x + col] = color;
         for (int col = firstWidth; col < w; col++)
             dst[col - firstWidth] = color;
-        NativeRenderer_MarkVRAMDirty(x, yy, firstWidth, 1);
+    }
+    /* Marked per rect, not per row: each mark walks the caches. */
+    const int firstHeight = SDL_min(h, (int)VRAM_HEIGHT - y);
+    NativeRenderer_MarkVRAMDirty(x, y, firstWidth, firstHeight);
+    if (firstWidth < w)
+        NativeRenderer_MarkVRAMDirty(0, y, w - firstWidth, firstHeight);
+    if (firstHeight < h)
+    {
+        NativeRenderer_MarkVRAMDirty(x, 0, firstWidth, h - firstHeight);
         if (firstWidth < w)
-            NativeRenderer_MarkVRAMDirty(0, yy, w - firstWidth, 1);
+            NativeRenderer_MarkVRAMDirty(0, 0, w - firstWidth, h - firstHeight);
     }
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
     NativeRenderer_ClearGpuNewerCovered(x, y, firstWidth, h);
@@ -4296,8 +4427,9 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 	s_vram.cpuDirtyRectCount = 0;
 	SDL_memset(s_vram.gpuNewerTiles, 0, sizeof(s_vram.gpuNewerTiles));
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
-	s_drawnAreaCount = 0;
-	s_drawnAreasOverflow = 0;
+	s_drawnRectCount = 0;
+	SDL_memset(s_gpuNewerPageFrame, 0, sizeof(s_gpuNewerPageFrame));
+	s_staleP4Sync.w = 0;
 #endif
 	NativeRenderer_MarkVRAMDirty(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
 	s_mainRenderTarget.width = 0;

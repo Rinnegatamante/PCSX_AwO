@@ -3102,9 +3102,12 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 	{
 		const GPUDrawSplit *split = &s_gpuDrawSplits[i];
 		struct NativeGpuSplitBounds bounds;
+		if (split->p4CacheEligible)
+			NativeRenderer_QueueStaleP4Sources(split->p4Page, split->p4Clut);
 		if (split->drawPrimMode != 2 && NativeGpu_GetSplitBounds(split, &bounds))
 			NativeRenderer_NoteTargetDraw(&split->drawenv.clip, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
 	}
+	NativeRenderer_SyncStaleP4Sources();
 	NATIVE_GPU_LABEL(0, "prims", 0);
 	if (depthBatchingReady)
 	{

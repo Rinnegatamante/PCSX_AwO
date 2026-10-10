@@ -24,6 +24,9 @@ void NativeRenderer_SaveVRAM(const char *outputFileName, int x, int y, int width
 void NativeRenderer_Clear(int x, int y, int w, int h, u8 r, u8 g, u8 b);
 void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b);
 int NativeRenderer_FillMainTarget(int x, int y, int w, int h, u8 r, u8 g, u8 b);
+void NativeRenderer_QueueStaleP4Sources(int page, int clut);
+void NativeRenderer_SyncStaleP4Sources(void);
+int NativeRenderer_TargetDrawCovered(const RECT16 *area, int minX, int minY, int maxX, int maxY);
 void NativeRenderer_NoteTargetDraw(const RECT16 *area, int minX, int minY, int maxX, int maxY);
 void NativeRenderer_CopyVRAM(u16 *src, int x, int y, int w, int h, int dstX, int dstY);
 void NativeRenderer_ReadVRAM(u16 *dst, int x, int y, int dstW, int dstH);
