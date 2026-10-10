@@ -75,6 +75,7 @@ static struct {
     SceUID history_mutex;
 } s = { .mutex = -1, .sampler = -1, .history_mutex = -1 };
 
+
 static void lock(void *p) { (void)p; sceKernelLockMutex(s.mutex, 1, NULL); }
 static void unlock(void *p) { (void)p; sceKernelUnlockMutex(s.mutex, 1); }
 
@@ -379,4 +380,24 @@ void vita_gpuprof_session_end(void)
         psp2GpuProfCaptureStop(&s.capture);
     s.state = IDLE;
     s.from = s.to = 0;
+}
+
+void vita_gpuprof_label(int kind, const char *name, unsigned handle)
+{
+    (void)handle;
+    if (!s.labels_on)
+        return;
+    const uint64_t now = sceKernelGetSystemTimeWide();
+    if (kind == 0) {
+        if (s.depth < PSP2_GPUPROF_SCOPE_DEPTH)
+            s.scope_ok[s.depth++] = psp2GpuProfScopePush(&s.labels, now, name) == 0;
+    } else if (kind == 1) {
+        if (!s.depth)
+            return;
+        psp2GpuProfDrawName(&s.labels, now, NULL);
+        if (s.scope_ok[--s.depth])
+            psp2GpuProfScopePop(&s.labels, now);
+    } else if (kind == 2) {
+        psp2GpuProfDrawName(&s.labels, now, name);
+    }
 }

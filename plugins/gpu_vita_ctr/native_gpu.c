@@ -3104,6 +3104,7 @@ internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *spli
 			DrawSplit(&s_gpuDrawSplits[i]);
 		}
 	}
+	NATIVE_GPU_LABEL(1, NULL, 0);
 #else
 	for (int i = 1; i <= s_gpuDrawSplitCount; i++)
 	{

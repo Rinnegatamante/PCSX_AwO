@@ -56,4 +56,13 @@ GrVertex *NativeRenderer_AllocateVertexBuffer(int count);
 GrVertex *NativeRenderer_MapVertexBuffer(int count);
 void NativeRenderer_CommitVertexBuffer(GrVertex *mapped);
 
+/* GPU profiler labels (see pcsx_vita_gpu_label_cb in native_renderer.c). */
+extern void (*pcsx_vita_gpu_label_cb)(int kind, const char *name, unsigned handle);
+#define NATIVE_GPU_LABEL(kind, name, handle)                                  \
+	do                                                                         \
+	{                                                                          \
+		if (pcsx_vita_gpu_label_cb)                                            \
+			pcsx_vita_gpu_label_cb((kind), (name), (unsigned)(handle));        \
+	} while (0)
+
 #endif

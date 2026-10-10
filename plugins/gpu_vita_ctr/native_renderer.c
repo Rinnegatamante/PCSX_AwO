@@ -144,6 +144,10 @@ global_variable struct NativeVramState s_vram;
 global_variable u8 *s_vitaVramTransferPixels;
 /* Set by the Vita frontend; runs on this thread right after each present. */
 void (*pcsx_vita_swap_cb)(void);
+/* GPU profiler labels, set by a frontend built with VITA_GPUPROF: kind 0
+ * opens a pass, 1 closes it, 2 names the draws that follow (NULL clears),
+ * the handle argument is unused (0). */
+void (*pcsx_vita_gpu_label_cb)(int kind, const char *name, unsigned handle);
 
 #define NATIVE_P4_CACHE_CAPACITY 320
 #define NATIVE_P4_HASH_CAPACITY 1024
@@ -1145,6 +1149,7 @@ internal void NativeRenderer_DrawVRAMRegion(int x, int y, int width, int height)
 
 internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget *target, int x, int y, int logicalWidth, int logicalHeight)
 {
+	NATIVE_GPU_LABEL(0, "load-from-vram", 0);
 
 	const ShaderID previousShader = s_previousShader;
 	const TextureID previousTexture = s_lastBoundTexture;
@@ -1198,6 +1203,7 @@ internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget 
 	}
 	NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
 	NativeRenderer_SetScissorState(previousScissorState);
+	NATIVE_GPU_LABEL(1, NULL, 0);
 }
 
 internal void NativeRenderer_ClearHostRect(int x, int y, int width, int height)
@@ -1284,6 +1290,7 @@ typedef struct
 	const char *source;
 	const char *defines;
 	void *windowed;
+	char label[64]; /* draw name in GPU profiler captures */
 #endif
 } GTEShader;
 
@@ -1307,6 +1314,7 @@ enum NativePsxShaderVariant
 internal int NativeRenderer_Shader_CheckShaderStatus(GLuint shader);
 internal int NativeRenderer_Shader_CheckProgramStatus(GLuint program);
 internal ShaderID NativeRenderer_Shader_Compile(const char *source, bool isPsxShader, const char *fragmentDefines);
+internal void NativeRenderer_ProgramLabel(char *name, size_t size, const char *source, const char *fragmentDefines);
 internal void NativeRenderer_GenerateCommonTextures(void);
 internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, const char *fragmentDefines);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -2164,6 +2172,7 @@ internal int NativeRenderer_CompilePSXShader(GTEShader *sh, const char *source, 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	sh->source = source;
 	sh->defines = fragmentDefines;
+	NativeRenderer_ProgramLabel(sh->label, sizeof(sh->label), source, fragmentDefines);
 #endif
 	return 1;
 }
@@ -2841,6 +2850,7 @@ void NativeRenderer_SetTexture(TextureID texture, TexFormat texFormat, int semiT
 	{
 		shader = NativeRenderer_WindowedShader(shader);
 	}
+	NATIVE_GPU_LABEL(2, shader->label, 0);
 #else
 	(void)textured;
 	(void)textureFullyOpaque;
@@ -3493,6 +3503,7 @@ void NativeRenderer_ClearVRAM(int x, int y, int w, int h, u8 r, u8 g, u8 b)
 
 void NativeRenderer_Clear(int x, int y, int w, int h, u8 r, u8 g, u8 b)
 {
+	NATIVE_GPU_LABEL(2, "clear", 0);
 	if ((w <= 0) || (h <= 0))
 	{
 		return;
@@ -3887,6 +3898,7 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 // NOTE(aalhendi): Pack an RGBA render texture straight into the RG8 VRAM texture on the GPU, no CPU round trip. Restore or invalidate the render-state caches disturbed by this native bridge before the submit run continues.
 internal void NativeRenderer_GpuPackTextureToVRAM(const struct NativeRenderTarget *source, int x, int y, int w, int h, b32 flipY)
 {
+	NATIVE_GPU_LABEL(0, "pack-to-vram", 0);
 	const TextureID sourceTexture = source->texture;
 	const ShaderID previousShader = s_previousShader;
 	const TextureID previousTexture = s_lastBoundTexture;
@@ -4106,6 +4118,7 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 internal void NativeRenderer_UploadVRAMRects(s32 rectCount)
 {
+	NATIVE_GPU_LABEL(0, "vram-upload", 0);
 	GLint previousFramebuffer;
 	GLint previousViewport[4];
 	GLint previousProgram;
@@ -4198,6 +4211,7 @@ internal void NativeRenderer_UploadVRAMRects(s32 rectCount)
 	if (previousDepth) glEnable(GL_DEPTH_TEST);
 	if (previousScissor) glEnable(GL_SCISSOR_TEST);
 	if (previousStencil) glEnable(GL_STENCIL_TEST);
+	NATIVE_GPU_LABEL(1, NULL, 0);
 }
 #endif
 
@@ -4230,6 +4244,7 @@ void NativeRenderer_UpdateVRAM(void)
 
 void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, int displayH)
 {
+	NATIVE_GPU_LABEL(2, "present-vram", 0);
 	if (displayW <= 0 || displayH <= 0)
 	{
 		return;
@@ -4284,6 +4299,7 @@ void NativeRenderer_PresentBlank(void)
 /* Draws the main render target into a host viewport rectangle. */
 internal void NativeRenderer_DrawMainTarget(const struct NativeRenderTarget *target, int x, int y, int w, int h, int clearBars)
 {
+	NATIVE_GPU_LABEL(0, "present-target", 0);
 	NativeRenderer_SetViewPort(x, y, w, h);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	if (clearBars)
@@ -4335,6 +4351,7 @@ internal void NativeRenderer_DrawMainTarget(const struct NativeRenderTarget *tar
 
 	s_previousShader = (ShaderID)-1;
 	s_lastBoundTexture = (TextureID)-1;
+	NATIVE_GPU_LABEL(1, NULL, 0);
 }
 
 void NativeRenderer_PresentMainRenderTarget(void)
@@ -5163,4 +5180,33 @@ void VitaCtrNativeRenderer_ReadGuestVRAM(u16 *dst, int x, int y, int w, int h)
             xx = 0;
         }
     }
+}
+
+/* "vram4 PASS_STP BLEND_AVERAGE": the source's role and its PSX_* defines,
+ * the draw name in GPU profiler captures. */
+internal void NativeRenderer_ProgramLabel(char *name, size_t size, const char *source, const char *fragmentDefines)
+{
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	const char *role = source == gte_shader_4             ? "vram4"
+	                   : source == gte_shader_8           ? "vram8"
+	                   : source == gte_shader_16          ? "vram16"
+	                   : source == gte_shader_32_rgba     ? "rgba32"
+	                   : source == gte_shader_cached_p4   ? "p4"
+	                   : source == gte_shader_untextured  ? "untextured"
+	                                                      : "other";
+	size_t used = (size_t)SDL_snprintf(name, size, "%s", role);
+	for (const char *d = fragmentDefines; d && (d = SDL_strstr(d, "#define PSX_")) != NULL && used + 2 < size;)
+	{
+		d += 12;
+		name[used++] = ' ';
+		while (*d && *d != '\n' && used + 1 < size)
+			name[used++] = *d++;
+		name[used] = 0;
+	}
+#else
+	(void)source;
+	(void)fragmentDefines;
+	if (size)
+		name[0] = 0;
+#endif
 }

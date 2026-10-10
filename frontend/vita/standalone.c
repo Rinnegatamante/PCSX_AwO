@@ -319,6 +319,7 @@ static void rebuild_scale_map(unsigned width, unsigned height)
 
 #ifdef VITA_GPUPROF
 extern void (*pcsx_vita_swap_cb)(void);
+extern void (*pcsx_vita_gpu_label_cb)(int kind, const char *name, unsigned handle);
 static void gpuprof_swap(void)
 {
     static unsigned presents;
@@ -1435,6 +1436,7 @@ int main(int argc, char **argv)
     vita_gpuprof_install();
     vita_gpuprof_session_begin("pcsx");
     pcsx_vita_swap_cb = gpuprof_swap;
+    pcsx_vita_gpu_label_cb = vita_gpuprof_label;
 #endif
     retro_init();
     sceClibPrintf("pcsx-vita: retro_init complete\n");

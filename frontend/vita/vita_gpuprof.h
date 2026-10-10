@@ -24,6 +24,9 @@ void vita_gpuprof_session_begin(const char *id);
 void vita_gpuprof_after_frame(unsigned frame);
 /* Writes a capture still running. */
 void vita_gpuprof_session_end(void);
+/* The renderer's labels (pcsx_vita_gpu_label_cb): 0 open a pass, 1 close it,
+ * 2 name the following draws (NULL clears). */
+void vita_gpuprof_label(int kind, const char *name, unsigned handle);
 #else
 static inline void vita_gpuprof_install(void) {}
 static inline void vita_gpuprof_session_begin(const char *id) { (void)id; }
