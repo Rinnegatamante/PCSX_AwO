@@ -40,9 +40,13 @@
 #define GAME_X ((DISPLAY_W - GAME_W) / 2)
 
 #define AUDIO_DEVICE_FRAMES 1024
-#define AUDIO_QUEUE_TARGET_FRAMES 2048
+#define AUDIO_DEVICE_RATE 48000
+/* The emulation waits while more than this much audio is queued: three
+ * device buffers (64 ms) at any source rate. A fixed 2048 source frames was
+ * 23 ms at System 12's 88200 Hz, barely one device buffer: a late frame left
+ * the device without data, playback stalled and the game ran at 59.0 fps. */
+#define AUDIO_QUEUE_TARGET_DEVICE_BUFFERS 3
 #define AUDIO_FRAME_BYTES (sizeof(int16_t) * 2)
-#define AUDIO_QUEUE_TARGET_BYTES (AUDIO_QUEUE_TARGET_FRAMES * AUDIO_FRAME_BYTES)
 #define INPUT_CSV_MAX_BYTES (1024u * 1024u)
 #define INPUT_CSV_MAX_EVENTS 4096u
 #define INPUT_CSV_LINE_BYTES 256u
@@ -92,6 +96,8 @@ static bool g_exit_requested;
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
+static int g_audio_queue_target_bytes;
+static uint64_t g_audio_put_frames; /* source frames handed to SDL */
 
 static SceUID g_vm_block = -1;
 extern int _newlib_vm_size_user;
@@ -570,10 +576,11 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
         g_audio_put_errors++;
         return frames;
     }
+    g_audio_put_frames += frames;
 
     uint64_t wait_started = pcsx_profile_begin(PCSX_PROF_AUDIO_WAIT, 1);
     while (!g_exit_requested &&
-           SDL_GetAudioStreamQueued(g_audio_stream) > (int)AUDIO_QUEUE_TARGET_BYTES)
+           SDL_GetAudioStreamQueued(g_audio_stream) > g_audio_queue_target_bytes)
         sceKernelDelayThread(1000);
     pcsx_profile_end(PCSX_PROF_AUDIO_WAIT, wait_started);
 
@@ -906,7 +913,7 @@ static int audio_init(int sample_rate)
     memset(&want, 0, sizeof(want));
     /* The Vita output port cannot accept System12's 88200 Hz source.
      * Open a supported device rate and let SDL convert the core's samples. */
-    want.freq = 48000;
+    want.freq = AUDIO_DEVICE_RATE;
     want.format = SDL_AUDIO_S16;
     want.channels = 2;
 
@@ -919,6 +926,8 @@ static int audio_init(int sample_rate)
     }
 
     want.freq = sample_rate;
+    g_audio_queue_target_bytes = (int)((int64_t)sample_rate * AUDIO_QUEUE_TARGET_DEVICE_BUFFERS *
+                                       AUDIO_DEVICE_FRAMES / AUDIO_DEVICE_RATE) * (int)AUDIO_FRAME_BYTES;
     if (!SDL_SetAudioStreamFormat(g_audio_stream, &want, NULL)) {
         sceClibPrintf("pcsx-vita: SDL_SetAudioStreamFormat failed: %s\n", SDL_GetError());
         SDL_DestroyAudioStream(g_audio_stream);
@@ -1359,6 +1368,17 @@ int main(int argc, char **argv)
             sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DEFAULT);
 #ifdef ARCADE_SYSTEM12
         if (report_progress && (runs % 600 == 0 || runs == validation_frames)) {
+            /* Source frames the audio device consumed since the last line, per
+             * second of wall time: the pacing clock's real rate. */
+            static uint64_t last_consumed, last_ms;
+            const uint64_t now_ms = SDL_GetTicks();
+            const uint64_t consumed = g_audio_put_frames -
+                (g_audio_stream ? (uint64_t)SDL_GetAudioStreamQueued(g_audio_stream) / AUDIO_FRAME_BYTES : 0);
+            const unsigned audio_hz = now_ms > last_ms && last_ms
+                ? (unsigned)((consumed - last_consumed) * 1000 / (now_ms - last_ms)) : 0;
+            last_consumed = consumed;
+            last_ms = now_ms;
+            sceClibPrintf("pcsx-vita: audio consumed_src_hz=%u\n", audio_hz);
             SceKernelFreeMemorySizeInfo mem = { .size = sizeof(mem) };
             sceKernelGetFreeMemorySize(&mem);
 #ifdef STANDALONE_VITAGL
