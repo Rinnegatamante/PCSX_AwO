@@ -264,6 +264,10 @@ struct NativeRenderTarget
 	s32 height;
 	s32 logicalWidth;
 	s32 logicalHeight;
+	/* Allocated size; width x height is the part in use (bottom-left). */
+	s32 allocWidth;
+	s32 allocHeight;
+	s32 growable; /* allocated in 32-pixel steps, used in part */
 };
 
 global_variable struct NativeRenderTarget s_mainRenderTarget;
@@ -280,6 +284,14 @@ global_variable int s_offscreenDirty;
  * page one frame after drawing it, so presentation needs the target that
  * drew that page. It is valid until a VRAM write overlaps its rect. */
 global_variable struct NativeRenderTarget s_prevMainRenderTarget;
+/* Spare targets by size. The main target alternates between a few sizes (the
+ * display page at host resolution, small areas at 1x) and resizing it in
+ * place reallocated its store and GXM render target each time: a target of
+ * another size is swapped in from here instead. */
+#define NATIVE_RT_POOL_SIZE 8
+global_variable struct NativeRenderTarget s_rtPool[NATIVE_RT_POOL_SIZE];
+global_variable u32 s_rtPoolLastUse[NATIVE_RT_POOL_SIZE];
+global_variable u32 s_rtPoolTick;
 global_variable RECT16 s_prevMainRect;
 global_variable int s_prevMainValid;
 #endif
@@ -412,10 +424,12 @@ int g_cfg_bilinearFiltering = 0;
 // NOTE(aalhendi): Pack native RGBA render targets into the persistent RG8 VRAM texture on the GPU instead of a GPU-to-CPU-to-GPU round trip.
 global_variable GLuint s_packShader = 0;
 global_variable GLint s_packFlipYLoc = -1;
+global_variable GLint s_packUvScaleLoc = -1;
 global_variable GLuint s_presentVramShader = 0;
 global_variable GLint s_presentVramSourceRectLoc = -1;
 global_variable GLuint s_presentRgbaShader = 0;
 global_variable GLint s_presentRgbaFlipYLoc = -1;
+global_variable GLint s_presentRgbaUvScaleLoc = -1;
 #ifndef __vita__
 global_variable GLint s_presentRgbaTexelSizeLoc = -1;
 global_variable GLint s_presentRgbaFxaaLoc = -1;
@@ -438,6 +452,10 @@ internal void NativeRenderer_SetWireframe(int enable);
 internal void NativeRenderer_InitRenderTarget(struct NativeRenderTarget *target);
 internal void NativeRenderer_DestroyRenderTarget(struct NativeRenderTarget *target);
 internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *target, int width, int height);
+internal void NativeRenderer_ResizeRenderTarget(struct NativeRenderTarget *target, int width, int height);
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow);
+#endif
 internal void NativeRenderer_BindMainRenderTarget(void);
 internal void NativeRenderer_BindMainRect(const RECT16 *rect);
 internal void NativeRenderer_CommitTargets(void);
@@ -606,6 +624,12 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	NativeRenderer_DestroyRenderTarget(&s_prevMainRenderTarget);
+	for (int i = 0; i < NATIVE_RT_POOL_SIZE; i++)
+	{
+		if (s_rtPool[i].framebuffer != 0)
+			NativeRenderer_DestroyRenderTarget(&s_rtPool[i]);
+		s_rtPoolLastUse[i] = 0;
+	}
 #endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
@@ -904,6 +928,16 @@ internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *targe
 	{
 		return;
 	}
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	NativeRenderer_EnsureTargetSize(target, width, height, 0);
+	return;
+#endif
+	NativeRenderer_ResizeRenderTarget(target, width, height);
+}
+
+/* Reallocates the target's store at width x height (contents are lost). */
+internal void NativeRenderer_ResizeRenderTarget(struct NativeRenderTarget *target, int width, int height)
+{
 
 	glBindTexture(GL_TEXTURE_2D, target->texture);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, NATIVE_RENDER_TARGET_TYPE, NULL);
@@ -919,8 +953,90 @@ internal void NativeRenderer_EnsureRenderTarget(struct NativeRenderTarget *targe
 
 	target->width = width;
 	target->height = height;
+	target->allocWidth = width;
+	target->allocHeight = height;
 	s_lastBoundTexture = (TextureID)-1;
 }
+
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+/* Targets are never resized in place while the game changes draw areas:
+ * that reallocated the store and the GXM render target, and the main target
+ * alternates between a few sizes (the display page at host resolution, small
+ * areas at 1x) while some effects grow an area by a few pixels every frame
+ * (zooms). Exact targets (host resolution) are kept by size in a pool and
+ * swapped in; growable ones (1x) are allocated in 32-pixel steps and drawn
+ * into their bottom-left width x height, which the pack and presentation
+ * sample. */
+internal int NativeRenderer_TargetFits(const struct NativeRenderTarget *t, int width, int height, int grow)
+{
+	if (t->framebuffer == 0)
+		return 0;
+	/* Within four times the area in use: a GXM scene processes the tiles of
+	 * the whole target, so a tiny area must not land in a host-sized one. */
+	if (grow)
+		return t->growable && t->allocWidth >= width && t->allocHeight >= height &&
+		       (s64)t->allocWidth * t->allocHeight <= 4 * SDL_max((s64)width * height, 32 * 32);
+	return !t->growable && t->allocWidth == width && t->allocHeight == height;
+}
+
+/* Allocation steps: powers of two up to 512 (an effect growing an area every
+ * frame crosses only a few, each within 4x of the area in use), 32-pixel
+ * steps above (host-resolution targets, whose scenes pay for every tile). */
+internal int NativeRenderer_TargetAllocStep(int n)
+{
+	if (n > 512)
+		return (n + 31) & ~31;
+	int step = 32;
+	while (step < n)
+		step <<= 1;
+	return step;
+}
+
+internal void NativeRenderer_EnsureTargetSize(struct NativeRenderTarget *target, int width, int height, int grow)
+{
+	if (width < 1)
+		width = 1;
+	if (height < 1)
+		height = 1;
+	if (!NativeRenderer_TargetFits(target, width, height, grow))
+	{
+		int slot = -1;
+		for (int i = 0; i < NATIVE_RT_POOL_SIZE && slot < 0; i++)
+			if (NativeRenderer_TargetFits(&s_rtPool[i], width, height, grow))
+				slot = i;
+		const int reuse = slot >= 0;
+		if (!reuse)
+		{
+			slot = 0;
+			for (int i = 0; i < NATIVE_RT_POOL_SIZE; i++)
+			{
+				if (s_rtPool[i].framebuffer == 0)
+				{
+					slot = i;
+					break;
+				}
+				if (s_rtPoolLastUse[i] < s_rtPoolLastUse[slot])
+					slot = i;
+			}
+			if (s_rtPool[slot].framebuffer == 0)
+				NativeRenderer_InitRenderTarget(&s_rtPool[slot]);
+		}
+		const struct NativeRenderTarget swap = s_rtPool[slot];
+		s_rtPool[slot] = *target;
+		*target = swap;
+		s_rtPoolLastUse[slot] = ++s_rtPoolTick;
+		if (!reuse)
+		{
+			NativeRenderer_ResizeRenderTarget(target, grow ? NativeRenderer_TargetAllocStep(width) : width,
+			                                  grow ? NativeRenderer_TargetAllocStep(height) : height);
+			target->growable = grow;
+		}
+	}
+	target->width = width;
+	target->height = height;
+	s_lastBoundTexture = (TextureID)-1;
+}
+#endif
 
 internal void NativeRenderer_BindMainRenderTarget(void)
 {
@@ -946,6 +1062,7 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 
 	int physicalWidth = logicalWidth;
 	int physicalHeight = logicalHeight;
+	int hostResolution = 0;
 #ifndef CTR_NATIVE_WIDESCREEN
 #define CTR_NATIVE_WIDESCREEN 0
 #endif
@@ -973,10 +1090,17 @@ internal void NativeRenderer_BindMainRect(const RECT16 *rect)
 			physicalWidth = viewW;
 		if (physicalHeight < logicalHeight || physicalHeight > 2 * viewH)
 			physicalHeight = viewH;
+		hostResolution = 1;
 	}
 #endif
 
+#if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
+	(void)hostResolution;
+	NativeRenderer_EnsureTargetSize(&s_mainRenderTarget, physicalWidth, physicalHeight, 1);
+#else
+	(void)hostResolution;
 	NativeRenderer_EnsureRenderTarget(&s_mainRenderTarget, physicalWidth, physicalHeight);
+#endif
 	s_mainRenderTarget.logicalWidth = logicalWidth;
 	s_mainRenderTarget.logicalHeight = logicalHeight;
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -1170,7 +1294,7 @@ internal void NativeRenderer_Ortho2D(float left, float right, float bottom, floa
 internal void NativeRenderer_SetShader(const ShaderID shader);
 internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h);
 internal void NativeRenderer_ResolveVRAMRead(int x, int y, int w, int h);
-internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY);
+internal void NativeRenderer_GpuPackTextureToVRAM(const struct NativeRenderTarget *source, int x, int y, int w, int h, b32 flipY);
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 global_variable GTEShader s_gteShaderVariants[4][NATIVE_PSX_SHADER_VARIANT_COUNT];
@@ -2144,9 +2268,11 @@ global_variable const char *ctr_pack_shader = "#ifdef VERTEX\n"
                                               "attribute vec2 a_position;\n"
                                               "varying vec2 v_uv;\n"
                                               "uniform int flipY;\n"
+                                              "uniform vec2 uvScale;\n"
                                               "void main() {\n"
                                               "    v_uv = a_position * 0.5 + 0.5;\n"
                                               "    if (flipY != 0) { v_uv.y = 1.0 - v_uv.y; }\n"
+                                              "    v_uv *= uvScale;\n"
                                               "    gl_Position = vec4(a_position, 0.0, 1.0);\n"
                                               "}\n"
                                               "#endif\n"
@@ -2244,8 +2370,9 @@ global_variable const char *ctr_present_rgba_shader = "#ifdef VERTEX\n"
                                                        "varying vec2 v_uv;\n"
                                                        "uniform sampler2D s_src;\n"
                                                        "uniform float flipY;\n"
+                                                       "uniform vec2 uvScale;\n"
                                                        "void main() {\n"
-                                                       "    gl_FragColor = texture2D(s_src, vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, flipY)));\n"
+                                                       "    gl_FragColor = texture2D(s_src, vec2(v_uv.x, mix(v_uv.y, 1.0 - v_uv.y, flipY)) * uvScale);\n"
                                                        "}\n"
                                                        "#endif\n";
 #else
@@ -2320,7 +2447,10 @@ internal int NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(s_packShader);
 	const GLint packSrcLoc = glGetUniformLocation(s_packShader, "s_src");
 	s_packFlipYLoc = glGetUniformLocation(s_packShader, "flipY");
+	s_packUvScaleLoc = glGetUniformLocation(s_packShader, "uvScale");
 	glUniform1i(packSrcLoc, 0);
+	if (s_packUvScaleLoc >= 0)
+		glUniform2f(s_packUvScaleLoc, 1.0f, 1.0f);
 	glUseProgram(0);
 
 	s_presentVramShader = NativeRenderer_Shader_Compile(ctr_present_vram_shader, false, NULL);
@@ -2344,6 +2474,9 @@ internal int NativeRenderer_InitVRAMPipelines(void)
 #endif
 	glUniform1i(presentRgbaSrcLoc, 0);
 	glUniform1f(s_presentRgbaFlipYLoc, 0.0f);
+	s_presentRgbaUvScaleLoc = glGetUniformLocation(s_presentRgbaShader, "uvScale");
+	if (s_presentRgbaUvScaleLoc >= 0)
+		glUniform2f(s_presentRgbaUvScaleLoc, 1.0f, 1.0f);
 	glUseProgram(0);
 
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
@@ -3586,7 +3719,7 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	}
 
 	// NOTE(aalhendi): Native offscreen draws produce RGBA pixels. Pack them into the persistent 5:5:5:1 VRAM texture instead of reading them through the CPU.
-	NativeRenderer_GpuPackTextureToVRAM(s_offscreenRenderTarget.texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
+	NativeRenderer_GpuPackTextureToVRAM(&s_offscreenRenderTarget, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
 	                                    s_previousOffscreen.h, true);
 #if defined(__vita__) || defined(PCSX_NATIVE_VITA_PATH)
 	/* Returning to main must include any offscreen writes in VRAM. */
@@ -3643,7 +3776,7 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 			NativeRenderer_FlushOffscreenToVRAM();
 			s_previousOffscreenState = 1;
 			s_previousOffscreen = *offscreenRect;
-			NativeRenderer_EnsureRenderTarget(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h);
+			NativeRenderer_EnsureTargetSize(&s_offscreenRenderTarget, offscreenRect->w, offscreenRect->h, 1);
 			s_offscreenRenderTarget.logicalWidth = offscreenRect->w;
 			s_offscreenRenderTarget.logicalHeight = offscreenRect->h;
 			NativeRenderer_LoadRenderTargetFromVRAM(&s_offscreenRenderTarget, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
@@ -3724,8 +3857,9 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 }
 
 // NOTE(aalhendi): Pack an RGBA render texture straight into the RG8 VRAM texture on the GPU, no CPU round trip. Restore or invalidate the render-state caches disturbed by this native bridge before the submit run continues.
-internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY)
+internal void NativeRenderer_GpuPackTextureToVRAM(const struct NativeRenderTarget *source, int x, int y, int w, int h, b32 flipY)
 {
+	const TextureID sourceTexture = source->texture;
 	const ShaderID previousShader = s_previousShader;
 	const TextureID previousTexture = s_lastBoundTexture;
 	const BlendMode previousBlendMode = s_previousBlendMode;
@@ -3749,6 +3883,10 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, sourceTexture);
 	glUniform1i(s_packFlipYLoc, flipY);
+	if (s_packUvScaleLoc >= 0)
+		glUniform2f(s_packUvScaleLoc,
+		            source->allocWidth > 0 ? (float)source->width / (float)source->allocWidth : 1.0f,
+		            source->allocHeight > 0 ? (float)source->height / (float)source->allocHeight : 1.0f);
 
 	glBindVertexArray(s_vramQuadVAO);
 	NativeRenderer_DrawTriangles(0, 2);
@@ -3840,7 +3978,7 @@ void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 		traceMainSampled = 1;
 	}
 #endif
-	NativeRenderer_GpuPackTextureToVRAM(s_mainRenderTarget.texture, x, y, w, h, true);
+	NativeRenderer_GpuPackTextureToVRAM(&s_mainRenderTarget, x, y, w, h, true);
 
 }
 
@@ -4131,6 +4269,10 @@ internal void NativeRenderer_DrawMainTarget(const struct NativeRenderTarget *tar
 
 	glUseProgram(s_presentRgbaShader);
 	glUniform1f(s_presentRgbaFlipYLoc, 0.0f);
+	if (s_presentRgbaUvScaleLoc >= 0)
+		glUniform2f(s_presentRgbaUvScaleLoc,
+		            target->allocWidth > 0 ? (float)target->width / (float)target->allocWidth : 1.0f,
+		            target->allocHeight > 0 ? (float)target->height / (float)target->allocHeight : 1.0f);
 #if !defined(__vita__) && !defined(PCSX_NATIVE_VITA_PATH)
 	if (s_presentRgbaTexelSizeLoc >= 0)
 	{
@@ -4160,6 +4302,8 @@ internal void NativeRenderer_DrawMainTarget(const struct NativeRenderTarget *tar
 		glEnable(GL_STENCIL_TEST);
 	}
 	glBindVertexArray(0);
+	if (s_presentRgbaUvScaleLoc >= 0)
+		glUniform2f(s_presentRgbaUvScaleLoc, 1.0f, 1.0f);
 
 	s_previousShader = (ShaderID)-1;
 	s_lastBoundTexture = (TextureID)-1;
