@@ -1686,6 +1686,7 @@ the Vita's 960x544 back buffer. Soul Calibur gameplay replay
 | per presented frame | before | now |
 | --- | --- | --- |
 | GL draw calls | 763.9 | 131.6 |
+| texture stores (`glTexImage2D`) | 7.50 | 3.83 |
 | GXM scenes (render target switches) | 10.86 | 8.80 |
 | frames made synchronous (whole replay, 4883 frames) | 4147 | 52 |
 | synchronous renderer tasks (whole replay) | 39533 | 1486 |
@@ -1697,6 +1698,8 @@ the Vita's 960x544 back buffer. Soul Calibur gameplay replay
   pending split uses their VRAM, or start a new packet of the same frame
   when one does; gpulib no longer syncs the renderer at every VRAM write
   DMA; CPU reads of VRAM the renderer never drew into return at once.
+- Texture stores: the CPU rects of each VRAM update go up in one RG8
+  texture (raw PSX pixels, no conversion) instead of one RGBA8 texture each.
 
 Final captures are unchanged by every step except where the Mac harness
 itself was fixed (it began a second scene in synchronous frames, reloading
