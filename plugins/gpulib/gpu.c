@@ -1281,7 +1281,17 @@ void GPUrearmedCallbacks(const struct rearmed_cbs *cbs)
   renderer_set_config(cbs);
   vout_set_config(cbs);
 
+#ifdef GPU_VITA_CTR
+  // The NEON backend always uses the CPU GPU worker; High Octane has its own renderer thread.
+  {
+    extern int VitaGpu_UsingNeon(void);
+    gpu_async_enable(&gpu, VitaGpu_UsingNeon());
+    if (VitaGpu_UsingNeon())
+      SysPrintf("PCSX AwO: NEON GPU worker %s\n", gpu_async_enabled(&gpu) ? "active" : "FAILED");
+  }
+#else
   gpu_async_enable(&gpu, cbs->thread_rendering);
+#endif
 }
 
 // for standalone plugins only

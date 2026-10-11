@@ -327,7 +327,7 @@ else ifeq ($(platform), psp1)
 # Vita
 else ifeq ($(platform), vita)
 	TARGET := $(TARGET_NAME)_libretro_vita.a
-	CFLAGS += -DVITA
+	CFLAGS += -DVITA -DPCSX_VITA_DUAL_GPU
 	CFLAGS += -mcpu=cortex-a9 -mtune=cortex-a9 -mfpu=neon -marm
 	CFLAGS += -fsingle-precision-constant -mword-relocations -fno-unwind-tables
 	CFLAGS += -fno-asynchronous-unwind-tables -ftree-vectorize
@@ -347,7 +347,7 @@ else ifeq ($(platform), vita)
 	NO_POSIX_MEMALIGN := 1
 	NDRC_THREAD := 0 # can't write to tc from thread
 	HAVE_PHYSICAL_CDROM = 0
-	EXTRA_EXTERN_SYMS += _newlib_vm_size_user VitaCtrNativeRenderer_PresentCurrentFrame VitaCtrNativeRenderer_SetAspectMode NativeRenderer_SwapWindow
+		EXTRA_EXTERN_SYMS += _newlib_vm_size_user VitaCtrNativeRenderer_PresentCurrentFrame VitaCtrNativeRenderer_SetAspectMode NativeRenderer_SwapWindow VitaGpu_PresentNeonFrame
 	LIBPTHREAD :=
 
 # CTR(3DS)

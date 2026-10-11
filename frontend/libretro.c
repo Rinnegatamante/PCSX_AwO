@@ -2871,7 +2871,7 @@ static void update_variables(bool in_flight)
          pl_rearmed_cbs.scale_hires = 1;
    }
 
-#ifdef USE_ASYNC_GPU
+#if defined(USE_ASYNC_GPU) && !defined(VITA)
    var.key = "pcsx_rearmed_gpu_thread_rendering";
    var.value = NULL;
 

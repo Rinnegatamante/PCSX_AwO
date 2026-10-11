@@ -24,6 +24,20 @@
 #include "../gpulib/gpu_timing.h"
 #include "../../frontend/plugin_lib.h"
 
+extern int neon_renderer_init(void);
+extern void neon_renderer_finish(void);
+extern int neon_renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
+    int *cycles_sum, int *cycles_last, int *last_cmd);
+extern void neon_renderer_sync_ecmds(uint32_t *ecmds);
+extern void neon_renderer_update_caches(int x, int y, int w, int h, int state_changed);
+extern void neon_renderer_flush_queues(void);
+extern void neon_renderer_set_interlace(int enable, int is_odd);
+extern void neon_renderer_set_config(const struct rearmed_cbs *cbs);
+extern void neon_renderer_notify_screen_change(const struct psx_gpu_screen *screen);
+
+static int s_neon_selected;
+int VitaGpu_UsingNeon(void) { return s_neon_selected; }
+
 SDL_Window *g_window;
 int gNativeAntiAliasingEnabled;
 int gNativeDitheringEnabled = 1;
@@ -165,6 +179,36 @@ void VitaCtrNativeRenderer_PresentCurrentFrame(void)
         NativeRenderer_PresentVRAMDisplay();
     else
         NativeRenderer_PresentMainRenderTarget();
+}
+
+typedef struct VitaNeonCpuPresentTask {
+    const void *pixels;
+    int width;
+    int height;
+    int pitch;
+    int result;
+} VitaNeonCpuPresentTask;
+
+extern int NativeRenderer_PresentNeonCpuFrame(const void *pixels, int width, int height, int pitch);
+
+static void VitaGpu_PresentNeonCpuFrameTask(void *arg)
+{
+    VitaNeonCpuPresentTask *task = (VitaNeonCpuPresentTask *)arg;
+    task->result = NativeRenderer_PresentNeonCpuFrame(task->pixels, task->width, task->height, task->pitch);
+}
+
+int VitaGpu_PresentNeonFrame(const void *pixels, int width, int height, int pitch)
+{
+    VitaNeonCpuPresentTask task;
+    if (!s_context_ready || !s_neon_selected || !pixels)
+        return 0;
+    task.pixels = pixels;
+    task.width = width;
+    task.height = height;
+    task.pitch = pitch;
+    task.result = 0;
+    NativeGpu_RunBackendTaskSync(VitaGpu_PresentNeonCpuFrameTask, &task);
+    return task.result;
 }
 
 typedef struct VitaCtrVramTask {
@@ -487,6 +531,8 @@ static void account_timing(const uint32_t *list, int cmd,
 int renderer_do_cmd_list(uint32_t *list, int count, uint32_t *ex_regs,
     int *cycles_sum, int *cycles_last, int *last_cmd)
 {
+    if (s_neon_selected)
+        return neon_renderer_do_cmd_list(list, count, ex_regs, cycles_sum, cycles_last, last_cmd);
     uint32_t cyc_sum = 0;
     uint32_t cyc = (uint32_t)*cycles_last;
     int pos = 0;
@@ -532,6 +578,9 @@ int renderer_init(void)
 
 void renderer_finish(void)
 {
+    if (s_neon_selected)
+        neon_renderer_finish();
+    s_neon_selected = 0;
     if (!s_context_ready)
         return;
 
@@ -546,6 +595,10 @@ void renderer_finish(void)
 
 void renderer_sync_ecmds(uint32_t *ecmds)
 {
+    if (s_neon_selected) {
+        neon_renderer_sync_ecmds(ecmds);
+        return;
+    }
     int i;
     if (!s_context_ready || !ecmds)
         return;
@@ -555,6 +608,10 @@ void renderer_sync_ecmds(uint32_t *ecmds)
 
 void renderer_update_caches(int x, int y, int w, int h, int state_changed)
 {
+    if (s_neon_selected) {
+        neon_renderer_update_caches(x, y, w, h, state_changed);
+        return;
+    }
     VitaCtrVramTask task;
     (void)state_changed;
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
@@ -594,11 +651,17 @@ void renderer_update_caches(int x, int y, int w, int h, int state_changed)
 
 void renderer_flush_queues(void)
 {
+    if (s_neon_selected)
+        neon_renderer_flush_queues();
     /* Submission happens at vout_update. Keeping this non-blocking preserves the renderer thread overlap that CTR Native relies on. */
 }
 
 void renderer_barrier(void)
 {
+    if (s_neon_selected) {
+        neon_renderer_flush_queues();
+        return;
+    }
     if (!s_context_ready)
         return;
     if (NativeGpu_HasPendingSplits()) {
@@ -610,6 +673,10 @@ void renderer_barrier(void)
 
 void renderer_sync_vram_to_cpu(int x, int y, int w, int h)
 {
+    if (s_neon_selected) {
+        neon_renderer_flush_queues();
+        return;
+    }
     VitaCtrVramTask task;
     if (!s_context_ready || !s_guest_vram || w <= 0 || h <= 0)
         return;
@@ -625,6 +692,10 @@ void renderer_sync_vram_to_cpu(int x, int y, int w, int h)
 
 void renderer_set_interlace(int enable, int is_odd)
 {
+    if (s_neon_selected) {
+        neon_renderer_set_interlace(enable, is_odd);
+        return;
+    }
     (void)enable;
     (void)is_odd;
 }
@@ -636,6 +707,20 @@ void renderer_set_config(const struct rearmed_cbs *cbs)
         SysPrintf("PCSX AwO: deferred High Octane renderer init failed\n");
         return;
     }
+    const char *chosen = VitaSettings_GetOption("vita_renderer");
+    if (chosen && strcmp(chosen, "neon") == 0) {
+        if (!s_neon_selected) {
+            if (neon_renderer_init() < 0) {
+                SysPrintf("PCSX AwO: NEON renderer init failed\n");
+                return;
+            }
+            s_neon_selected = 1;
+            neon_renderer_sync_ecmds(gpu.ex_regs);
+        }
+        neon_renderer_set_config(cbs);
+        SysPrintf("PCSX AwO: GPU = ReARMed NEON software\n");
+        return;
+    }
     if (cbs->pl_set_gpu_caps)
         cbs->pl_set_gpu_caps(GPU_CAP_OWNS_DISPLAY);
     gNativeDitheringEnabled = cbs->dithering != 0;
@@ -643,6 +728,8 @@ void renderer_set_config(const struct rearmed_cbs *cbs)
 
 void renderer_notify_screen_change(const struct psx_gpu_screen *screen)
 {
+    if (s_neon_selected)
+        neon_renderer_notify_screen_change(screen);
     (void)screen;
 }
 

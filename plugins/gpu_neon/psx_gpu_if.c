@@ -12,6 +12,18 @@
 #include <assert.h>
 #include "../../include/compiler_features.h"
 
+#ifdef PCSX_VITA_DUAL_GPU
+#define renderer_do_cmd_list neon_renderer_do_cmd_list
+#define renderer_init neon_renderer_init
+#define renderer_finish neon_renderer_finish
+#define renderer_sync_ecmds neon_renderer_sync_ecmds
+#define renderer_update_caches neon_renderer_update_caches
+#define renderer_flush_queues neon_renderer_flush_queues
+#define renderer_set_interlace neon_renderer_set_interlace
+#define renderer_notify_screen_change neon_renderer_notify_screen_change
+#define renderer_set_config neon_renderer_set_config
+#endif
+
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #ifndef min
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -93,8 +105,12 @@ int renderer_init(void)
     initialized = 1;
   }
 
-  if (gpu.mmap != NULL && egpu.enhancement_buf_ptr == NULL)
-    map_enhancement_buffer();
+	if (gpu.mmap != NULL && egpu.enhancement_buf_ptr == NULL
+#ifdef PCSX_VITA_DUAL_GPU
+	    && gpu.state.enhancement_enable
+#endif
+	)
+		map_enhancement_buffer();
 
   return 0;
 }

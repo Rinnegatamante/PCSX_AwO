@@ -12,6 +12,7 @@
 #include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
+#include <psp2/kernel/dmac.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
 #include <kubridge.h>
@@ -44,16 +45,23 @@
 
 static SceUID g_fb_uid[2] = { -1, -1 };
 static uint32_t *g_fb[2];
+static SceUID g_stage_uid = -1;
+static uint32_t *g_stage;
+static bool g_stage_alloc_attempted;
 static int g_front;
 static int g_map_w = -1;
 static int g_map_h = -1;
-static uint16_t g_xmap[GAME_W];
+static int g_map_target_w = -1;
+static uint16_t g_xmap[DISPLAY_W];
 static uint16_t g_ymap[DISPLAY_H];
+static uint32_t g_rgb565_lut[65536];
+static bool g_rgb565_lut_ready;
 
 static SceCtrlData g_pad;
 static bool g_exit_requested;
 static bool g_pause_requested;
 static bool g_pause_combo_down;
+extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int pitch);
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
@@ -179,15 +187,34 @@ static uint32_t rgb565_to_abgr8888(uint16_t p)
     return 0xff000000u | (b << 16) | (g << 8) | r;
 }
 
-static void rebuild_scale_map(unsigned width, unsigned height)
+static void rebuild_scale_map(unsigned width, unsigned height, int target_width)
 {
     int x, y;
-    for (x = 0; x < GAME_W; x++)
-        g_xmap[x] = (uint16_t)(((uint64_t)x * width) / GAME_W);
+    for (x = 0; x < target_width; x++)
+        g_xmap[x] = (uint16_t)(((uint64_t)x * width) / target_width);
     for (y = 0; y < DISPLAY_H; y++)
         g_ymap[y] = (uint16_t)(((uint64_t)y * height) / DISPLAY_H);
     g_map_w = (int)width;
     g_map_h = (int)height;
+    g_map_target_w = target_width;
+}
+
+static void ensure_video_stage(void)
+{
+    if (g_stage_alloc_attempted)
+        return;
+    g_stage_alloc_attempted = true;
+    g_stage_uid = sceKernelAllocMemBlock("pcsx-awo-cached-stage",
+        SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, DISPLAY_MEM_SIZE, NULL);
+    if (g_stage_uid >= 0 && sceKernelGetMemBlockBase(g_stage_uid, (void **)&g_stage) >= 0) {
+        memset(g_stage, 0, DISPLAY_MEM_SIZE);
+        return;
+    }
+    sceClibPrintf("PCSX AwO: cached video staging unavailable; using direct CDRAM output\n");
+    if (g_stage_uid >= 0)
+        sceKernelFreeMemBlock(g_stage_uid);
+    g_stage_uid = -1;
+    g_stage = NULL;
 }
 
 static void video_cb(const void *data, unsigned width, unsigned height, size_t pitch)
@@ -196,25 +223,57 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
     uint32_t *dst;
     int back;
     int y, x;
+    const char *aspect = VitaSettings_GetOption("vita_aspect_ratio");
+    const int target_width = aspect && strcmp(aspect, "16:9_stretched") == 0 ? DISPLAY_W : GAME_W;
+    const int target_x = (DISPLAY_W - target_width) / 2;
 
     if (!data || width == 0 || height == 0)
         return;
 
-    if (g_map_w != (int)width || g_map_h != (int)height)
-        rebuild_scale_map(width, height);
+    if (VitaGpu_PresentNeonFrame(data, (int)width, (int)height, (int)pitch))
+        return;
+
+    ensure_video_stage();
+    if (!g_rgb565_lut_ready) {
+        for (int pixel = 0; pixel < 65536; ++pixel)
+            g_rgb565_lut[pixel] = rgb565_to_abgr8888((uint16_t)pixel);
+        g_rgb565_lut_ready = true;
+    }
+
+    if (g_map_w != (int)width || g_map_h != (int)height || g_map_target_w != target_width) {
+        if (g_map_target_w != target_width) {
+            if (g_stage)
+                memset(g_stage, 0, DISPLAY_W * DISPLAY_H * sizeof(uint32_t));
+            else {
+                memset(g_fb[0], 0, DISPLAY_W * DISPLAY_H * sizeof(uint32_t));
+                memset(g_fb[1], 0, DISPLAY_W * DISPLAY_H * sizeof(uint32_t));
+            }
+        }
+        rebuild_scale_map(width, height, target_width);
+    }
 
     back = g_front ^ 1;
-    dst = g_fb[back];
+    dst = g_stage ? g_stage : g_fb[back];
 
     for (y = 0; y < DISPLAY_H; y++) {
-        const uint16_t *src = (const uint16_t *)((const uint8_t *)data + (size_t)g_ymap[y] * pitch);
-        uint32_t *out = dst + y * DISPLAY_PITCH + GAME_X;
-        for (x = 0; x < GAME_W; x++)
-            out[x] = rgb565_to_abgr8888(src[g_xmap[x]]);
+        uint32_t *out = dst + y * DISPLAY_PITCH + target_x;
+        if (y > 0 && g_ymap[y] == g_ymap[y - 1]) {
+            memcpy(out, out - DISPLAY_PITCH, target_width * sizeof(*out));
+        } else {
+            const uint16_t *src = (const uint16_t *)((const uint8_t *)data + (size_t)g_ymap[y] * pitch);
+            for (x = 0; x < target_width; x++)
+                out[x] = g_rgb565_lut[src[g_xmap[x]]];
+        }
+    }
+
+    if (g_stage) {
+        const size_t frame_bytes = DISPLAY_PITCH * DISPLAY_H * sizeof(uint32_t);
+        if (sceDmacMemcpy(g_fb[back], g_stage, frame_bytes) < 0)
+            memcpy(g_fb[back], g_stage, frame_bytes);
     }
 
     frame.size = sizeof(frame);
-    frame.base = dst;
+    frame.base = g_fb[back];
     frame.pitch = DISPLAY_PITCH;
     frame.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
     frame.width = DISPLAY_W;
@@ -344,6 +403,10 @@ static void display_finish(void)
         g_fb_uid[i] = -1;
         g_fb[i] = NULL;
     }
+    if (g_stage_uid >= 0)
+        sceKernelFreeMemBlock(g_stage_uid);
+    g_stage_uid = -1;
+    g_stage = NULL;
 }
 
 static int audio_init(void)
@@ -568,7 +631,6 @@ int main(int argc, char **argv)
         memset(&g_pad, 0, sizeof(g_pad));
         audio_clear();
         audio_set_paused(false);
-
         while (!g_exit_requested && game_loaded) {
             retro_run();
             if (!g_pause_requested)

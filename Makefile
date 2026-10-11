@@ -284,11 +284,15 @@ frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_NEON
  endif
 endif
 ifeq "$(BUILTIN_GPU)" "vita_ctr"
-CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -I../ctr-native/include
+CFLAGS += -DGPU_VITA_CTR -DCTR_NATIVE -Iplugins/gpu_vita_ctr/compat -I../ctr-native/include
 OBJS += plugins/gpu_vita_ctr/gpulib_if.o \
         plugins/gpu_vita_ctr/native_gpu.o \
         plugins/gpu_vita_ctr/native_renderer.o
 frontend/menu.o frontend/plugin_lib.o: CFLAGS += -DBUILTIN_GPU_VITA_CTR
+ifeq "$(platform)" "vita"
+OBJS += plugins/gpu_neon/psx_gpu_if.o plugins/gpu_neon/psx_gpu/psx_gpu_arm_neon.o
+plugins/gpu_neon/psx_gpu_if.o: CFLAGS += -DNEON_BUILD -DTEXTURE_CACHE_4BPP -DTEXTURE_CACHE_8BPP
+endif
 endif
 ifeq "$(BUILTIN_GPU)" "peops"
 CFLAGS += -DGPU_PEOPS

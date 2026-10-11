@@ -12,6 +12,9 @@
 #include <string.h>
 #include "gpu.h"
 #include "../../frontend/plugin_lib.h"
+#ifdef GPU_VITA_CTR
+extern int VitaGpu_UsingNeon(void);
+#endif
 
 static const struct rearmed_cbs *cbs;
 
@@ -91,10 +94,12 @@ int vout_update(struct psx_gpu *gpu, int src_x, int src_y)
 
   check_mode_change(gpu, 0);
 #ifdef GPU_VITA_CTR
-  offset = (src_y * 1024 + src_x) * 2;
-  offset += src_x2 * bpp / 8;
-  gpu->state.dims_changed = 0;
-  return renderer_present_frame(gpu, src_x, src_y, offset & 0xfffff, x, y, w, h);
+  if (!VitaGpu_UsingNeon()) {
+    offset = (src_y * 1024 + src_x) * 2;
+    offset += src_x2 * bpp / 8;
+    gpu->state.dims_changed = 0;
+    return renderer_present_frame(gpu, src_x, src_y, offset & 0xfffff, x, y, w, h);
+  }
 #endif
   if (gpu->state.enhancement_active) {
     if (!gpu->state.enhancement_was_active)
@@ -126,8 +131,10 @@ void vout_blank(struct psx_gpu *gpu)
 
   check_mode_change(gpu, 0);
 #ifdef GPU_VITA_CTR
-  renderer_present_blank();
-  return;
+  if (!VitaGpu_UsingNeon()) {
+    renderer_present_blank();
+    return;
+  }
 #endif
   if (gpu->state.enhancement_active) {
     w *= 2;
