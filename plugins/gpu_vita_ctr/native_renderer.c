@@ -263,7 +263,10 @@ global_variable struct NativeRenderTarget s_offscreenRenderTarget;
 global_variable struct NativeRenderTarget *s_activeOffscreenTarget = &s_offscreenRenderTarget;
 #ifdef __vita__
 global_variable struct NativeRenderTarget s_offscreenPageRenderTarget;
+global_variable struct NativeRenderTarget s_offscreenFullVramRenderTarget;
 global_variable struct NativeRenderTarget s_rgb24RenderTarget;
+global_variable RECT16 s_fullOffscreenDrawBounds;
+global_variable int s_fullOffscreenDrawBoundsValid;
 #endif
 #define NATIVE_MAIN_CPU_DIRTY_CAP 32
 global_variable RECT16 s_mainCpuDirtyRects[NATIVE_MAIN_CPU_DIRTY_CAP];
@@ -359,10 +362,18 @@ int g_cfg_bilinearFiltering = 0;
 // NOTE(aalhendi): Pack native RGBA render targets into the persistent RG8 VRAM texture on the GPU instead of a GPU-to-CPU-to-GPU round trip.
 global_variable GLuint s_packShader = 0;
 global_variable GLint s_packFlipYLoc = -1;
+#ifdef __vita__
+global_variable GLint s_packSourceUvLoc = -1;
+#endif
 global_variable GLuint s_presentVramShader = 0;
 global_variable GLint s_presentVramSourceRectLoc = -1;
 global_variable GLuint s_presentRgbaShader = 0;
 global_variable GLint s_presentRgbaFlipYLoc = -1;
+#ifdef __vita__
+global_variable TextureID s_neonCpuFrameTexture;
+global_variable int s_neonCpuFrameWidth;
+global_variable int s_neonCpuFrameHeight;
+#endif
 #ifdef __vita__
 global_variable GLuint s_presentRgb24Shader = 0;
 global_variable GLint s_presentRgb24SourceRectLoc = -1;
@@ -533,6 +544,7 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyRenderTarget(&s_offscreenRenderTarget);
 #ifdef __vita__
 	NativeRenderer_DestroyRenderTarget(&s_offscreenPageRenderTarget);
+	NativeRenderer_DestroyRenderTarget(&s_offscreenFullVramRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_rgb24RenderTarget);
 #endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
@@ -544,6 +556,12 @@ void NativeRenderer_Shutdown(void)
 #endif
 
 	NativeRenderer_DestroyTexture(s_whiteTexture);
+#ifdef __vita__
+	NativeRenderer_DestroyStreamingTexture(s_neonCpuFrameTexture);
+	s_neonCpuFrameTexture = 0;
+	s_neonCpuFrameWidth = 0;
+	s_neonCpuFrameHeight = 0;
+#endif
 	NativeRenderer_DestroyTexture(s_rgLutTexture);
 	NativeRenderer_DestroyTexture(s_ghostReplayControllerTexture);
 	NativeRenderer_DestroyTexture(s_ghostReplayHighlightTexture);
@@ -1162,7 +1180,7 @@ internal void NativeRenderer_Ortho2D(float left, float right, float bottom, floa
 internal void NativeRenderer_SetShader(const ShaderID shader);
 internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h);
 internal void NativeRenderer_ResolveVRAMRead(int x, int y, int w, int h);
-internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY);
+internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY, const float *sourceUV);
 
 #ifdef __vita__
 global_variable GTEShader s_gteShaderVariants[4][NATIVE_PSX_SHADER_VARIANT_COUNT];
@@ -1916,8 +1934,9 @@ global_variable const char *ctr_pack_shader = "#ifdef VERTEX\n"
                                               "attribute vec2 a_position;\n"
                                               "varying vec2 v_uv;\n"
                                               "uniform int flipY;\n"
+                                              "uniform vec4 sourceUV;\n"
                                               "void main() {\n"
-                                              "    v_uv = a_position * 0.5 + 0.5;\n"
+                                              "    v_uv = sourceUV.xy + (a_position * 0.5 + 0.5) * sourceUV.zw;\n"
                                               "    if (flipY != 0) { v_uv.y = 1.0 - v_uv.y; }\n"
                                               "    gl_Position = vec4(a_position, 0.0, 1.0);\n"
                                               "}\n"
@@ -2140,6 +2159,9 @@ internal void NativeRenderer_InitVRAMPipelines(void)
 	glUseProgram(s_packShader);
 	const GLint packSrcLoc = glGetUniformLocation(s_packShader, "s_src");
 	s_packFlipYLoc = glGetUniformLocation(s_packShader, "flipY");
+#ifdef __vita__
+	s_packSourceUvLoc = glGetUniformLocation(s_packShader, "sourceUV");
+#endif
 	glUniform1i(packSrcLoc, 0);
 	glUseProgram(0);
 
@@ -2259,6 +2281,7 @@ int NativeRenderer_InitialisePSX(void)
 		NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
 #ifdef __vita__
 		NativeRenderer_InitRenderTarget(&s_offscreenPageRenderTarget);
+		NativeRenderer_InitRenderTarget(&s_offscreenFullVramRenderTarget);
 		NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
 #endif
 
@@ -3363,9 +3386,77 @@ internal void NativeRenderer_FlushOffscreenToVRAM(void)
 	}
 
 	// NOTE(aalhendi): Native offscreen draws produce RGBA pixels. Pack them into the persistent 5:5:5:1 VRAM texture instead of reading them through the CPU.
-	NativeRenderer_GpuPackTextureToVRAM(s_activeOffscreenTarget->texture, s_previousOffscreen.x, s_previousOffscreen.y, s_previousOffscreen.w,
-	                                    s_previousOffscreen.h, true);
+#ifdef __vita__
+	if (s_activeOffscreenTarget == &s_offscreenFullVramRenderTarget && s_fullOffscreenDrawBoundsValid)
+	{
+		const RECT16 *dirty = &s_fullOffscreenDrawBounds;
+		const float sourceUV[4] = {
+			(float)(dirty->x - s_previousOffscreen.x) / (float)s_previousOffscreen.w,
+			(float)(dirty->y - s_previousOffscreen.y) / (float)s_previousOffscreen.h,
+			(float)dirty->w / (float)s_previousOffscreen.w,
+			(float)dirty->h / (float)s_previousOffscreen.h
+		};
+		NativeRenderer_GpuPackTextureToVRAM(s_activeOffscreenTarget->texture, dirty->x, dirty->y,
+		                                    dirty->w, dirty->h, true, sourceUV);
+		s_fullOffscreenDrawBoundsValid = 0;
+		return;
+	}
+#endif
+	NativeRenderer_GpuPackTextureToVRAM(s_activeOffscreenTarget->texture, s_previousOffscreen.x, s_previousOffscreen.y,
+	                                    s_previousOffscreen.w, s_previousOffscreen.h, true, NULL);
 }
+
+#ifdef __vita__
+void VitaCtrNativeRenderer_TrackFullOffscreenDraw(const GrVertex *vertices, int count, const DRAWENV *drawEnv)
+{
+	if (!s_previousOffscreenState || s_activeOffscreenTarget != &s_offscreenFullVramRenderTarget || count <= 0)
+		return;
+	if (drawEnv->ofs[0] || drawEnv->ofs[1])
+	{
+		s_fullOffscreenDrawBounds = s_previousOffscreen;
+		s_fullOffscreenDrawBoundsValid = 1;
+		return;
+	}
+	float minX = vertices[0].x, minY = vertices[0].y;
+	float maxX = minX, maxY = minY;
+	for (int i = 1; i < count; ++i)
+	{
+		if (vertices[i].x < minX) minX = vertices[i].x;
+		if (vertices[i].x > maxX) maxX = vertices[i].x;
+		if (vertices[i].y < minY) minY = vertices[i].y;
+		if (vertices[i].y > maxY) maxY = vertices[i].y;
+	}
+	if (!(minX >= -2048.0f && minY >= -2048.0f && maxX <= 2048.0f && maxY <= 1024.0f))
+	{
+		s_fullOffscreenDrawBounds = s_previousOffscreen;
+		s_fullOffscreenDrawBoundsValid = 1;
+		return;
+	}
+	int x0 = (int)minX - 2;
+	int y0 = (int)minY - 2;
+	int x1 = (int)maxX + 3;
+	int y1 = (int)maxY + 3;
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > VRAM_WIDTH) x1 = VRAM_WIDTH;
+	if (y1 > VRAM_HEIGHT) y1 = VRAM_HEIGHT;
+	if (x1 <= x0 || y1 <= y0) return;
+	if (s_fullOffscreenDrawBoundsValid)
+	{
+		const RECT16 *old = &s_fullOffscreenDrawBounds;
+		const int oldX1 = old->x + old->w, oldY1 = old->y + old->h;
+		if (x0 > old->x) x0 = old->x;
+		if (y0 > old->y) y0 = old->y;
+		if (x1 < oldX1) x1 = oldX1;
+		if (y1 < oldY1) y1 = oldY1;
+	}
+	s_fullOffscreenDrawBounds.x = x0;
+	s_fullOffscreenDrawBounds.y = y0;
+	s_fullOffscreenDrawBounds.w = x1 - x0;
+	s_fullOffscreenDrawBounds.h = y1 - y0;
+	s_fullOffscreenDrawBoundsValid = 1;
+}
+#endif
 
 internal void NativeRenderer_SetScissorState(int enable)
 {
@@ -3408,6 +3499,10 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 		s_previousOffscreenState = 1;
 		s_activeOffscreenTarget = target;
 		NativeRenderer_EnsureRenderTarget(target, offscreenRect->w, offscreenRect->h);
+	#ifdef __vita__
+		if (target == &s_offscreenFullVramRenderTarget)
+			s_fullOffscreenDrawBoundsValid = 0;
+	#endif
 		target->logicalWidth = offscreenRect->w;
 		target->logicalHeight = offscreenRect->h;
 		s_previousOffscreen = *offscreenRect;
@@ -3426,6 +3521,14 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 
 void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 {
+#ifdef __vita__
+	// Preserve the 1024x512 MSAA target instead of reallocating it between tiny PS1 offscreen effects.
+	if (enable && offscreenRect->w == VRAM_WIDTH && offscreenRect->h == VRAM_HEIGHT)
+	{
+		NativeRenderer_SetOffscreenStateTarget(offscreenRect, 1, &s_offscreenFullVramRenderTarget);
+		return;
+	}
+#endif
 	NativeRenderer_SetOffscreenStateTarget(offscreenRect, enable, &s_offscreenRenderTarget);
 }
 
@@ -3474,7 +3577,7 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 }
 
 // NOTE(aalhendi): Pack an RGBA render texture straight into the RG8 VRAM texture on the GPU, no CPU round trip. Restore or invalidate the render-state caches disturbed by this native bridge before the submit run continues.
-internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY)
+internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x, int y, int w, int h, b32 flipY, const float *sourceUV)
 {
 	const ShaderID previousShader = s_previousShader;
 	const TextureID previousTexture = s_lastBoundTexture;
@@ -3499,6 +3602,12 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, sourceTexture);
 	glUniform1i(s_packFlipYLoc, flipY);
+#ifdef __vita__
+	glUniform4f(s_packSourceUvLoc, sourceUV ? sourceUV[0] : 0.0f, sourceUV ? sourceUV[1] : 0.0f,
+	            sourceUV ? sourceUV[2] : 1.0f, sourceUV ? sourceUV[3] : 1.0f);
+#else
+	(void)sourceUV;
+#endif
 
 	glBindVertexArray(s_vramQuadVAO);
 	NativeRenderer_DrawTriangles(0, 2);
@@ -3550,7 +3659,7 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
 void NativeRenderer_StoreFrameBuffer(int x, int y, int w, int h)
 {
-	NativeRenderer_GpuPackTextureToVRAM(s_mainRenderTarget.texture, x, y, w, h, true);
+	NativeRenderer_GpuPackTextureToVRAM(s_mainRenderTarget.texture, x, y, w, h, true, NULL);
 
 }
 
@@ -3639,6 +3748,11 @@ int NativeRenderer_RestoreVRAMState(const void *src, int srcSize)
 	s_offscreenPageRenderTarget.height = 0;
 	s_offscreenPageRenderTarget.logicalWidth = 0;
 	s_offscreenPageRenderTarget.logicalHeight = 0;
+	s_offscreenFullVramRenderTarget.width = 0;
+	s_offscreenFullVramRenderTarget.height = 0;
+	s_offscreenFullVramRenderTarget.logicalWidth = 0;
+	s_offscreenFullVramRenderTarget.logicalHeight = 0;
+	s_fullOffscreenDrawBoundsValid = 0;
 #endif
 	s_activeOffscreenTarget = &s_offscreenRenderTarget;
 	s_previousOffscreen = zeroRect;
@@ -4203,6 +4317,44 @@ void NativeRenderer_PresentStreamingTexture(TextureID texture, int contentHeight
 }
 
 #ifdef __vita__
+int NativeRenderer_PresentNeonCpuFrame(const void *pixels, int width, int height, int pitch)
+{
+	if (!pixels || width <= 0 || height <= 0 || width > 1024 || height > 1024 ||
+	    pitch < width * 2 || (pitch & 1) || !s_presentRgbaShader || !s_vramQuadVAO)
+		return 0;
+	if (s_neonCpuFrameWidth != width || s_neonCpuFrameHeight != height)
+	{
+		NativeRenderer_DestroyStreamingTexture(s_neonCpuFrameTexture);
+		s_neonCpuFrameTexture = 0;
+		s_neonCpuFrameWidth = s_neonCpuFrameHeight = 0;
+		glGenTextures(1, &s_neonCpuFrameTexture);
+		if (!s_neonCpuFrameTexture)
+			return 0;
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, s_neonCpuFrameTexture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
+		             GL_UNSIGNED_SHORT_5_6_5, NULL);
+		s_neonCpuFrameWidth = width;
+		s_neonCpuFrameHeight = height;
+	}
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, s_neonCpuFrameTexture);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, pitch / 2);
+	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGB,
+	                GL_UNSIGNED_SHORT_5_6_5, pixels);
+	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	s_lastBoundTexture = (TextureID)-1;
+	NativeRenderer_PresentStreamingTexture(s_neonCpuFrameTexture, height, height);
+	NativeRenderer_SwapWindow();
+	return 1;
+}
+
 static void NativeRenderer_PresentRGB24CpuFallback(const DISPENV *display)
 {
 	static TextureID texture;

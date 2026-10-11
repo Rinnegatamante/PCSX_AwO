@@ -22,6 +22,9 @@
 #endif
 
 void Platform_PollHostEvents(void);
+#ifdef __vita__
+void VitaCtrNativeRenderer_TrackFullOffscreenDraw(const GrVertex *vertices, int count, const DRAWENV *drawEnv);
+#endif
 extern int g_cfg_bilinearFiltering;
 extern int g_dbg_emulatorPaused;
 extern int g_dbg_polygonSelected;
@@ -583,10 +586,12 @@ int NativeGpu_FrameUsesVRAMScanout(void)
 #ifdef __vita__
 	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
 	const DISPENV *display = NativeGpu_GetRenderDispEnv();
-	// Reduced draw areas still require full VRAM scanout for HUD pixels.
+	// Compare with the visible region, not the nominal timing canvas: CTR draws 216 lines inside a 240-line display.
+	const int activeW = display->screen.w > 0 ? display->screen.w : display->disp.w;
+	const int activeH = display->screen.h > 0 ? display->screen.h : display->disp.h;
 	return !display->isrgb24 && draw->clip.w > 0 && draw->clip.h > 0 &&
 	       display->disp.w > 0 && display->disp.h > 0 &&
-	       (draw->clip.w < display->disp.w || draw->clip.h < display->disp.h);
+	       (draw->clip.w < activeW || draw->clip.h < activeH);
 #else
 	return 0;
 #endif
@@ -1876,6 +1881,9 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 	}
 	NativeGpu_SetSplitShaderState(split, semiTransPass, blendMode, !drawOnScreen, useVramPage ? &vramPage : NULL);
 	NativeRenderer_SetDepthState(1, depthWrite);
+#ifdef __vita__
+	VitaCtrNativeRenderer_TrackFullOffscreenDraw(&s_gpuDrawVertices[startVertex], numVerts, &split->drawenv);
+#endif
 	NativeRenderer_DrawTriangles(startVertex, numVerts / 3);
 
 	if (split->debugText)
@@ -1900,7 +1908,9 @@ void DrawSplit(const GPUDrawSplit *split)
 		const DISPENV savedDispEnv = s_gpuBackendDispEnv;
 		const int savedRgb24SourceByteOffset = s_gpuBackendRgb24SourceByteOffset;
 		NativeGpu_BackendApplyEnv(&split->drawenv, &split->dispenv, savedRgb24SourceByteOffset);
-		NativeRenderer_Clear(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
+		// VRAM scanout displays the packed VRAM texture, not the unused main FBO.
+		if (!NativeGpu_FrameUsesVRAMScanout())
+			NativeRenderer_Clear(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_ClearVRAM(split->clearRect.x, split->clearRect.y, split->clearRect.w, split->clearRect.h, split->clearR, split->clearG, split->clearB);
         NativeRenderer_UpdateVRAM();
 		NativeGpu_BackendApplyEnv(&savedDrawEnv, &savedDispEnv, savedRgb24SourceByteOffset);
@@ -2114,6 +2124,7 @@ internal void NativeGpu_DrawDepthBatch(const NativeGpuDepthBatch *batch)
 	for (int memberIndex = batch->representativeSplit; memberIndex > 0; memberIndex = s_gpuDepthNextSplit[memberIndex])
 	{
 		const GPUDrawSplit *member = &s_gpuDrawSplits[memberIndex];
+		VitaCtrNativeRenderer_TrackFullOffscreenDraw(&s_gpuDrawVertices[member->startVertex], member->numVerts, &member->drawenv);
 		NativeRenderer_DrawTriangles(member->startVertex, member->numVerts / 3);
 	}
 
