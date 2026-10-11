@@ -1616,8 +1616,11 @@ static void draw_selector_options(int selected)
     const float content_x = 120.0f;
     const float content_w = (float)MENU_W - content_x * 2.0f;
     const float row_h = 26.0f;
-    float y = 72.0f;
-    const char *last_category = NULL;
+    const float options_top = 100.0f;
+    const float options_bottom = 438.0f;
+    const float scrollbar_x = content_x + content_w - 6.0f;
+    const float option_right = scrollbar_x - 14.0f;
+    const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
     ImDrawList *draw = ImGui::GetWindowDrawList();
 
     ImGui::SetWindowFontScale(1.35f);
@@ -1627,37 +1630,72 @@ static void draw_selector_options(int selected)
     draw->AddLine(ImVec2(content_x, 88.0f),
         ImVec2((float)MENU_W - content_x, 88.0f),
         IM_COL32(220, 220, 220, 150), 1.0f);
-    y = 100.0f;
-
-    for (int i = 0; i < (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0])); ++i) {
+    float layout_y = options_top;
+    float selected_y = options_top;
+    const char *last_category = NULL;
+    for (int i = 0; i < option_count; ++i) {
         const SelectorOption &option = k_selector_options[i];
         if (!last_category || strcmp(last_category, option.category) != 0) {
-            ImGui::SetCursorPos(ImVec2(content_x, y));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.92f, 1.0f));
-            ImGui::Text("%s", option.category);
-            ImGui::PopStyleColor();
+            layout_y += 20.0f;
+            last_category = option.category;
+        }
+        if (i == selected)
+            selected_y = layout_y;
+        layout_y += row_h;
+    }
+    const float max_scroll = std::max(0.0f, layout_y - options_bottom);
+    const float target_scroll = selected_y - (options_top + (options_bottom - options_top - row_h) * 0.5f);
+    const float scroll_y = std::max(0.0f, std::min(max_scroll, target_scroll));
+    float y = options_top - scroll_y;
+    last_category = NULL;
+
+    if (max_scroll > 0.0f) {
+        const float viewport_h = options_bottom - options_top;
+        const float content_h = layout_y - options_top;
+        const float thumb_h = std::max(40.0f, viewport_h * viewport_h / content_h);
+        const float thumb_y = options_top + scroll_y * (viewport_h - thumb_h) / max_scroll;
+        draw->AddRectFilled(ImVec2(scrollbar_x, options_top),
+            ImVec2(scrollbar_x + 6.0f, options_bottom), IM_COL32(47, 56, 63, 185), 3.0f);
+        draw->AddRectFilled(ImVec2(scrollbar_x, thumb_y),
+            ImVec2(scrollbar_x + 6.0f, thumb_y + thumb_h), IM_COL32(0, 190, 220, 240), 3.0f);
+    }
+
+    ImGui::PushClipRect(ImVec2(content_x, options_top),
+        ImVec2(option_right, options_bottom), true);
+    for (int i = 0; i < option_count; ++i) {
+        const SelectorOption &option = k_selector_options[i];
+        if (!last_category || strcmp(last_category, option.category) != 0) {
+            if (y + 20.0f > options_top && y < options_bottom) {
+                ImGui::SetCursorPos(ImVec2(content_x, y));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.92f, 1.0f));
+                ImGui::Text("%s", option.category);
+                ImGui::PopStyleColor();
+            }
             y += 20.0f;
             last_category = option.category;
         }
 
-        if (i == selected) {
-            draw->AddRectFilled(ImVec2(content_x, y),
-                ImVec2(content_x + content_w, y + row_h), IM_COL32(38, 42, 47, 220));
-            draw->AddRect(ImVec2(content_x, y),
-                ImVec2(content_x + content_w, y + row_h), IM_COL32(0, 190, 220, 255));
+        if (y + row_h > options_top && y < options_bottom) {
+            if (i == selected) {
+                draw->AddRectFilled(ImVec2(content_x, y),
+                    ImVec2(option_right, y + row_h), IM_COL32(38, 42, 47, 220));
+                draw->AddRect(ImVec2(content_x, y),
+                    ImVec2(option_right, y + row_h), IM_COL32(0, 190, 220, 255));
+            }
+
+            ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 5.0f));
+            ImGui::Text("%s", option.label);
+
+            const std::string value = selector_option_value(option);
+            const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
+            ImGui::SetCursorPos(ImVec2(option_right - value_size.x - 18.0f, y + 5.0f));
+            ImGui::Text("%s", value.c_str());
         }
-
-        ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 5.0f));
-        ImGui::Text("%s", option.label);
-
-        const std::string value = selector_option_value(option);
-        const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
-        ImGui::SetCursorPos(ImVec2(content_x + content_w - value_size.x - 18.0f, y + 5.0f));
-        ImGui::Text("%s", value.c_str());
         y += row_h;
     }
+    ImGui::PopClipRect();
 
-    if (selected >= 0 && selected < (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]))) {
+    if (selected >= 0 && selected < option_count) {
         const float description_y = 454.0f;
         draw->AddLine(ImVec2(content_x, description_y - 8.0f),
             ImVec2((float)MENU_W - content_x, description_y - 8.0f),
@@ -1665,7 +1703,10 @@ static void draw_selector_options(int selected)
         ImGui::SetCursorPos(ImVec2(content_x, description_y));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.77f, 0.80f, 1.0f));
         ImGui::PushTextWrapPos(content_x + content_w);
+        ImGui::PushClipRect(ImVec2(content_x, description_y),
+            ImVec2(content_x + content_w, MENU_H - 43.0f), true);
         ImGui::TextWrapped("%s", k_selector_options[selected].description);
+        ImGui::PopClipRect();
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
     }
