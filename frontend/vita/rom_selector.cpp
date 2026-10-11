@@ -36,6 +36,8 @@
 #define DISC_SEGMENTS 64
 #define DISC_CACHE_SLOTS 7
 #define COVER_UPLOAD_MAX 512
+#define BACKGROUND_UPLOAD_W 960
+#define BACKGROUND_UPLOAD_H 544
 
 extern "C" int NativeGpu_InitBackend(int width, int height);
 extern "C" void NativeGpu_RunBackendTaskSync(void (*task)(void *), void *arg);
@@ -49,6 +51,7 @@ struct RomEntry {
     std::string title;
     std::string cover_path;
     std::string disc_serial;
+    std::vector<std::string> disc_members;
     uint64_t game_hash;
 
     RomEntry() : game_hash(0) {}
@@ -257,8 +260,33 @@ static GLuint g_disc_body_vbo = 0;
 static GLuint g_disc_top_vao = 0;
 static GLuint g_disc_top_vbo = 0;
 static GLuint g_disc_white_texture = 0;
+static ImFont *g_font_body = NULL;
+static ImFont *g_font_title = NULL;
+static ImFont *g_font_small = NULL;
 
 static bool upload_disc_mesh();
+
+static void init_menu_fonts()
+{
+    ImGuiIO &io = ImGui::GetIO();
+    const char *font_path = "app0:Roboto.ttf";
+    g_font_body = io.Fonts->AddFontFromFileTTF(font_path, 18.0f);
+    if (g_font_body) {
+        g_font_title = io.Fonts->AddFontFromFileTTF(font_path, 28.0f);
+        g_font_small = io.Fonts->AddFontFromFileTTF(font_path, 14.0f);
+        io.FontDefault = g_font_body;
+    } else {
+        g_font_body = io.Fonts->AddFontDefault();
+        g_font_title = g_font_body;
+        g_font_small = g_font_body;
+        sceClibPrintf("[ROMSEL] Roboto unavailable; using default font\n");
+    }
+}
+
+static ImFont *menu_font(ImFont *font)
+{
+    return font ? font : ImGui::GetFont();
+}
 
 static GLuint compile_shader(GLenum type, const char *source)
 {
@@ -1190,13 +1218,14 @@ static void scan_roms(std::vector<RomEntry> &roms)
     for (size_t i = 0; i < roms.size(); ++i) {
         if (!ends_with_ci(roms[i].path, ".m3u"))
             continue;
-        const std::vector<std::string> members = read_m3u_members(roms[i].path);
-        bool complete = !members.empty();
-        for (size_t j = 0; j < members.size(); ++j)
-            if (!file_exists(members[j].c_str()))
+        roms[i].disc_members = read_m3u_members(roms[i].path);
+        bool complete = !roms[i].disc_members.empty();
+        for (size_t j = 0; j < roms[i].disc_members.size(); ++j)
+            if (!file_exists(roms[i].disc_members[j].c_str()))
                 complete = false;
         if (complete)
-            playlist_members.insert(playlist_members.end(), members.begin(), members.end());
+            playlist_members.insert(playlist_members.end(),
+                roms[i].disc_members.begin(), roms[i].disc_members.end());
     }
 
     std::vector<RomEntry> filtered;
@@ -1493,20 +1522,28 @@ static void destroy_disc_mesh()
     g_disc_mesh = DiscMesh();
 }
 
-static GLuint load_cover_texture(const std::string &path)
+static GLuint load_png_texture(const std::string &path, int max_w, int max_h,
+                               int *out_width = NULL, int *out_height = NULL)
 {
     png_image image;
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
     if (!png_image_begin_read_from_file(&image, path.c_str())) {
-        sceClibPrintf("[ROMSEL] cover PNG open failed: %s (%s)\n", path.c_str(), image.message);
+        sceClibPrintf("[ROMSEL] PNG open failed: %s (%s)\n", path.c_str(), image.message);
         return 0;
     }
 
+    if (!image.width || !image.height || image.width > 2048 || image.height > 2048 ||
+        (uint64_t)image.width * image.height > 3000000u) {
+        sceClibPrintf("[ROMSEL] PNG too large: %s (%ux%u)\n",
+            path.c_str(), (unsigned)image.width, (unsigned)image.height);
+        png_image_free(&image);
+        return 0;
+    }
     image.format = PNG_FORMAT_RGBA;
     std::vector<unsigned char> pixels(PNG_IMAGE_SIZE(image));
     if (!png_image_finish_read(&image, NULL, pixels.data(), 0, NULL)) {
-        sceClibPrintf("[ROMSEL] cover PNG decode failed: %s (%s)\n", path.c_str(), image.message);
+        sceClibPrintf("[ROMSEL] PNG decode failed: %s (%s)\n", path.c_str(), image.message);
         png_image_free(&image);
         return 0;
     }
@@ -1515,9 +1552,9 @@ static GLuint load_cover_texture(const std::string &path)
     const int src_h = (int)image.height;
     int dst_w = src_w;
     int dst_h = src_h;
-    if (dst_w > COVER_UPLOAD_MAX || dst_h > COVER_UPLOAD_MAX) {
-        const float scale = std::min((float)COVER_UPLOAD_MAX / (float)dst_w,
-                                     (float)COVER_UPLOAD_MAX / (float)dst_h);
+    if (dst_w > max_w || dst_h > max_h) {
+        const float scale = std::min((float)max_w / (float)dst_w,
+                                     (float)max_h / (float)dst_h);
         dst_w = std::max(1, (int)(dst_w * scale));
         dst_h = std::max(1, (int)(dst_h * scale));
     }
@@ -1550,7 +1587,66 @@ static GLuint load_cover_texture(const std::string &path)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     png_image_free(&image);
+    if (out_width)
+        *out_width = dst_w;
+    if (out_height)
+        *out_height = dst_h;
     return texture;
+}
+
+static void draw_selector_background(GLuint texture, int width, int height)
+{
+    const GLuint source = texture ? texture : g_disc_white_texture;
+    if (!source)
+        return;
+
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    if (texture && width > 0 && height > 0) {
+        const float image_ratio = (float)width / (float)height;
+        const float screen_ratio = (float)MENU_W / (float)MENU_H;
+        if (image_ratio > screen_ratio) {
+            u0 = (1.0f - screen_ratio / image_ratio) * 0.5f;
+            u1 = 1.0f - u0;
+        } else {
+            v0 = (1.0f - image_ratio / screen_ratio) * 0.5f;
+            v1 = 1.0f - v0;
+        }
+    }
+
+    const ImVec2 positions[4] = {
+        ImVec2(0, 0), ImVec2((float)MENU_W, 0),
+        ImVec2((float)MENU_W, (float)MENU_H), ImVec2(0, (float)MENU_H)
+    };
+    const ImVec2 uvs[4] = {
+        ImVec2(u0, v0), ImVec2(u1, v0), ImVec2(u1, v1), ImVec2(u0, v1)
+    };
+    const ImU32 top = texture ? IM_COL32(165, 172, 198, 255) : IM_COL32(14, 17, 31, 255);
+    const ImU32 bottom = texture ? IM_COL32(122, 135, 184, 255) : IM_COL32(25, 32, 73, 255);
+    const int corners[] = { 0, 1, 2, 0, 2, 3 };
+    ImDrawVert quad[6];
+    for (int i = 0; i < 6; ++i) {
+        const int corner = corners[i];
+        quad[i].pos = positions[corner];
+        quad[i].uv = uvs[corner];
+        quad[i].col = corner < 2 ? top : bottom;
+    }
+
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glUseProgram(g_imgui_program);
+    if (g_imgui_screen_loc >= 0)
+        glUniform4f(g_imgui_screen_loc, (float)MENU_W, (float)MENU_H, 0, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, source);
+    glBindVertexArray(g_imgui_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, g_imgui_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glDepthMask(GL_TRUE);
 }
 
 static GLuint get_cover_texture(const std::string &path)
@@ -1578,7 +1674,7 @@ static GLuint get_cover_texture(const std::string &path)
         }
     }
 
-    GLuint texture = load_cover_texture(path);
+    GLuint texture = load_png_texture(path, COVER_UPLOAD_MAX, COVER_UPLOAD_MAX);
     if (!texture)
         return 0;
 
@@ -1642,6 +1738,104 @@ static void draw_disc(float cx, float cy, float z, float radius, float yaw, floa
 static float disc_idle_offset(float idle_time, int index)
 {
     return sinf(idle_time * 1.6f + (float)index * 0.58f) * 7.0f;
+}
+
+enum PadHint {
+    PAD_HINT_CROSS,
+    PAD_HINT_CIRCLE,
+    PAD_HINT_SQUARE,
+    PAD_HINT_TRIANGLE,
+    PAD_HINT_DPAD,
+    PAD_HINT_START
+};
+
+static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const char *label)
+{
+    const ImVec2 center(pos.x + 10.0f, pos.y + 10.0f);
+    const ImU32 outline = IM_COL32(46, 57, 88, 230);
+    ImU32 glyph = IM_COL32(107, 172, 255, 255);
+    if (button == PAD_HINT_CIRCLE)
+        glyph = IM_COL32(249, 112, 125, 255);
+    else if (button == PAD_HINT_TRIANGLE)
+        glyph = IM_COL32(93, 218, 165, 255);
+    else if (button == PAD_HINT_SQUARE)
+        glyph = IM_COL32(223, 145, 218, 255);
+
+    draw->AddCircleFilled(center, 11.0f, outline, 24);
+    if (button == PAD_HINT_CROSS) {
+        draw->AddLine(ImVec2(center.x - 4, center.y - 4),
+            ImVec2(center.x + 4, center.y + 4), glyph, 2.0f);
+        draw->AddLine(ImVec2(center.x + 4, center.y - 4),
+            ImVec2(center.x - 4, center.y + 4), glyph, 2.0f);
+    } else if (button == PAD_HINT_CIRCLE) {
+        draw->AddCircle(center, 5.0f, glyph, 20, 2.0f);
+    } else if (button == PAD_HINT_SQUARE) {
+        draw->AddRect(ImVec2(center.x - 5, center.y - 5),
+            ImVec2(center.x + 5, center.y + 5), glyph, 0, 0, 1.8f);
+    } else if (button == PAD_HINT_TRIANGLE) {
+        draw->AddTriangle(ImVec2(center.x, center.y - 5.5f),
+            ImVec2(center.x + 5.8f, center.y + 4.8f),
+            ImVec2(center.x - 5.8f, center.y + 4.8f), glyph, 1.8f);
+    } else if (button == PAD_HINT_DPAD) {
+        draw->AddLine(ImVec2(center.x - 6, center.y),
+            ImVec2(center.x - 2, center.y - 4), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x - 6, center.y),
+            ImVec2(center.x - 2, center.y + 4), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x + 6, center.y),
+            ImVec2(center.x + 2, center.y - 4), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x + 6, center.y),
+            ImVec2(center.x + 2, center.y + 4), glyph, 1.6f);
+    } else {
+        draw->AddLine(ImVec2(center.x - 4, center.y - 2),
+            ImVec2(center.x + 4, center.y - 2), glyph, 1.8f);
+        draw->AddLine(ImVec2(center.x - 4, center.y + 2),
+            ImVec2(center.x + 4, center.y + 2), glyph, 1.8f);
+    }
+    ImFont *font = menu_font(g_font_small);
+    draw->AddText(font, font->FontSize, ImVec2(pos.x + 27.0f, pos.y + 1.0f),
+        IM_COL32(225, 231, 247, 255), label);
+}
+
+static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
+                             bool pause_main = false)
+{
+    draw->AddRectFilled(ImVec2(0, 496), ImVec2(MENU_W, MENU_H),
+        IM_COL32(9, 12, 26, 195));
+    draw->AddLine(ImVec2(0, 496), ImVec2(MENU_W, 496),
+        IM_COL32(150, 167, 218, 35), 1.0f);
+    const float y = 510.0f;
+    if (selector) {
+        draw_pad_hint(draw, ImVec2(32, y), PAD_HINT_CROSS, "Play");
+        draw_pad_hint(draw, ImVec2(121, y), PAD_HINT_DPAD, "Browse");
+        draw_pad_hint(draw, ImVec2(232, y), PAD_HINT_SQUARE, "Mark");
+        draw_pad_hint(draw, ImVec2(334, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
+        draw_pad_hint(draw, ImVec2(465, y), PAD_HINT_START, "Options");
+        draw_pad_hint(draw, ImVec2(859, y), PAD_HINT_CIRCLE, "Exit");
+    } else {
+        draw_pad_hint(draw, ImVec2(122, y), PAD_HINT_DPAD, "Select");
+        draw_pad_hint(draw, ImVec2(286, y), PAD_HINT_CROSS, "Confirm");
+        if (pause_main)
+            draw_pad_hint(draw, ImVec2(698, y), PAD_HINT_START, "Start+Select: Resume");
+        else
+            draw_pad_hint(draw, ImVec2(746, y), PAD_HINT_SQUARE, "Back");
+    }
+}
+
+static std::string fit_ui_title(std::string title, ImFont *font, float width)
+{
+    if (font->CalcTextSizeA(font->FontSize, 10000.0f, 0, title.c_str()).x <= width)
+        return title;
+    while (!title.empty()) {
+        unsigned char removed;
+        do {
+            removed = (unsigned char)title.back();
+            title.pop_back();
+        } while (!title.empty() && (removed & 0xc0u) == 0x80u);
+        const std::string clipped = title + "...";
+        if (font->CalcTextSizeA(font->FontSize, 10000.0f, 0, clipped.c_str()).x <= width)
+            return clipped;
+    }
+    return "...";
 }
 
 static void restore_ui_state()
@@ -1944,10 +2138,7 @@ static void draw_selector_options(int selected)
         ImGui::PopStyleColor();
     }
 
-    const char *hint = "Up/Down: Select    Left/Right or X: Change    Square/Triangle: Back";
-    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 34.0f));
-    ImGui::Text("%s", hint);
+    draw_menu_footer(draw, false, false);
 
     ImGui::End();
     ImGui::PopStyleColor(2);
@@ -1961,71 +2152,159 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
     ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
     ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("ROM Selector", NULL,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
         ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-    ImGui::SetCursorPos(ImVec2(24.0f, 18.0f));
-    ImGui::Text("PCSX AwO");
     ImDrawList *draw = ImGui::GetWindowDrawList();
-
-    char count[64];
-    snprintf(count, sizeof(count), "%u games", (unsigned)roms.size());
-    const ImVec2 count_size = ImGui::CalcTextSize(count);
-    ImGui::SetCursorPos(ImVec2(MENU_W - count_size.x - 24.0f, 18.0f));
-    ImGui::Text("%s", count);
+    ImFont *body = menu_font(g_font_body);
+    ImFont *small = menu_font(g_font_small);
+    ImFont *title_font = menu_font(g_font_title);
+    draw->AddText(body, body->FontSize, ImVec2(32, 18),
+        IM_COL32(240, 243, 252, 255), "pcsx");
+    draw->AddText(body, body->FontSize, ImVec2(70, 18),
+        IM_COL32(249, 188, 56, 255), "awo");
+    char counter[48];
+    snprintf(counter, sizeof(counter), "%u / %u", roms.empty() ? 0u : (unsigned)selected + 1,
+             (unsigned)roms.size());
+    draw->AddText(small, small->FontSize, ImVec2(127, 22),
+        IM_COL32(162, 174, 206, 255), counter);
+    draw->AddRectFilled(ImVec2(816, 15), ImVec2(938, 39),
+        IM_COL32(79, 37, 59, 195), 12.0f);
+    draw->AddText(small, small->FontSize, ImVec2(827, 19),
+        IM_COL32(255, 171, 193, 255), "Sony PlayStation");
 
     for (size_t i = 0; i < marked.size(); ++i) {
         const float distance = (float)marked[i] - carousel_position;
         const float abs_distance = fabsf(distance);
         if (abs_distance > 3.2f)
             continue;
-        const float radius = 142.0f * std::max(0.50f, 1.0f - abs_distance * 0.19f);
-        const float x = MENU_W * 0.5f + distance * 228.0f + radius * 0.65f;
-        const float y = 268.0f + abs_distance * 12.0f +
+        const float radius = 128.0f * std::max(0.50f, 1.0f - abs_distance * 0.19f);
+        const float x = 282.0f + distance * 176.0f + radius * 0.65f;
+        const float y = 267.0f + abs_distance * 12.0f +
                         disc_idle_offset(idle_time, marked[i]) - radius * 0.67f;
-        draw->AddCircleFilled(ImVec2(x, y), 15.0f, IM_COL32(0, 190, 220, 245));
+        if (x > 586.0f)
+            continue;
+        draw->AddCircleFilled(ImVec2(x, y), 14.0f, IM_COL32(248, 188, 61, 250));
         char label[8];
         snprintf(label, sizeof(label), "%u", (unsigned)i + 1);
-        const ImVec2 size = ImGui::CalcTextSize(label);
-        draw->AddText(ImVec2(x - size.x * 0.5f, y - size.y * 0.5f),
-                      IM_COL32(0, 22, 30, 255), label);
-    }
-
-    if (!feedback.empty()) {
-        const ImVec2 size = ImGui::CalcTextSize(feedback.c_str());
-        ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, 59.0f));
-        ImGui::Text("%s", feedback.c_str());
+        const ImVec2 size = small->CalcTextSizeA(small->FontSize, 80, 0, label);
+        draw->AddText(small, small->FontSize,
+            ImVec2(x - size.x * 0.5f, y - size.y * 0.5f),
+            IM_COL32(25, 27, 42, 255), label);
     }
 
     if (!roms.empty()) {
-        if (!marked.empty()) {
-            char selection[80];
-            snprintf(selection, sizeof(selection), "%u discs marked - Triangle: Create playlist",
-                     (unsigned)marked.size());
-            const ImVec2 size = ImGui::CalcTextSize(selection);
-            ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, MENU_H - 100.0f));
-            ImGui::Text("%s", selection);
-        }
-        const char *title = roms[selected].title.c_str();
-        const ImVec2 title_size = ImGui::CalcTextSize(title);
-        ImGui::SetCursorPos(ImVec2((MENU_W - title_size.x) * 0.5f, MENU_H - 72.0f));
-        ImGui::Text("%s", title);
+        const RomEntry &rom = roms[selected];
+        const float px = 588.0f, py = 56.0f, pw = 356.0f, ph = 430.0f;
+        draw->AddRectFilled(ImVec2(px, py), ImVec2(px + pw, py + ph),
+            IM_COL32(21, 27, 52, 239), 12.0f);
+        draw->AddRect(ImVec2(px, py), ImVec2(px + pw, py + ph),
+            IM_COL32(92, 107, 161, 54), 12.0f);
+        draw->PushClipRect(ImVec2(px + 16, 70), ImVec2(px + pw - 16, 120), true);
+        const std::string display_title = fit_ui_title(title_root(rom.title),
+            title_font, pw - 32.0f);
+        draw->AddText(title_font, title_font->FontSize, ImVec2(px + 16, 75),
+            IM_COL32(243, 245, 255, 255), display_title.c_str());
+        draw->PopClipRect();
+        draw->AddText(small, small->FontSize, ImVec2(px + 16, 123),
+            IM_COL32(164, 174, 204, 255), "Sony PlayStation  /  PS1");
+        draw->AddLine(ImVec2(px + 16, 157), ImVec2(px + pw - 16, 157),
+            IM_COL32(102, 116, 162, 65), 1.0f);
 
-        const char *hint = "Left/Right: Select   X: Play   Square: Mark   Triangle: Group   Start: Options   Circle: Exit";
-        const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-        ImGui::SetCursorPos(ImVec2((MENU_W - hint_size.x) * 0.5f, MENU_H - 40.0f));
-        ImGui::Text("%s", hint);
+        const bool playlist = ends_with_ci(rom.name, ".m3u");
+        if (playlist) {
+            const std::vector<std::string> &discs = rom.disc_members;
+            char subtitle[64];
+            snprintf(subtitle, sizeof(subtitle), "DISC SET  /  %u DISCS", (unsigned)discs.size());
+            draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
+                IM_COL32(250, 191, 69, 255), subtitle);
+            const float row_height = discs.size() > 5 ? 33.0f : 47.0f;
+            for (size_t i = 0; i < discs.size(); ++i) {
+                const float y = 200.0f + (float)i * row_height;
+                if (y + row_height >= py + ph - 15.0f)
+                    break;
+                if (i == 0) {
+                    draw->AddRectFilled(ImVec2(px + 10, y),
+                        ImVec2(px + pw - 10, y + row_height - 3),
+                        IM_COL32(107, 85, 55, 135), 5.0f);
+                    draw->AddRectFilled(ImVec2(px + 10, y),
+                        ImVec2(px + 13, y + row_height - 3),
+                        IM_COL32(255, 193, 61, 255));
+                }
+                char disc_label[24];
+                snprintf(disc_label, sizeof(disc_label), "DISC %u", (unsigned)i + 1);
+                draw->AddText(small, small->FontSize, ImVec2(px + 22, y + 5),
+                    i == 0 ? IM_COL32(255, 214, 124, 255) : IM_COL32(225, 231, 249, 255),
+                    disc_label);
+                if (i == 0) {
+                    draw->AddText(small, small->FontSize, ImVec2(px + pw - 71, y + 5),
+                        IM_COL32(255, 214, 124, 255), "BOOT");
+                }
+                if (row_height > 40.0f) {
+                    const std::string &path = discs[i];
+                    const size_t slash = path.find_last_of("/\\");
+                    const std::string filename = path.substr(slash == std::string::npos ? 0 : slash + 1);
+                    draw->PushClipRect(ImVec2(px + 22, y + 22),
+                        ImVec2(px + pw - 18, y + row_height - 3), true);
+                    draw->AddText(small, small->FontSize, ImVec2(px + 22, y + 24),
+                        IM_COL32(160, 172, 203, 255), filename.c_str());
+                    draw->PopClipRect();
+                }
+            }
+            draw->AddText(small, small->FontSize, ImVec2(px + 17, py + ph - 27),
+                IM_COL32(157, 170, 207, 255), "Swap discs in the pause menu");
+        } else {
+            draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
+                IM_COL32(250, 191, 69, 255), "GAME DETAILS");
+            const std::string region = region_tag(rom.title);
+            const std::string disc_id = rom.disc_serial.empty() ? "Not detected" : rom.disc_serial;
+            const size_t extension = rom.name.find_last_of('.');
+            const std::string format = extension == std::string::npos ? "Unknown" : rom.name.substr(extension + 1);
+            const char *renderer = VitaSettings_GetOption("vita_renderer");
+            const char *backend = renderer && strcmp(renderer, "neon") == 0 ?
+                "ReARMed NEON" : "High Octane";
+            const char *labels[] = { "REGION", "DISC ID", "FORMAT", "RENDERER" };
+            const std::string values[] = { region.empty() ? "Unknown" : region, disc_id, format, backend };
+            for (int i = 0; i < 4; ++i) {
+                const float y = 206.0f + i * 57.0f;
+                draw->AddText(small, small->FontSize, ImVec2(px + 17, y),
+                    IM_COL32(143, 157, 194, 255), labels[i]);
+                draw->AddText(body, body->FontSize, ImVec2(px + 17, y + 18),
+                    IM_COL32(233, 238, 253, 255), values[i].c_str());
+            }
+        }
+        if (!marked.empty()) {
+            char marked_label[64];
+            snprintf(marked_label, sizeof(marked_label), "%u discs selected",
+                (unsigned)marked.size());
+            draw->AddText(body, body->FontSize, ImVec2(34, 457),
+                IM_COL32(255, 214, 124, 255), marked_label);
+        } else {
+            draw->AddText(small, small->FontSize, ImVec2(34, 464),
+                IM_COL32(172, 183, 215, 255), "RIGHT STICK  /  ROTATE DISC");
+        }
     } else {
-        const char *empty = "No PlayStation games found in ux0:data/pcsx-awo/roms";
-        const ImVec2 size = ImGui::CalcTextSize(empty);
-        ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, MENU_H * 0.5f));
-        ImGui::Text("%s", empty);
+        draw->AddText(title_font, title_font->FontSize, ImVec2(205, 228),
+            IM_COL32(240, 242, 251, 255), "No PlayStation games found");
+        draw->AddText(small, small->FontSize, ImVec2(308, 272),
+            IM_COL32(166, 177, 209, 255), "ux0:data/pcsx-awo/roms");
     }
 
+    if (!feedback.empty()) {
+        draw->AddRectFilled(ImVec2(28, 411), ImVec2(576, 447),
+            IM_COL32(28, 36, 66, 230), 6.0f);
+        draw->PushClipRect(ImVec2(38, 418), ImVec2(563, 440), true);
+        draw->AddText(small, small->FontSize, ImVec2(41, 421),
+            IM_COL32(248, 211, 137, 255), feedback.c_str());
+        draw->PopClipRect();
+    }
+    draw_menu_footer(draw, true, !marked.empty());
     ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
@@ -2086,10 +2365,7 @@ static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
         }
     }
 
-    const char *hint = "Up/Down: Select    X: Confirm    Start+Select: Resume";
-    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
-    ImGui::Text("%s", hint);
+    draw_menu_footer(draw, false, false, true);
     ImGui::End();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
@@ -2157,10 +2433,7 @@ static void draw_save_states_menu(int selected, const char *game_path)
         }
     }
 
-    const char *hint = "Up/Down: Select    Left/Right: Slot    X: Confirm    Square/Triangle: Back";
-    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
-    ImGui::Text("%s", hint);
+    draw_menu_footer(draw, false, false);
     ImGui::End();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
@@ -2213,10 +2486,7 @@ static void draw_disc_menu(unsigned selected, const VitaDiscInfo *discs)
         }
     }
 
-    const char *hint = "Up/Down: Select    X: Insert    Square/Triangle: Back";
-    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
-    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
-    ImGui::Text("%s", hint);
+    draw_menu_footer(draw, false, false);
     ImGui::End();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
@@ -2228,6 +2498,7 @@ static void pause_menu_task(void *arg)
     task->result = 0;
 
     ImGui::CreateContext();
+    init_menu_fonts();
     if (!ImGui_ImplVitaGL_Init()) {
         sceClibPrintf("[PAUSE] ImGui init failed\n");
         ImGui::DestroyContext();
@@ -2407,6 +2678,7 @@ static void selector_task(void *arg)
         roms[i].cover_path = resolve_rom_cover(roms[i], covers);
 
     ImGui::CreateContext();
+    init_menu_fonts();
     if (!ImGui_ImplVitaGL_Init()) {
         sceClibPrintf("[ROMSEL] ImGui init failed\n");
         ImGui::DestroyContext();
@@ -2420,6 +2692,14 @@ static void selector_task(void *arg)
     ImGui::StyleColorsDark();
     ImGui::GetStyle().WindowBorderSize = 0.0f;
     ImGui::GetStyle().WindowRounding = 0.0f;
+
+    ImGui_ImplVitaGL_InvalidateDeviceObjects();
+    if (!ImGui_ImplVitaGL_CreateDeviceObjects()) {
+        sceClibPrintf("[ROMSEL] ImGui font texture creation failed\n");
+        ImGui_ImplVitaGL_Shutdown();
+        ImGui::DestroyContext();
+        return;
+    }
 
     if (!create_imgui_program()) {
         sceClibPrintf("[ROMSEL] ImGui custom shader failed\n");
@@ -2441,6 +2721,14 @@ static void selector_task(void *arg)
         ImGui::DestroyContext();
         return;
     }
+
+    GLuint background_texture = 0;
+    int background_width = 0, background_height = 0;
+    const std::string background_path = std::string(PCSX_AWO_APP_ROOT) + "/bg.png";
+    if (file_exists(background_path.c_str()))
+        background_texture = load_png_texture(background_path,
+            BACKGROUND_UPLOAD_W, BACKGROUND_UPLOAD_H,
+            &background_width, &background_height);
 
     task->result = 0;
 
@@ -2616,6 +2904,7 @@ static void selector_task(void *arg)
         glViewport(0, 0, MENU_W, MENU_H);
         glClearColor(0.025f, 0.030f, 0.040f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        draw_selector_background(background_texture, background_width, background_height);
 
         if (!roms.empty()) {
             glEnable(GL_DEPTH_TEST);
@@ -2626,8 +2915,8 @@ static void selector_task(void *arg)
 
             const int begin = std::max(0, selected - 3);
             const int end = std::min((int)roms.size() - 1, selected + 3);
-            const float center_x = MENU_W * 0.5f;
-            const float center_y = 268.0f;
+            const float center_x = 282.0f;
+            const float center_y = 267.0f;
 
             for (int pass = 0; pass < 2; ++pass) {
                 for (int index = begin; index <= end; ++index) {
@@ -2641,13 +2930,15 @@ static void selector_task(void *arg)
                         continue;
 
                     const float scale = std::max(0.50f, 1.0f - abs_distance * 0.19f);
-                    const float x = center_x + distance * 228.0f;
+                    const float x = center_x + distance * 176.0f;
                     const float y = center_y + abs_distance * 12.0f +
                                     disc_idle_offset(idle_time, index);
                     const float z = 80.0f - abs_distance * 28.0f;
                     const float yaw = -distance * 18.0f - 7.0f + (is_selected ? manual_yaw : 0.0f);
                     const float pitch = 25.0f + (is_selected ? manual_pitch : 0.0f);
-                    const float radius = 142.0f * scale;
+                    const float radius = 128.0f * scale;
+                    if (x - radius > 588.0f || x + radius < -5.0f)
+                        continue;
                     GLuint cover = 0;
                     if (is_selected || abs_distance <= 2.1f)
                         cover = get_cover_texture(roms[index].cover_path);
@@ -2670,6 +2961,8 @@ static void selector_task(void *arg)
     }
 
     glFinish();
+    if (background_texture)
+        glDeleteTextures(1, &background_texture);
     destroy_cover_cache();
     destroy_disc_mesh();
     if (g_disc_white_texture)

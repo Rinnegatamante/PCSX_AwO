@@ -61,10 +61,10 @@ $(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ)
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
-$(TARGET).vpk: $(TARGET).velf
+$(TARGET).vpk: $(TARGET).velf Roboto.ttf assets/Apache-2.0.txt
 	vita-make-fself -c -s -na $< eboot.bin
 	vita-mksfoex -s TITLE_ID=$(TITLE_ID) -d ATTRIBUTE2=12 "$(TITLE)" param.sfo
-	vita-pack-vpk -s param.sfo -b eboot.bin $@
+	vita-pack-vpk -s param.sfo -b eboot.bin -a Roboto.ttf=Roboto.ttf -a assets/Apache-2.0.txt=licenses/Roboto-Apache-2.0.txt $@
 
 clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
