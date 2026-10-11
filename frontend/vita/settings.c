@@ -27,7 +27,6 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_neon_interlace_enable_v2", "auto", {0} },
     { "pcsx_rearmed_neon_enhancement_enable", "disabled", {0} },
     { "pcsx_rearmed_scale_hires", "disabled", {0} },
-    { "pcsx_rearmed_gpu_thread_rendering", "disabled", {0} },
     { "pcsx_rearmed_spu_reverb", "enabled", {0} },
     { "pcsx_rearmed_spu_interpolation", "gaussian", {0} },
     { "pcsx_rearmed_nocdaudio", "enabled", {0} },
@@ -41,6 +40,7 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_alt_flip", "auto", {0} },
     { "pcsx_rearmed_screen_centering", "borderless", {0} },
     { "vita_aspect_ratio", "4:3", {0} },
+    { "vita_renderer", "high_octane", {0} },
 };
 
 static bool g_dirty;

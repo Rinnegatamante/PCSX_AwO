@@ -158,6 +158,10 @@ static const OptionChoice k_aspect_choices[] = {
     { "16:9_stretched", "16:9 Stretched" },
     { "16:9_unstretched", "16:9 Unstretched" }
 };
+static const OptionChoice k_renderer_choices[] = {
+    { "neon", "ReARMed (Neon)" },
+    { "high_octane", "High Octane (VitaGL)" }
+};
 
 static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
@@ -166,7 +170,8 @@ static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "PSX CPU Clock", "Changes the emulated PlayStation CPU clock. Leave on Auto unless a game needs different CPU timing.", "pcsx_rearmed_psxclock", NULL, 0, true },
     { "SYSTEM", "Turbo CD", "Accelerates the emulated CD-ROM timing to reduce loading times. Some games rely on original drive timing and may misbehave, so disable it if a title has loading or streaming problems.", "pcsx_rearmed_cd_turbo", k_toggle_choices, 2, false },
     { "SYSTEM", "CD Read-Ahead", "Caches upcoming sectors on a background thread. This reduces storage stalls without changing PlayStation CD-ROM timing.", "pcsx_rearmed_cd_readahead", k_cd_readahead_choices, 6, false },
-    { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched uses an experimental widescreen projection that preserves geometry proportions and can reveal extra horizontal content, but some games may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
+    { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched is exclusive to High Octane and uses an experimental widescreen projection that may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
+    { "VIDEO", "Renderer", "ReARMed is the original NEON software rasterizer; High Octane uses the Vita GPU through vitaGL. Applied when starting or restarting a game.", "vita_renderer", k_renderer_choices, 2, false },
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
@@ -175,6 +180,16 @@ static const SelectorOption k_selector_options[] = {
     { "AUDIO", "CD Audio", "Enables CD-DA audio tracks used by games that stream music directly from the disc.", "pcsx_rearmed_nocdaudio", k_toggle_choices, 2, false },
     { "AUDIO", "XA Decoding", "Enables XA audio decoding for streamed voices, music and sound effects stored on the disc.", "pcsx_rearmed_noxadecoding", k_toggle_choices, 2, false },
 };
+
+static bool selector_choice_available(const SelectorOption &option, int index)
+{
+    if (strcmp(option.key, "vita_aspect_ratio") == 0 &&
+        strcmp(option.choices[index].value, "16:9_unstretched") == 0) {
+        const char *renderer = VitaSettings_GetOption("vita_renderer");
+        return !renderer || strcmp(renderer, "neon") != 0;
+    }
+    return true;
+}
 
 struct OverlayGLState {
     GLint framebuffer;
@@ -1548,6 +1563,9 @@ static void apply_aspect_setting(void)
         mode = 1;
     else if (value && strcmp(value, "16:9_unstretched") == 0)
         mode = 2;
+    const char *renderer = VitaSettings_GetOption("vita_renderer");
+    if (renderer && strcmp(renderer, "neon") == 0 && mode == 2)
+        mode = 0;
     VitaCtrNativeRenderer_SetAspectMode(mode);
 }
 
@@ -1585,15 +1603,20 @@ static void adjust_selector_option(int option_index, int direction)
         }
     }
 
-    current_index += direction > 0 ? 1 : -1;
-    if (current_index < 0)
-        current_index = option.choice_count - 1;
-    if (current_index >= option.choice_count)
-        current_index = 0;
+    for (int tries = 0; tries < option.choice_count; ++tries) {
+        current_index += direction > 0 ? 1 : -1;
+        if (current_index < 0)
+            current_index = option.choice_count - 1;
+        if (current_index >= option.choice_count)
+            current_index = 0;
+        if (selector_choice_available(option, current_index))
+            break;
+    }
 
     if (VitaSettings_SetOption(option.key, option.choices[current_index].value)) {
         VitaSettings_Save();
-        if (strcmp(option.key, "vita_aspect_ratio") == 0)
+        if (strcmp(option.key, "vita_aspect_ratio") == 0 ||
+            strcmp(option.key, "vita_renderer") == 0)
             apply_aspect_setting();
     }
 }
@@ -1689,7 +1712,14 @@ static void draw_selector_options(int selected)
             const std::string value = selector_option_value(option);
             const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
             ImGui::SetCursorPos(ImVec2(option_right - value_size.x - 18.0f, y + 5.0f));
+            const bool inactive = strcmp(option.key, "vita_aspect_ratio") == 0 &&
+                !selector_choice_available(option,
+                    strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 ? 2 : 0);
+            if (inactive)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.47f, 0.49f, 1.0f));
             ImGui::Text("%s", value.c_str());
+            if (inactive)
+                ImGui::PopStyleColor();
         }
         y += row_h;
     }
@@ -1705,7 +1735,13 @@ static void draw_selector_options(int selected)
         ImGui::PushTextWrapPos(content_x + content_w);
         ImGui::PushClipRect(ImVec2(content_x, description_y),
             ImVec2(content_x + content_w, MENU_H - 43.0f), true);
-        ImGui::TextWrapped("%s", k_selector_options[selected].description);
+        const SelectorOption &option = k_selector_options[selected];
+        const bool inactive = strcmp(option.key, "vita_aspect_ratio") == 0 &&
+            strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 &&
+            !selector_choice_available(option, 2);
+        ImGui::TextWrapped("%s", inactive ?
+            "16:9 Unstretched requires High Octane. The saved selection is preserved and 4:3 is used with Neon." :
+            option.description);
         ImGui::PopClipRect();
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
