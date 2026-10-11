@@ -24,6 +24,7 @@
 
 #include "rom_selector.h"
 #include "disc_grouping.h"
+#include "launch_animation.h"
 #include "paths.h"
 #include "settings.h"
 #include "savestates.h"
@@ -252,6 +253,7 @@ static GLuint g_disc_program = 0;
 static GLint g_disc_screen_loc = -1;
 static GLint g_disc_center_loc = -1;
 static GLint g_disc_rotation_loc = -1;
+static GLint g_disc_roll_loc = -1;
 static GLint g_disc_scale_loc = -1;
 static GLint g_disc_tint_loc = -1;
 static GLint g_disc_texture_loc = -1;
@@ -402,6 +404,7 @@ static bool create_disc_program()
         "uniform vec4 u_screen;\n"
         "uniform vec4 u_center;\n"
         "uniform vec4 u_rotation;\n"
+        "uniform vec2 u_roll;\n"
         "uniform float u_scale;\n"
         "varying vec2 v_uv;\n"
         "varying vec4 v_color;\n"
@@ -411,7 +414,9 @@ static bool create_disc_program()
         "  float z1 = -u_rotation.y * p.x + u_rotation.x * p.z;\n"
         "  float y2 = u_rotation.z * p.y - u_rotation.w * z1;\n"
         "  float z2 = u_rotation.w * p.y + u_rotation.z * z1;\n"
-        "  vec3 world = vec3(x1 + u_center.x, y2 + u_center.y, z2 + u_center.z);\n"
+        "  vec2 rolled = vec2(u_roll.x * x1 - u_roll.y * y2,\n"
+        "                     u_roll.y * x1 + u_roll.x * y2);\n"
+        "  vec3 world = vec3(rolled.x + u_center.x, rolled.y + u_center.y, z2 + u_center.z);\n"
         "  vec2 clip = vec2(world.x * (2.0 / u_screen.x) - 1.0,\n"
         "                   1.0 - world.y * (2.0 / u_screen.y));\n"
         "  gl_Position = vec4(clip, -world.z / 1000.0, 1.0);\n"
@@ -497,6 +502,7 @@ static bool create_disc_program()
     g_disc_screen_loc = glGetUniformLocation(g_disc_program, "u_screen");
     g_disc_center_loc = glGetUniformLocation(g_disc_program, "u_center");
     g_disc_rotation_loc = glGetUniformLocation(g_disc_program, "u_rotation");
+    g_disc_roll_loc = glGetUniformLocation(g_disc_program, "u_roll");
     g_disc_scale_loc = glGetUniformLocation(g_disc_program, "u_scale");
     g_disc_tint_loc = glGetUniformLocation(g_disc_program, "u_tint");
     g_disc_texture_loc = glGetUniformLocation(g_disc_program, "u_texture");
@@ -1696,11 +1702,13 @@ static void destroy_cover_cache()
     }
 }
 
-static void draw_disc(float cx, float cy, float z, float radius, float yaw, float pitch, GLuint cover)
+static void draw_disc(float cx, float cy, float z, float radius, float yaw,
+                      float pitch, GLuint cover, float roll_degrees)
 {
     const float deg_to_rad = 0.01745329251994329577f;
     const float yr = yaw * deg_to_rad;
     const float pr = pitch * deg_to_rad;
+    const float rr = roll_degrees * deg_to_rad;
 
     glUseProgram(g_disc_program);
     if (g_disc_screen_loc >= 0)
@@ -1709,6 +1717,8 @@ static void draw_disc(float cx, float cy, float z, float radius, float yaw, floa
         glUniform4f(g_disc_center_loc, cx, cy, z, 0.0f);
     if (g_disc_rotation_loc >= 0)
         glUniform4f(g_disc_rotation_loc, cosf(yr), sinf(yr), cosf(pr), sinf(pr));
+    if (g_disc_roll_loc >= 0)
+        glUniform2f(g_disc_roll_loc, cosf(rr), sinf(rr));
     if (g_disc_scale_loc >= 0)
         glUniform1f(g_disc_scale_loc, radius);
 
@@ -2353,6 +2363,52 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
     ImGui::PopStyleVar();
 }
 
+static void draw_launch_overlay(const vita_launch_animation::Pose &pose,
+                                float center_x, float center_y)
+{
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiSetCond_Always);
+    ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::Begin("Launch Transition", NULL,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    if (pose.iris_active) {
+        const float radius = pose.iris_radius;
+        if (radius <= 1.0f) {
+            draw->AddRectFilled(ImVec2(0, 0),
+                ImVec2((float)MENU_W, (float)MENU_H), IM_COL32(0, 0, 0, 255));
+        } else {
+            const float tau = 6.2831853071795864769f;
+            const float outer_radius = 1500.0f;
+            const int segments = 72;
+            const ImU32 black = IM_COL32(0, 0, 0, 255);
+            const ImDrawListFlags flags = draw->Flags;
+            draw->Flags &= ~ImDrawListFlags_AntiAliasedFill;
+            for (int i = 0; i < segments; ++i) {
+                const float a = tau * (float)i / (float)segments;
+                const float b = tau * (float)(i + 1) / (float)segments;
+                const float ax = cosf(a), ay = sinf(a);
+                const float bx = cosf(b), by = sinf(b);
+                draw->AddQuadFilled(
+                    ImVec2(center_x + ax * radius, center_y + ay * radius),
+                    ImVec2(center_x + ax * outer_radius, center_y + ay * outer_radius),
+                    ImVec2(center_x + bx * outer_radius, center_y + by * outer_radius),
+                    ImVec2(center_x + bx * radius, center_y + by * radius), black);
+            }
+            draw->Flags = flags;
+            draw->AddCircle(ImVec2(center_x, center_y), radius, black, segments, 1.5f);
+        }
+    }
+
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -2381,9 +2437,9 @@ static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
         ImVec2((float)MENU_W - content_x, 126.0f),
         IM_COL32(220, 220, 220, 150), 1.0f);
 
-    static const char *items[] = { "Restart Game", "Change Disc", "Save States", "Options", "Close Game" };
+    static const char *items[] = { "Resume Game", "Restart Game", "Change Disc", "Save States", "Options", "Close Game" };
     const bool has_discs = discs && discs->count > 1;
-    const int item_count = has_discs ? 5 : 4;
+    const int item_count = has_discs ? 6 : 5;
     const float first_row_y = 154.0f;
     const float row_h = 46.0f;
     for (int i = 0; i < item_count; ++i) {
@@ -2397,8 +2453,8 @@ static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
                 IM_COL32(0, 190, 220, 255));
         }
         ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row_y + 14.0f));
-        ImGui::Text("%s", items[i + (!has_discs && i > 0 ? 1 : 0)]);
-        if (has_discs && i == 1) {
+        ImGui::Text("%s", items[i + (!has_discs && i > 1 ? 1 : 0)]);
+        if (has_discs && i == 2) {
             char status[40];
             if (discs->current < discs->count)
                 snprintf(status, sizeof(status), "Disc %u/%u", discs->current + 1, discs->count);
@@ -2577,7 +2633,7 @@ static void pause_menu_task(void *arg)
     int options_selected = 0;
     int save_states_selected = 0;
     const bool has_discs = task->discs && task->discs->count > 1;
-    const int item_count = has_discs ? 5 : 4;
+    const int item_count = has_discs ? 6 : 5;
     unsigned discs_selected = has_discs && task->discs->current < task->discs->count ?
         task->discs->current : 0;
     bool options_open = false;
@@ -2669,13 +2725,16 @@ static void pause_menu_task(void *arg)
                 selected = selected + 1 < item_count ? selected + 1 : 0;
             if (pressed & SCE_CTRL_CROSS) {
                 if (selected == 0) {
+                    task->result = VITA_PAUSE_RESUME;
+                    break;
+                } else if (selected == 1) {
                     task->result = VITA_PAUSE_RESTART;
                     break;
-                } else if (has_discs && selected == 1) {
+                } else if (has_discs && selected == 2) {
                     discs_open = true;
-                } else if (selected == (has_discs ? 2 : 1)) {
-                    save_states_open = true;
                 } else if (selected == (has_discs ? 3 : 2)) {
+                    save_states_open = true;
+                } else if (selected == (has_discs ? 4 : 3)) {
                     options_open = true;
                 } else {
                     task->result = VITA_PAUSE_CLOSE_GAME;
@@ -2792,6 +2851,14 @@ static void selector_task(void *arg)
     std::string feedback;
     float feedback_time = 0.0f;
     float idle_time = 0.0f;
+    bool launch_pending = false;
+    bool launching = false;
+    SceUInt64 launch_started = 0;
+    float launch_center_x = 282.0f;
+    float launch_center_y = 267.0f;
+    float launch_radius = 128.0f;
+    float launch_yaw = -7.0f;
+    float launch_pitch = 25.0f;
     uint32_t previous_buttons = 0;
     SceUInt64 previous_time = sceKernelGetProcessTimeWide();
 
@@ -2801,12 +2868,18 @@ static void selector_task(void *arg)
         previous_time = now;
         if (dt <= 0.0f || dt > 0.1f)
             dt = 1.0f / 60.0f;
-        idle_time += dt;
-        if (feedback_time > 0.0f) {
+        if (!launching)
+            idle_time += dt;
+        if (!launching && feedback_time > 0.0f) {
             feedback_time -= dt;
             if (feedback_time <= 0.0f)
                 feedback.clear();
         }
+
+        const float launch_time = launching ?
+            (float)(now - launch_started) / 1000000.0f : 0.0f;
+        if (launching && launch_time >= vita_launch_animation::kFinish)
+            break;
 
         SceCtrlData pad;
         memset(&pad, 0, sizeof(pad));
@@ -2815,7 +2888,7 @@ static void selector_task(void *arg)
         previous_buttons = pad.buttons;
         const bool options_was_open = options_open;
 
-        if (options_open) {
+        if (!launch_pending && !launching && options_open) {
             const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
             if (pressed & SCE_CTRL_UP) {
                 options_selected--;
@@ -2834,7 +2907,7 @@ static void selector_task(void *arg)
             if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE) ||
                 (pressed & SCE_CTRL_CIRCLE) || (pressed & SCE_CTRL_START))
                 options_open = false;
-        } else if (!roms.empty()) {
+        } else if (!launch_pending && !launching && !roms.empty()) {
             int held_dir = 0;
             const uint32_t prev_mask = SCE_CTRL_LEFT;
             const uint32_t next_mask = SCE_CTRL_RIGHT;
@@ -2926,9 +2999,9 @@ static void selector_task(void *arg)
                 snprintf(task->boot_disc->path, sizeof(task->boot_disc->path),
                     "%s", image_path.c_str());
                 task->result = 1;
-                break;
+                launch_pending = true;
             }
-            if (pressed & SCE_CTRL_SQUARE) {
+            if (!launch_pending && (pressed & SCE_CTRL_SQUARE)) {
                 std::vector<int>::iterator it = std::find(marked.begin(), marked.end(), selected);
                 if (it != marked.end()) {
                     marked.erase(it);
@@ -2944,7 +3017,7 @@ static void selector_task(void *arg)
                     marked.push_back(selected);
                 }
             }
-            if (pressed & SCE_CTRL_TRIANGLE) {
+            if (!launch_pending && (pressed & SCE_CTRL_TRIANGLE)) {
                 std::string created_path, reason;
                 if (create_disc_playlist(roms, marked, &created_path, &reason)) {
                     const unsigned grouped = (unsigned)marked.size();
@@ -2970,16 +3043,33 @@ static void selector_task(void *arg)
             }
         }
 
-        if (!options_was_open) {
+        if (!launching && !launch_pending && !options_was_open) {
             if (pressed & SCE_CTRL_START)
                 options_open = true;
             else if (pressed & SCE_CTRL_CIRCLE)
                 break;
         }
 
-        const float target = (float)selected;
-        const float blend = std::min(1.0f, dt * 10.0f);
-        carousel_position += (target - carousel_position) * blend;
+        if (!launching) {
+            const float target = (float)selected;
+            const float blend = std::min(1.0f, dt * 10.0f);
+            carousel_position += (target - carousel_position) * blend;
+        }
+        if (launch_pending && fabsf((float)selected - carousel_position) < 0.06f) {
+            const float distance = (float)selected - carousel_position;
+            const float abs_distance = fabsf(distance);
+            launch_center_x = 282.0f + distance * 176.0f;
+            launch_center_y = 267.0f + abs_distance * 12.0f +
+                disc_idle_offset(idle_time, selected);
+            launch_radius = 128.0f * std::max(0.50f, 1.0f - abs_distance * 0.19f);
+            launch_yaw = -distance * 18.0f - 7.0f + manual_yaw;
+            launch_pitch = 25.0f + manual_pitch;
+            launch_started = now;
+            launch_pending = false;
+            launching = true;
+        }
+        const vita_launch_animation::Pose launch_pose =
+            vita_launch_animation::sample(launch_time);
 
         ImGui_ImplVitaGL_NewFrame();
         glViewport(0, 0, MENU_W, MENU_H);
@@ -3011,13 +3101,21 @@ static void selector_task(void *arg)
                         continue;
 
                     const float scale = std::max(0.50f, 1.0f - abs_distance * 0.19f);
-                    const float x = center_x + distance * 176.0f;
-                    const float y = center_y + abs_distance * 12.0f +
-                                    disc_idle_offset(idle_time, index);
+                    float x = center_x + distance * 176.0f;
+                    float y = center_y + abs_distance * 12.0f +
+                              disc_idle_offset(idle_time, index);
                     const float z = 80.0f - abs_distance * 28.0f;
-                    const float yaw = -distance * 18.0f - 7.0f + (is_selected ? manual_yaw : 0.0f);
-                    const float pitch = 25.0f + (is_selected ? manual_pitch : 0.0f);
+                    float yaw = -distance * 18.0f - 7.0f + (is_selected ? manual_yaw : 0.0f);
+                    float pitch = 25.0f + (is_selected ? manual_pitch : 0.0f);
                     const float radius = 128.0f * scale;
+                    float roll = 0.0f;
+                    if (launching && is_selected) {
+                        x = launch_center_x;
+                        y = launch_center_y + launch_pose.drop_y;
+                        yaw = launch_yaw * (1.0f - launch_pose.face_blend);
+                        pitch = launch_pitch * (1.0f - launch_pose.face_blend);
+                        roll = launch_pose.roll_degrees;
+                    }
                     if (x - radius > 588.0f || x + radius < -5.0f)
                         continue;
                     GLuint cover = 0;
@@ -3026,13 +3124,16 @@ static void selector_task(void *arg)
 
                     if (is_selected)
                         glClear(GL_DEPTH_BUFFER_BIT);
-                    draw_disc(x, y, z, radius, yaw, pitch, cover);
+                    draw_disc(x, y, z, launching && is_selected ? launch_radius : radius,
+                        yaw, pitch, cover, roll);
                 }
             }
         }
 
         restore_ui_state();
-        if (options_open)
+        if (launching)
+            draw_launch_overlay(launch_pose, launch_center_x, (float)MENU_H + 12.0f);
+        else if (options_open)
             draw_selector_options(options_selected);
         else
             draw_text_overlay(roms, selected, marked, carousel_position, idle_time, feedback,
@@ -3053,7 +3154,7 @@ static void selector_task(void *arg)
     if (g_disc_program)
         glDeleteProgram(g_disc_program);
     g_disc_program = 0;
-    g_disc_screen_loc = g_disc_center_loc = g_disc_rotation_loc = -1;
+    g_disc_screen_loc = g_disc_center_loc = g_disc_rotation_loc = g_disc_roll_loc = -1;
     g_disc_scale_loc = g_disc_tint_loc = g_disc_texture_loc = g_disc_gloss_loc = -1;
     destroy_imgui_program();
     ImGui_ImplVitaGL_Shutdown();
