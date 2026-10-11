@@ -109,6 +109,7 @@ struct DiscGpuVertex {
 struct SelectorTask {
     char *out_path;
     size_t out_size;
+    VitaBootDisc *boot_disc;
     int result;
 };
 
@@ -1747,7 +1748,9 @@ enum PadHint {
     PAD_HINT_TRIANGLE,
     PAD_HINT_DPAD,
     PAD_HINT_START,
-    PAD_HINT_RIGHT_STICK
+    PAD_HINT_RIGHT_STICK,
+    PAD_HINT_DPAD_HORIZONTAL,
+    PAD_HINT_DPAD_VERTICAL
 };
 
 static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const char *label)
@@ -1777,23 +1780,29 @@ static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const ch
         draw->AddTriangle(ImVec2(center.x, center.y - 5.5f),
             ImVec2(center.x + 5.8f, center.y + 4.8f),
             ImVec2(center.x - 5.8f, center.y + 4.8f), glyph, 1.8f);
-    } else if (button == PAD_HINT_DPAD) {
-        draw->AddLine(ImVec2(center.x - 6, center.y),
-            ImVec2(center.x - 2, center.y - 4), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x - 6, center.y),
-            ImVec2(center.x - 2, center.y + 4), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x + 6, center.y),
-            ImVec2(center.x + 2, center.y - 4), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x + 6, center.y),
-            ImVec2(center.x + 2, center.y + 4), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x, center.y - 6),
-            ImVec2(center.x - 4, center.y - 2), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x, center.y - 6),
-            ImVec2(center.x + 4, center.y - 2), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x, center.y + 6),
-            ImVec2(center.x - 4, center.y + 2), glyph, 1.6f);
-        draw->AddLine(ImVec2(center.x, center.y + 6),
-            ImVec2(center.x + 4, center.y + 2), glyph, 1.6f);
+    } else if (button == PAD_HINT_DPAD ||
+               button == PAD_HINT_DPAD_HORIZONTAL ||
+               button == PAD_HINT_DPAD_VERTICAL) {
+        if (button != PAD_HINT_DPAD_VERTICAL) {
+            draw->AddLine(ImVec2(center.x - 6, center.y),
+                ImVec2(center.x - 2, center.y - 4), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x - 6, center.y),
+                ImVec2(center.x - 2, center.y + 4), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x + 6, center.y),
+                ImVec2(center.x + 2, center.y - 4), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x + 6, center.y),
+                ImVec2(center.x + 2, center.y + 4), glyph, 1.6f);
+        }
+        if (button != PAD_HINT_DPAD_HORIZONTAL) {
+            draw->AddLine(ImVec2(center.x, center.y - 6),
+                ImVec2(center.x - 4, center.y - 2), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x, center.y - 6),
+                ImVec2(center.x + 4, center.y - 2), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x, center.y + 6),
+                ImVec2(center.x - 4, center.y + 2), glyph, 1.6f);
+            draw->AddLine(ImVec2(center.x, center.y + 6),
+                ImVec2(center.x + 4, center.y + 2), glyph, 1.6f);
+        }
     } else if (button == PAD_HINT_RIGHT_STICK) {
         draw->AddCircle(center, 7.0f, glyph, 24, 1.5f);
         draw->AddCircleFilled(ImVec2(center.x + 1.8f, center.y - 1.8f),
@@ -1810,7 +1819,7 @@ static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const ch
 }
 
 static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
-                             bool pause_main = false)
+                             bool pause_main = false, bool multi_disc = false)
 {
     draw->AddRectFilled(ImVec2(0, 496), ImVec2(MENU_W, MENU_H),
         IM_COL32(9, 12, 26, 195));
@@ -1819,11 +1828,13 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
     const float y = 510.0f;
     if (selector) {
         draw_pad_hint(draw, ImVec2(32, y), PAD_HINT_CROSS, "Play");
-        draw_pad_hint(draw, ImVec2(121, y), PAD_HINT_DPAD, "Browse");
-        draw_pad_hint(draw, ImVec2(232, y), PAD_HINT_SQUARE, "Mark");
-        draw_pad_hint(draw, ImVec2(334, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
-        draw_pad_hint(draw, ImVec2(465, y), PAD_HINT_START, "Options");
-        draw_pad_hint(draw, ImVec2(622, y), PAD_HINT_RIGHT_STICK, "Rotate disc");
+        draw_pad_hint(draw, ImVec2(118, y), PAD_HINT_DPAD_HORIZONTAL, "Games");
+        if (multi_disc)
+            draw_pad_hint(draw, ImVec2(211, y), PAD_HINT_DPAD_VERTICAL, "Discs");
+        draw_pad_hint(draw, ImVec2(301, y), PAD_HINT_SQUARE, "Mark");
+        draw_pad_hint(draw, ImVec2(390, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
+        draw_pad_hint(draw, ImVec2(492, y), PAD_HINT_START, "Options");
+        draw_pad_hint(draw, ImVec2(637, y), PAD_HINT_RIGHT_STICK, "Rotate disc");
         draw_pad_hint(draw, ImVec2(859, y), PAD_HINT_CIRCLE, "Exit");
     } else {
         draw_pad_hint(draw, ImVec2(122, y), PAD_HINT_DPAD, "Select");
@@ -1833,6 +1844,25 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
         else
             draw_pad_hint(draw, ImVec2(746, y), PAD_HINT_SQUARE, "Back");
     }
+}
+
+static void draw_disc_swap_hint(ImDrawList *draw, float x, float y, ImFont *font)
+{
+    const ImU32 accent = IM_COL32(248, 191, 69, 255);
+    const ImU32 secondary = IM_COL32(158, 174, 214, 255);
+    const float left = x + 8.0f, right = x + 30.0f;
+    draw->AddCircle(ImVec2(left, y), 7.0f, secondary, 20, 1.5f);
+    draw->AddCircle(ImVec2(right, y), 7.0f, secondary, 20, 1.5f);
+    draw->AddCircleFilled(ImVec2(left, y), 1.8f, secondary, 12);
+    draw->AddCircleFilled(ImVec2(right, y), 1.8f, secondary, 12);
+    draw->AddLine(ImVec2(x + 14, y - 10), ImVec2(x + 26, y - 10), accent, 1.5f);
+    draw->AddLine(ImVec2(x + 26, y - 10), ImVec2(x + 23, y - 13), accent, 1.5f);
+    draw->AddLine(ImVec2(x + 26, y - 10), ImVec2(x + 23, y - 7), accent, 1.5f);
+    draw->AddLine(ImVec2(x + 24, y + 10), ImVec2(x + 12, y + 10), accent, 1.5f);
+    draw->AddLine(ImVec2(x + 12, y + 10), ImVec2(x + 15, y + 7), accent, 1.5f);
+    draw->AddLine(ImVec2(x + 12, y + 10), ImVec2(x + 15, y + 13), accent, 1.5f);
+    draw->AddText(font, font->FontSize, ImVec2(x + 49, y - 7),
+        secondary, "Swap discs");
 }
 
 static std::string fit_ui_title(std::string title, ImFont *font, float width)
@@ -2161,7 +2191,8 @@ static void draw_selector_options(int selected)
 
 static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
                               const std::vector<int> &marked, float carousel_position,
-                              float idle_time, const std::string &feedback)
+                              float idle_time, const std::string &feedback,
+                              unsigned selected_disc)
 {
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
     ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
@@ -2177,18 +2208,14 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
     ImFont *body = menu_font(g_font_body);
     ImFont *small = menu_font(g_font_small);
     ImFont *title_font = menu_font(g_font_title);
-    draw->AddText(body, body->FontSize, ImVec2(32, 18),
-        IM_COL32(240, 243, 252, 255), "pcsx");
-    draw->AddText(body, body->FontSize, ImVec2(70, 18),
-        IM_COL32(249, 188, 56, 255), "awo");
     char counter[48];
     snprintf(counter, sizeof(counter), "%u / %u", roms.empty() ? 0u : (unsigned)selected + 1,
              (unsigned)roms.size());
     const float counter_width = small->CalcTextSizeA(small->FontSize, 1000.0f, 0.0f,
         counter).x;
-    draw->AddRectFilled(ImVec2(119, 15), ImVec2(141 + counter_width, 39),
+    draw->AddRectFilled(ImVec2(32, 15), ImVec2(54 + counter_width, 39),
         IM_COL32(31, 42, 72, 210), 12.0f);
-    draw->AddText(small, small->FontSize, ImVec2(130, 19),
+    draw->AddText(small, small->FontSize, ImVec2(43, 19),
         IM_COL32(205, 214, 240, 255), counter);
     draw->AddRectFilled(ImVec2(816, 15), ImVec2(938, 39),
         IM_COL32(79, 37, 59, 195), 12.0f);
@@ -2243,12 +2270,12 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
             snprintf(subtitle, sizeof(subtitle), "DISC SET  /  %u DISCS", (unsigned)discs.size());
             draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
                 IM_COL32(250, 191, 69, 255), subtitle);
-            const float row_height = discs.size() > 5 ? 33.0f : 47.0f;
+            const float row_height = discs.size() > 5 ? 30.0f : 47.0f;
             for (size_t i = 0; i < discs.size(); ++i) {
                 const float y = 200.0f + (float)i * row_height;
                 if (y + row_height >= py + ph - 15.0f)
                     break;
-                if (i == 0) {
+                if (i == selected_disc) {
                     draw->AddRectFilled(ImVec2(px + 10, y),
                         ImVec2(px + pw - 10, y + row_height - 3),
                         IM_COL32(107, 85, 55, 135), 5.0f);
@@ -2259,9 +2286,10 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
                 char disc_label[24];
                 snprintf(disc_label, sizeof(disc_label), "DISC %u", (unsigned)i + 1);
                 draw->AddText(small, small->FontSize, ImVec2(px + 22, y + 5),
-                    i == 0 ? IM_COL32(255, 214, 124, 255) : IM_COL32(225, 231, 249, 255),
+                    i == selected_disc ? IM_COL32(255, 214, 124, 255) :
+                        IM_COL32(225, 231, 249, 255),
                     disc_label);
-                if (i == 0) {
+                if (i == selected_disc) {
                     draw->AddText(small, small->FontSize, ImVec2(px + pw - 71, y + 5),
                         IM_COL32(255, 214, 124, 255), "BOOT");
                 }
@@ -2276,8 +2304,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
                     draw->PopClipRect();
                 }
             }
-            draw->AddText(small, small->FontSize, ImVec2(px + 17, py + ph - 27),
-                IM_COL32(157, 170, 207, 255), "Swap discs in the pause menu");
+            draw_disc_swap_hint(draw, px + 17, py + ph - 24, small);
         } else {
             draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
                 IM_COL32(250, 191, 69, 255), "GAME DETAILS");
@@ -2320,7 +2347,8 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
             IM_COL32(248, 211, 137, 255), feedback.c_str());
         draw->PopClipRect();
     }
-    draw_menu_footer(draw, true, !marked.empty());
+    draw_menu_footer(draw, true, !marked.empty(), false,
+        !roms.empty() && roms[selected].disc_members.size() > 1);
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -2751,6 +2779,7 @@ static void selector_task(void *arg)
     task->result = 0;
 
     int selected = 0;
+    std::vector<unsigned> selected_discs(roms.size(), 0);
     float carousel_position = 0.0f;
     float manual_yaw = 0.0f;
     float manual_pitch = 0.0f;
@@ -2807,8 +2836,8 @@ static void selector_task(void *arg)
                 options_open = false;
         } else if (!roms.empty()) {
             int held_dir = 0;
-            const uint32_t prev_mask = SCE_CTRL_LEFT | SCE_CTRL_UP;
-            const uint32_t next_mask = SCE_CTRL_RIGHT | SCE_CTRL_DOWN;
+            const uint32_t prev_mask = SCE_CTRL_LEFT;
+            const uint32_t next_mask = SCE_CTRL_RIGHT;
             const bool previous_held = (pad.buttons & prev_mask) != 0;
             const bool next_held = (pad.buttons & next_mask) != 0;
             if (previous_held && !next_held)
@@ -2854,6 +2883,15 @@ static void selector_task(void *arg)
                 repeat_time = 0.0f;
             }
 
+            const unsigned disc_count = (unsigned)roms[selected].disc_members.size();
+            if (disc_count > 1) {
+                if (pressed & SCE_CTRL_UP)
+                    selected_discs[selected] =
+                        (selected_discs[selected] + disc_count - 1) % disc_count;
+                else if (pressed & SCE_CTRL_DOWN)
+                    selected_discs[selected] = (selected_discs[selected] + 1) % disc_count;
+            }
+
             const int rx = (int)pad.rx - 128;
             const int ry = (int)pad.ry - 128;
             const int deadzone = 18;
@@ -2868,7 +2906,25 @@ static void selector_task(void *arg)
             if (manual_pitch < -360.0f) manual_pitch += 360.0f;
 
             if (pressed & SCE_CTRL_CROSS) {
-                snprintf(task->out_path, task->out_size, "%s", roms[selected].path.c_str());
+                const RomEntry &rom = roms[selected];
+                if (rom.path.size() >= task->out_size) {
+                    feedback = "ROM path exceeds the supported length.";
+                    feedback_time = 4.0f;
+                    continue;
+                }
+                const unsigned disc = selected_discs[selected];
+                const std::string image_path = disc < rom.disc_members.size() ?
+                    rom.disc_members[disc] : std::string();
+                if (disc > 0 && (image_path.empty() ||
+                    image_path.size() >= sizeof(task->boot_disc->path))) {
+                    feedback = "Selected disc path is invalid or too long.";
+                    feedback_time = 4.0f;
+                    continue;
+                }
+                snprintf(task->out_path, task->out_size, "%s", rom.path.c_str());
+                task->boot_disc->index = disc;
+                snprintf(task->boot_disc->path, sizeof(task->boot_disc->path),
+                    "%s", image_path.c_str());
                 task->result = 1;
                 break;
             }
@@ -2895,6 +2951,7 @@ static void selector_task(void *arg)
                     marked.clear();
                     roms.clear();
                     scan_roms(roms);
+                    selected_discs.assign(roms.size(), 0);
                     selected = 0;
                     for (size_t i = 0; i < roms.size(); ++i) {
                         roms[i].cover_path = resolve_rom_cover(roms[i], covers);
@@ -2978,7 +3035,8 @@ static void selector_task(void *arg)
         if (options_open)
             draw_selector_options(options_selected);
         else
-            draw_text_overlay(roms, selected, marked, carousel_position, idle_time, feedback);
+            draw_text_overlay(roms, selected, marked, carousel_position, idle_time, feedback,
+                roms.empty() ? 0 : selected_discs[selected]);
         ImGui::Render();
         render_imgui_draw_data(ImGui::GetDrawData());
         vglSwapBuffers(GL_FALSE);
@@ -3002,18 +3060,21 @@ static void selector_task(void *arg)
     ImGui::DestroyContext();
 }
 
-extern "C" int VitaRomSelector_Run(char *out_path, size_t out_size)
+extern "C" int VitaRomSelector_Run(char *out_path, size_t out_size,
+                                 VitaBootDisc *boot_disc)
 {
-    if (!out_path || out_size == 0)
+    if (!out_path || out_size == 0 || !boot_disc)
         return -1;
 
     out_path[0] = '\0';
+    memset(boot_disc, 0, sizeof(*boot_disc));
     if (!NativeGpu_InitBackend(MENU_W, MENU_H))
         return -1;
 
     SelectorTask task;
     task.out_path = out_path;
     task.out_size = out_size;
+    task.boot_disc = boot_disc;
     task.result = 0;
     NativeGpu_RunBackendTaskSync(selector_task, &task);
     return task.result;

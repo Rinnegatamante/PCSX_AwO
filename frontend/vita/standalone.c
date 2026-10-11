@@ -637,6 +637,7 @@ int main(int argc, char **argv)
 {
     struct retro_game_info game;
     char game_path[1024];
+    VitaBootDisc boot_disc;
     bool game_loaded = false;
     int exit_code = 0;
     int ret;
@@ -671,6 +672,7 @@ int main(int argc, char **argv)
     sceClibPrintf("PCSX AwO: retro_init complete\n");
 
     game_path[0] = '\0';
+    memset(&boot_disc, 0, sizeof(boot_disc));
     for (ret = 1; ret < argc; ret++) {
         if (is_game_path(argv[ret])) {
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
@@ -679,7 +681,7 @@ int main(int argc, char **argv)
 
     for (;;) {
         if (game_path[0] == '\0') {
-            ret = VitaRomSelector_Run(game_path, sizeof(game_path));
+            ret = VitaRomSelector_Run(game_path, sizeof(game_path), &boot_disc);
             if (ret <= 0) {
                 sceClibPrintf("PCSX AwO: ROM selector %s\n", ret < 0 ? "failed" : "closed");
                 exit_code = ret < 0 ? 2 : 0;
@@ -687,11 +689,27 @@ int main(int argc, char **argv)
             }
         }
 
+        const char *initial_path = boot_disc.path[0] ? boot_disc.path : game_path;
+        if (!g_disk_control.set_initial_image ||
+            !g_disk_control.set_initial_image(boot_disc.index, initial_path)) {
+            sceClibPrintf("PCSX AwO: failed to select boot disc %u\n", boot_disc.index + 1);
+            exit_code = 3;
+            break;
+        }
         sceClibPrintf("PCSX AwO: booting %s\n", game_path);
         memset(&game, 0, sizeof(game));
         game.path = game_path;
         if (!retro_load_game(&game)) {
             sceClibPrintf("PCSX AwO: retro_load_game failed\n");
+            exit_code = 3;
+            break;
+        }
+        if (boot_disc.index > 0 &&
+            (!g_disk_control.get_image_index ||
+             g_disk_control.get_image_index() != boot_disc.index)) {
+            sceClibPrintf("PCSX AwO: requested boot disc %u was not selected\n",
+                boot_disc.index + 1);
+            retro_unload_game();
             exit_code = 3;
             break;
         }

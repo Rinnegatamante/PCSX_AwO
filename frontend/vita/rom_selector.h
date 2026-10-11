@@ -7,7 +7,14 @@
 extern "C" {
 #endif
 
-int VitaRomSelector_Run(char *out_path, size_t out_size);
+#define VITA_DISC_PATH_SIZE 1024
+
+typedef struct VitaBootDisc {
+    unsigned index;
+    char path[VITA_DISC_PATH_SIZE];
+} VitaBootDisc;
+
+int VitaRomSelector_Run(char *out_path, size_t out_size, VitaBootDisc *boot_disc);
 
 #define VITA_MAX_DISCS 8
 #define VITA_DISC_LABEL_SIZE 128
