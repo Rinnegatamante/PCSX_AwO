@@ -1746,7 +1746,8 @@ enum PadHint {
     PAD_HINT_SQUARE,
     PAD_HINT_TRIANGLE,
     PAD_HINT_DPAD,
-    PAD_HINT_START
+    PAD_HINT_START,
+    PAD_HINT_RIGHT_STICK
 };
 
 static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const char *label)
@@ -1785,6 +1786,18 @@ static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const ch
             ImVec2(center.x + 2, center.y - 4), glyph, 1.6f);
         draw->AddLine(ImVec2(center.x + 6, center.y),
             ImVec2(center.x + 2, center.y + 4), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x, center.y - 6),
+            ImVec2(center.x - 4, center.y - 2), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x, center.y - 6),
+            ImVec2(center.x + 4, center.y - 2), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x, center.y + 6),
+            ImVec2(center.x - 4, center.y + 2), glyph, 1.6f);
+        draw->AddLine(ImVec2(center.x, center.y + 6),
+            ImVec2(center.x + 4, center.y + 2), glyph, 1.6f);
+    } else if (button == PAD_HINT_RIGHT_STICK) {
+        draw->AddCircle(center, 7.0f, glyph, 24, 1.5f);
+        draw->AddCircleFilled(ImVec2(center.x + 1.8f, center.y - 1.8f),
+            3.5f, glyph, 16);
     } else {
         draw->AddLine(ImVec2(center.x - 4, center.y - 2),
             ImVec2(center.x + 4, center.y - 2), glyph, 1.8f);
@@ -1810,6 +1823,7 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
         draw_pad_hint(draw, ImVec2(232, y), PAD_HINT_SQUARE, "Mark");
         draw_pad_hint(draw, ImVec2(334, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
         draw_pad_hint(draw, ImVec2(465, y), PAD_HINT_START, "Options");
+        draw_pad_hint(draw, ImVec2(622, y), PAD_HINT_RIGHT_STICK, "Rotate disc");
         draw_pad_hint(draw, ImVec2(859, y), PAD_HINT_CIRCLE, "Exit");
     } else {
         draw_pad_hint(draw, ImVec2(122, y), PAD_HINT_DPAD, "Select");
@@ -2170,12 +2184,19 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
     char counter[48];
     snprintf(counter, sizeof(counter), "%u / %u", roms.empty() ? 0u : (unsigned)selected + 1,
              (unsigned)roms.size());
-    draw->AddText(small, small->FontSize, ImVec2(127, 22),
-        IM_COL32(162, 174, 206, 255), counter);
+    const float counter_width = small->CalcTextSizeA(small->FontSize, 1000.0f, 0.0f,
+        counter).x;
+    draw->AddRectFilled(ImVec2(119, 15), ImVec2(141 + counter_width, 39),
+        IM_COL32(31, 42, 72, 210), 12.0f);
+    draw->AddText(small, small->FontSize, ImVec2(130, 19),
+        IM_COL32(205, 214, 240, 255), counter);
     draw->AddRectFilled(ImVec2(816, 15), ImVec2(938, 39),
         IM_COL32(79, 37, 59, 195), 12.0f);
-    draw->AddText(small, small->FontSize, ImVec2(827, 19),
-        IM_COL32(255, 171, 193, 255), "Sony PlayStation");
+    const char *brand = "PCSX AwO";
+    const float brand_width = small->CalcTextSizeA(small->FontSize, 1000.0f, 0.0f,
+        brand).x;
+    draw->AddText(small, small->FontSize, ImVec2(877 - brand_width * 0.5f, 19),
+        IM_COL32(255, 171, 193, 255), brand);
 
     for (size_t i = 0; i < marked.size(); ++i) {
         const float distance = (float)marked[i] - carousel_position;
@@ -2283,9 +2304,6 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
                 (unsigned)marked.size());
             draw->AddText(body, body->FontSize, ImVec2(34, 457),
                 IM_COL32(255, 214, 124, 255), marked_label);
-        } else {
-            draw->AddText(small, small->FontSize, ImVec2(34, 464),
-                IM_COL32(172, 183, 215, 255), "RIGHT STICK  /  ROTATE DISC");
         }
     } else {
         draw->AddText(title_font, title_font->FontSize, ImVec2(205, 228),
@@ -2789,9 +2807,13 @@ static void selector_task(void *arg)
                 options_open = false;
         } else if (!roms.empty()) {
             int held_dir = 0;
-            if ((pad.buttons & SCE_CTRL_LEFT) && !(pad.buttons & SCE_CTRL_RIGHT))
+            const uint32_t prev_mask = SCE_CTRL_LEFT | SCE_CTRL_UP;
+            const uint32_t next_mask = SCE_CTRL_RIGHT | SCE_CTRL_DOWN;
+            const bool previous_held = (pad.buttons & prev_mask) != 0;
+            const bool next_held = (pad.buttons & next_mask) != 0;
+            if (previous_held && !next_held)
                 held_dir = -1;
-            else if ((pad.buttons & SCE_CTRL_RIGHT) && !(pad.buttons & SCE_CTRL_LEFT))
+            else if (next_held && !previous_held)
                 held_dir = 1;
 
             auto move_selection = [&](int direction) {
@@ -2804,8 +2826,10 @@ static void selector_task(void *arg)
                 manual_pitch = 0.0f;
             };
 
-            if ((pressed & SCE_CTRL_LEFT) || (pressed & SCE_CTRL_RIGHT)) {
-                repeat_dir = (pressed & SCE_CTRL_LEFT) ? -1 : 1;
+            const bool previous_pressed = (pressed & prev_mask) != 0;
+            const bool next_pressed = (pressed & next_mask) != 0;
+            if (held_dir && previous_pressed != next_pressed) {
+                repeat_dir = previous_pressed ? -1 : 1;
                 repeat_hold = 0.0f;
                 repeat_time = 0.0f;
                 move_selection(repeat_dir);
