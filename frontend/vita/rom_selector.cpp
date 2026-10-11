@@ -13,6 +13,7 @@
 #include <png.h>
 #include <psp2/ctrl.h>
 #include <psp2/io/dirent.h>
+#include <psp2/io/fcntl.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/processmgr.h>
@@ -21,12 +22,14 @@
 #include <imgui.h>
 #include <imgui_impl_vitagl.h>
 
+#include "rom_selector.h"
+#include "disc_grouping.h"
+#include "paths.h"
 #include "settings.h"
 #include "savestates.h"
 
-#define APP_ROOT "ux0:data/pcsx-rearmed"
-#define ROMS_DIR APP_ROOT "/roms"
-#define COVERS_DIR APP_ROOT "/covers"
+#define ROMS_DIR PCSX_AWO_ROMS_DIR
+#define COVERS_DIR PCSX_AWO_COVERS_DIR
 
 #define MENU_W 960
 #define MENU_H 544
@@ -45,6 +48,10 @@ struct RomEntry {
     std::string name;
     std::string title;
     std::string cover_path;
+    std::string disc_serial;
+    uint64_t game_hash;
+
+    RomEntry() : game_hash(0) {}
 };
 
 struct CoverEntry {
@@ -104,7 +111,9 @@ struct SelectorTask {
 
 struct PauseMenuTask {
     const char *game_path;
-    bool start_in_save_states;
+    const VitaDiscInfo *discs;
+    int start_section;
+    unsigned disc_selection;
     int result;
 };
 
@@ -172,6 +181,7 @@ static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "CD Read-Ahead", "Caches upcoming sectors on a background thread. This reduces storage stalls without changing PlayStation CD-ROM timing.", "pcsx_rearmed_cd_readahead", k_cd_readahead_choices, 6, false },
     { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched is exclusive to High Octane and uses an experimental widescreen projection that may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
     { "VIDEO", "Renderer", "ReARMed is the original NEON software rasterizer; High Octane uses the Vita GPU through vitaGL. Applied when starting or restarting a game.", "vita_renderer", k_renderer_choices, 2, false },
+    { "VIDEO", "Enhanced Resolution", "NEON only: renders supported low-resolution 3D scenes at 2x internal resolution. Increases CPU and memory usage; may introduce graphical artifacts. Applied on game start/restart.", "pcsx_rearmed_neon_enhancement_enable", k_toggle_choices, 2, false },
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
@@ -187,6 +197,15 @@ static bool selector_choice_available(const SelectorOption &option, int index)
         strcmp(option.choices[index].value, "16:9_unstretched") == 0) {
         const char *renderer = VitaSettings_GetOption("vita_renderer");
         return !renderer || strcmp(renderer, "neon") != 0;
+    }
+    return true;
+}
+
+static bool selector_option_available(const SelectorOption &option)
+{
+    if (strcmp(option.key, "pcsx_rearmed_neon_enhancement_enable") == 0) {
+        const char *renderer = VitaSettings_GetOption("vita_renderer");
+        return renderer && strcmp(renderer, "neon") == 0;
     }
     return true;
 }
@@ -797,6 +816,58 @@ static std::string resolve_relative_path(const std::string &base_file, std::stri
     return dir.empty() ? value : dir + "/" + value;
 }
 
+static std::vector<std::string> read_m3u_members(const std::string &path)
+{
+    std::vector<std::string> members;
+    FILE *file = fopen(path.c_str(), "rb");
+    if (!file)
+        return members;
+    char line[1024];
+    while (members.size() < VITA_MAX_DISCS && fgets(line, sizeof(line), file)) {
+        char *end = strpbrk(line, "\r\n");
+        if (end)
+            *end = '\0';
+        if (!line[0] || line[0] == '#')
+            continue;
+        members.push_back(resolve_relative_path(path, line));
+    }
+    fclose(file);
+    return members;
+}
+
+static std::string normalized_disc_path(std::string path)
+{
+    for (size_t i = 0; i < path.size(); ++i)
+        if (path[i] == '\\')
+            path[i] = '/';
+    path = lower_ascii(path);
+    size_t pos;
+    while ((pos = path.find("/./")) != std::string::npos)
+        path.erase(pos, 2);
+    return path;
+}
+
+static std::string disc_path_base(const std::string &path)
+{
+    const size_t dot = path.find_last_of('.');
+    return normalized_disc_path(dot == std::string::npos ? path : path.substr(0, dot));
+}
+
+static bool disc_image_or_cue(const std::string &path)
+{
+    return ends_with_ci(path, ".cue") || ends_with_ci(path, ".img") ||
+        ends_with_ci(path, ".bin");
+}
+
+static bool has_clonecd_metadata(const std::string &path)
+{
+    const size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos)
+        return false;
+    const std::string base = path.substr(0, dot);
+    return file_exists((base + ".ccd").c_str()) || file_exists((base + ".CCD").c_str());
+}
+
 static bool cue_file_from_line(const std::string &line, std::string &out)
 {
     size_t pos = 4;
@@ -882,6 +953,18 @@ static bool parse_cue_data_track(const std::string &cue_path, DataTrack &track)
 
 static bool prepare_data_track(const RomEntry &rom, DataTrack &track)
 {
+    if (ends_with_ci(rom.path, ".m3u")) {
+        const std::vector<std::string> members = read_m3u_members(rom.path);
+        for (size_t i = 0; i < members.size(); ++i) {
+            if (ends_with_ci(members[i], ".m3u"))
+                continue;
+            RomEntry disc;
+            disc.path = members[i];
+            if (prepare_data_track(disc, track))
+                return true;
+        }
+        return false;
+    }
     if (ends_with_ci(rom.path, ".cue"))
         return parse_cue_data_track(rom.path, track);
 
@@ -1052,11 +1135,13 @@ static uint64_t disc_title_hash(const RomEntry &rom, std::string *serial_out,
     return serial.empty() ? 0 : title_hash_from_serial(serial);
 }
 
-static std::string resolve_rom_cover(const RomEntry &rom, const std::vector<CoverEntry> &covers)
+static std::string resolve_rom_cover(RomEntry &rom, const std::vector<CoverEntry> &covers)
 {
     std::string serial;
     std::string volume;
     const uint64_t metadata_hash = disc_title_hash(rom, &serial, &volume);
+    rom.game_hash = metadata_hash;
+    rom.disc_serial = serial;
     const std::string metadata_cover = resolve_cover_hash(metadata_hash, rom.title, covers);
     if (!metadata_cover.empty()) {
         sceClibPrintf("[ROMSEL] cover metadata: %s serial=%s volume=%s -> %s\n",
@@ -1095,12 +1180,24 @@ static void scan_rom_dir(const char *root, std::vector<RomEntry> &roms)
 
 static void scan_roms(std::vector<RomEntry> &roms)
 {
-    scan_rom_dir(APP_ROOT, roms);
     scan_rom_dir(ROMS_DIR, roms);
 
     std::sort(roms.begin(), roms.end(), [](const RomEntry &a, const RomEntry &b) {
         return lower_ascii(a.title) < lower_ascii(b.title);
     });
+
+    std::vector<std::string> playlist_members;
+    for (size_t i = 0; i < roms.size(); ++i) {
+        if (!ends_with_ci(roms[i].path, ".m3u"))
+            continue;
+        const std::vector<std::string> members = read_m3u_members(roms[i].path);
+        bool complete = !members.empty();
+        for (size_t j = 0; j < members.size(); ++j)
+            if (!file_exists(members[j].c_str()))
+                complete = false;
+        if (complete)
+            playlist_members.insert(playlist_members.end(), members.begin(), members.end());
+    }
 
     std::vector<RomEntry> filtered;
     filtered.reserve(roms.size());
@@ -1108,13 +1205,33 @@ static void scan_roms(std::vector<RomEntry> &roms)
         if (i > 0 && roms[i].path == roms[i - 1].path)
             continue;
 
-        if (ends_with_ci(roms[i].name, ".bin")) {
+        bool in_playlist = false;
+        for (size_t j = 0; j < playlist_members.size(); ++j) {
+            if (normalized_disc_path(roms[i].path) == normalized_disc_path(playlist_members[j]) ||
+                (disc_image_or_cue(roms[i].path) && disc_image_or_cue(playlist_members[j]) &&
+                 disc_path_base(roms[i].path) == disc_path_base(playlist_members[j]))) {
+                in_playlist = true;
+                break;
+            }
+        }
+        if (in_playlist)
+            continue;
+
+        if (ends_with_ci(roms[i].name, ".cue") && has_clonecd_metadata(roms[i].path)) {
+            const std::string base = roms[i].path.substr(0, roms[i].path.size() - 4);
+            if (file_exists((base + ".img").c_str()) || file_exists((base + ".IMG").c_str()))
+                continue;
+        }
+
+        if (ends_with_ci(roms[i].name, ".bin") ||
+            (ends_with_ci(roms[i].name, ".img") && !has_clonecd_metadata(roms[i].path))) {
             bool has_cue = false;
             const std::string bin_title = lower_ascii(strip_track_suffix(roms[i].title));
             for (size_t j = 0; j < roms.size(); ++j) {
                 if (j == i || !ends_with_ci(roms[j].name, ".cue"))
                     continue;
-                if (lower_ascii(roms[j].title) == bin_title) {
+                if (lower_ascii(roms[j].title) == bin_title &&
+                    lower_ascii(path_dirname(roms[j].path)) == lower_ascii(path_dirname(roms[i].path))) {
                     has_cue = true;
                     break;
                 }
@@ -1126,6 +1243,71 @@ static void scan_roms(std::vector<RomEntry> &roms)
     }
 
     roms.swap(filtered);
+}
+
+static bool create_disc_playlist(const std::vector<RomEntry> &roms,
+                                 const std::vector<int> &marked,
+                                 std::string *created_path, std::string *reason)
+{
+    std::vector<vita_disc_grouping::Candidate> candidates;
+    std::string first_region;
+    for (size_t i = 0; i < marked.size(); ++i) {
+        const RomEntry &rom = roms[marked[i]];
+        const std::string region = region_tag(rom.title);
+        if (i == 0)
+            first_region = region;
+        else if ((!region.empty() || !first_region.empty()) && region != first_region) {
+            *reason = "Selected discs have different regions.";
+            return false;
+        }
+        if (!ends_with_ci(rom.path, ".cue") && !ends_with_ci(rom.path, ".img") &&
+            !ends_with_ci(rom.path, ".bin") && !ends_with_ci(rom.path, ".chd") &&
+            !ends_with_ci(rom.path, ".iso")) {
+            *reason = "Only individual CD images can be grouped.";
+            return false;
+        }
+        if (normalized_disc_path(path_dirname(rom.path)) != normalized_disc_path(ROMS_DIR) ||
+            !file_exists(rom.path.c_str())) {
+            *reason = "All discs must exist in the ROMs directory.";
+            return false;
+        }
+        vita_disc_grouping::Candidate candidate;
+        candidate.filename = rom.name;
+        candidate.title = rom.title;
+        candidate.game_hash = rom.game_hash;
+        candidate.serial = rom.disc_serial;
+        candidates.push_back(candidate);
+    }
+
+    std::vector<unsigned> order;
+    std::string name;
+    if (!vita_disc_grouping::validate(candidates, &order, &name, reason))
+        return false;
+
+    const std::string playlist_path = std::string(ROMS_DIR) + "/" + name;
+    const SceUID fd = sceIoOpen(playlist_path.c_str(), SCE_O_WRONLY | SCE_O_CREAT | SCE_O_EXCL, 0666);
+    if (fd < 0) {
+        *reason = "Cannot create playlist (it may already exist).";
+        return false;
+    }
+
+    bool ok = true;
+    for (size_t i = 0; i < order.size(); ++i) {
+        const std::string line = candidates[order[i]].filename + "\n";
+        if (sceIoWrite(fd, line.data(), (SceSize)line.size()) != (int)line.size()) {
+            ok = false;
+            break;
+        }
+    }
+    if (sceIoClose(fd) < 0)
+        ok = false;
+    if (!ok) {
+        sceIoRemove(playlist_path.c_str());
+        *reason = "Failed to save the playlist.";
+        return false;
+    }
+    *created_path = playlist_path;
+    return true;
 }
 
 static bool build_disc_mesh()
@@ -1457,6 +1639,11 @@ static void draw_disc(float cx, float cy, float z, float radius, float yaw, floa
     glUseProgram(0);
 }
 
+static float disc_idle_offset(float idle_time, int index)
+{
+    return sinf(idle_time * 1.6f + (float)index * 0.58f) * 7.0f;
+}
+
 static void restore_ui_state()
 {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1575,6 +1762,8 @@ static void adjust_selector_option(int option_index, int direction)
         return;
 
     const SelectorOption &option = k_selector_options[option_index];
+    if (!selector_option_available(option))
+        return;
     const char *current = VitaSettings_GetOption(option.key);
     if (!current)
         return;
@@ -1706,15 +1895,21 @@ static void draw_selector_options(int selected)
                     ImVec2(option_right, y + row_h), IM_COL32(0, 190, 220, 255));
             }
 
+            const bool unavailable = !selector_option_available(option);
+            if (unavailable)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.47f, 0.49f, 1.0f));
             ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 5.0f));
             ImGui::Text("%s", option.label);
+            if (unavailable)
+                ImGui::PopStyleColor();
 
             const std::string value = selector_option_value(option);
             const ImVec2 value_size = ImGui::CalcTextSize(value.c_str());
             ImGui::SetCursorPos(ImVec2(option_right - value_size.x - 18.0f, y + 5.0f));
-            const bool inactive = strcmp(option.key, "vita_aspect_ratio") == 0 &&
-                !selector_choice_available(option,
-                    strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 ? 2 : 0);
+            const bool inactive = unavailable ||
+                (strcmp(option.key, "vita_aspect_ratio") == 0 &&
+                 !selector_choice_available(option,
+                     strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 ? 2 : 0));
             if (inactive)
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.45f, 0.47f, 0.49f, 1.0f));
             ImGui::Text("%s", value.c_str());
@@ -1736,12 +1931,14 @@ static void draw_selector_options(int selected)
         ImGui::PushClipRect(ImVec2(content_x, description_y),
             ImVec2(content_x + content_w, MENU_H - 43.0f), true);
         const SelectorOption &option = k_selector_options[selected];
+        const bool neon_only = !selector_option_available(option);
         const bool inactive = strcmp(option.key, "vita_aspect_ratio") == 0 &&
             strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 &&
             !selector_choice_available(option, 2);
-        ImGui::TextWrapped("%s", inactive ?
-            "16:9 Unstretched requires High Octane. The saved selection is preserved and 4:3 is used with Neon." :
-            option.description);
+        ImGui::TextWrapped("%s", neon_only ?
+            "Only available with the ReARMed NEON renderer. The saved setting has no effect on High Octane." :
+            (inactive ? "16:9 Unstretched requires High Octane. The saved selection is preserved and 4:3 is used with Neon." :
+            option.description));
         ImGui::PopClipRect();
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
@@ -1757,7 +1954,9 @@ static void draw_selector_options(int selected)
     ImGui::PopStyleVar(3);
 }
 
-static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
+static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
+                              const std::vector<int> &marked, float carousel_position,
+                              float idle_time, const std::string &feedback)
 {
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
     ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
@@ -1770,6 +1969,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
 
     ImGui::SetCursorPos(ImVec2(24.0f, 18.0f));
     ImGui::Text("PCSX AwO");
+    ImDrawList *draw = ImGui::GetWindowDrawList();
 
     char count[64];
     snprintf(count, sizeof(count), "%u games", (unsigned)roms.size());
@@ -1777,18 +1977,49 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
     ImGui::SetCursorPos(ImVec2(MENU_W - count_size.x - 24.0f, 18.0f));
     ImGui::Text("%s", count);
 
+    for (size_t i = 0; i < marked.size(); ++i) {
+        const float distance = (float)marked[i] - carousel_position;
+        const float abs_distance = fabsf(distance);
+        if (abs_distance > 3.2f)
+            continue;
+        const float radius = 142.0f * std::max(0.50f, 1.0f - abs_distance * 0.19f);
+        const float x = MENU_W * 0.5f + distance * 228.0f + radius * 0.65f;
+        const float y = 268.0f + abs_distance * 12.0f +
+                        disc_idle_offset(idle_time, marked[i]) - radius * 0.67f;
+        draw->AddCircleFilled(ImVec2(x, y), 15.0f, IM_COL32(0, 190, 220, 245));
+        char label[8];
+        snprintf(label, sizeof(label), "%u", (unsigned)i + 1);
+        const ImVec2 size = ImGui::CalcTextSize(label);
+        draw->AddText(ImVec2(x - size.x * 0.5f, y - size.y * 0.5f),
+                      IM_COL32(0, 22, 30, 255), label);
+    }
+
+    if (!feedback.empty()) {
+        const ImVec2 size = ImGui::CalcTextSize(feedback.c_str());
+        ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, 59.0f));
+        ImGui::Text("%s", feedback.c_str());
+    }
+
     if (!roms.empty()) {
+        if (!marked.empty()) {
+            char selection[80];
+            snprintf(selection, sizeof(selection), "%u discs marked - Triangle: Create playlist",
+                     (unsigned)marked.size());
+            const ImVec2 size = ImGui::CalcTextSize(selection);
+            ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, MENU_H - 100.0f));
+            ImGui::Text("%s", selection);
+        }
         const char *title = roms[selected].title.c_str();
         const ImVec2 title_size = ImGui::CalcTextSize(title);
         ImGui::SetCursorPos(ImVec2((MENU_W - title_size.x) * 0.5f, MENU_H - 72.0f));
         ImGui::Text("%s", title);
 
-        const char *hint = "Left/Right: Select    Right Stick: Rotate    X: Start    Square: Options    Triangle: Exit";
+        const char *hint = "Left/Right: Select   X: Play   Square: Mark   Triangle: Group   Start: Options   Circle: Exit";
         const ImVec2 hint_size = ImGui::CalcTextSize(hint);
         ImGui::SetCursorPos(ImVec2((MENU_W - hint_size.x) * 0.5f, MENU_H - 40.0f));
         ImGui::Text("%s", hint);
     } else {
-        const char *empty = "No PlayStation games found in ux0:data/pcsx-rearmed or /roms";
+        const char *empty = "No PlayStation games found in ux0:data/pcsx-awo/roms";
         const ImVec2 size = ImGui::CalcTextSize(empty);
         ImGui::SetCursorPos(ImVec2((MENU_W - size.x) * 0.5f, MENU_H * 0.5f));
         ImGui::Text("%s", empty);
@@ -1797,7 +2028,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected)
     ImGui::End();
 }
 
-static void draw_pause_menu(int selected)
+static void draw_pause_menu(int selected, const VitaDiscInfo *discs)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -1825,10 +2056,12 @@ static void draw_pause_menu(int selected)
         ImVec2((float)MENU_W - content_x, 126.0f),
         IM_COL32(220, 220, 220, 150), 1.0f);
 
-    static const char *items[] = { "Restart Game", "Save States", "Options", "Close Game" };
+    static const char *items[] = { "Restart Game", "Change Disc", "Save States", "Options", "Close Game" };
+    const bool has_discs = discs && discs->count > 1;
+    const int item_count = has_discs ? 5 : 4;
     const float first_row_y = 154.0f;
     const float row_h = 46.0f;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < item_count; ++i) {
         const float row_y = first_row_y + i * 56.0f;
         if (selected == i) {
             draw->AddRectFilled(ImVec2(content_x, row_y),
@@ -1839,7 +2072,18 @@ static void draw_pause_menu(int selected)
                 IM_COL32(0, 190, 220, 255));
         }
         ImGui::SetCursorPos(ImVec2(content_x + 24.0f, row_y + 14.0f));
-        ImGui::Text("%s", items[i]);
+        ImGui::Text("%s", items[i + (!has_discs && i > 0 ? 1 : 0)]);
+        if (has_discs && i == 1) {
+            char status[40];
+            if (discs->current < discs->count)
+                snprintf(status, sizeof(status), "Disc %u/%u", discs->current + 1, discs->count);
+            else
+                snprintf(status, sizeof(status), "No disc inserted");
+            const ImVec2 status_size = ImGui::CalcTextSize(status);
+            ImGui::SetCursorPos(ImVec2(content_x + content_w - status_size.x - 24.0f,
+                row_y + 14.0f));
+            ImGui::Text("%s", status);
+        }
     }
 
     const char *hint = "Up/Down: Select    X: Confirm    Start+Select: Resume";
@@ -1922,6 +2166,62 @@ static void draw_save_states_menu(int selected, const char *game_path)
     ImGui::PopStyleVar(3);
 }
 
+static void draw_disc_menu(unsigned selected, const VitaDiscInfo *discs)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.42f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.96f, 0.97f, 0.98f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
+    ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
+    ImGui::Begin("Change Disc", NULL,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    const float content_x = 110.0f;
+    const float content_w = (float)MENU_W - content_x * 2.0f;
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::SetCursorPos(ImVec2(content_x, 70.0f));
+    ImGui::Text("CHANGE DISC");
+    ImGui::SetWindowFontScale(1.0f);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddLine(ImVec2(content_x, 114.0f),
+        ImVec2((float)MENU_W - content_x, 114.0f),
+        IM_COL32(220, 220, 220, 150), 1.0f);
+
+    for (unsigned i = 0; i < discs->count; ++i) {
+        const float y = 130.0f + i * 39.0f;
+        if (selected == i) {
+            draw->AddRectFilled(ImVec2(content_x, y),
+                ImVec2(content_x + content_w, y + 35.0f),
+                IM_COL32(42, 46, 50, 210));
+            draw->AddRect(ImVec2(content_x, y),
+                ImVec2(content_x + content_w, y + 35.0f),
+                IM_COL32(0, 190, 220, 255));
+        }
+        ImGui::PushClipRect(ImVec2(content_x + 16.0f, y),
+            ImVec2(content_x + content_w - 118.0f, y + 35.0f), true);
+        ImGui::SetCursorPos(ImVec2(content_x + 18.0f, y + 9.0f));
+        ImGui::Text("%u. %s", i + 1, discs->labels[i]);
+        ImGui::PopClipRect();
+        if (i == discs->current) {
+            ImGui::SetCursorPos(ImVec2(content_x + content_w - 100.0f, y + 9.0f));
+            ImGui::Text("Inserted");
+        }
+    }
+
+    const char *hint = "Up/Down: Select    X: Insert    Square/Triangle: Back";
+    const ImVec2 hint_size = ImGui::CalcTextSize(hint);
+    ImGui::SetCursorPos(ImVec2(((float)MENU_W - hint_size.x) * 0.5f, MENU_H - 46.0f));
+    ImGui::Text("%s", hint);
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+}
+
 static void pause_menu_task(void *arg)
 {
     PauseMenuTask *task = (PauseMenuTask *)arg;
@@ -1959,8 +2259,13 @@ static void pause_menu_task(void *arg)
     int selected = 0;
     int options_selected = 0;
     int save_states_selected = 0;
+    const bool has_discs = task->discs && task->discs->count > 1;
+    const int item_count = has_discs ? 5 : 4;
+    unsigned discs_selected = has_discs && task->discs->current < task->discs->count ?
+        task->discs->current : 0;
     bool options_open = false;
-    bool save_states_open = task->start_in_save_states;
+    bool save_states_open = task->start_section == VITA_PAUSE_STATES;
+    bool discs_open = has_discs && task->start_section == VITA_PAUSE_DISCS;
     uint32_t previous_buttons = 0;
     bool combo_released = false;
     const uint32_t combo = SCE_CTRL_START | SCE_CTRL_SELECT;
@@ -2028,18 +2333,32 @@ static void pause_menu_task(void *arg)
             }
             if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
                 save_states_open = false;
+        } else if (discs_open) {
+            if (pressed & SCE_CTRL_UP)
+                discs_selected = discs_selected > 0 ? discs_selected - 1 : task->discs->count - 1;
+            if (pressed & SCE_CTRL_DOWN)
+                discs_selected = discs_selected + 1 < task->discs->count ? discs_selected + 1 : 0;
+            if (pressed & SCE_CTRL_CROSS) {
+                task->disc_selection = discs_selected;
+                task->result = VITA_PAUSE_CHANGE_DISC;
+                break;
+            }
+            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
+                discs_open = false;
         } else {
             if (pressed & SCE_CTRL_UP)
-                selected = selected > 0 ? selected - 1 : 3;
+                selected = selected > 0 ? selected - 1 : item_count - 1;
             if (pressed & SCE_CTRL_DOWN)
-                selected = selected < 3 ? selected + 1 : 0;
+                selected = selected + 1 < item_count ? selected + 1 : 0;
             if (pressed & SCE_CTRL_CROSS) {
                 if (selected == 0) {
                     task->result = VITA_PAUSE_RESTART;
                     break;
-                } else if (selected == 1) {
+                } else if (has_discs && selected == 1) {
+                    discs_open = true;
+                } else if (selected == (has_discs ? 2 : 1)) {
                     save_states_open = true;
-                } else if (selected == 2) {
+                } else if (selected == (has_discs ? 3 : 2)) {
                     options_open = true;
                 } else {
                     task->result = VITA_PAUSE_CLOSE_GAME;
@@ -2058,8 +2377,10 @@ static void pause_menu_task(void *arg)
             draw_selector_options(options_selected);
         else if (save_states_open)
             draw_save_states_menu(save_states_selected, task->game_path);
+        else if (discs_open)
+            draw_disc_menu(discs_selected, task->discs);
         else
-            draw_pause_menu(selected);
+            draw_pause_menu(selected, task->discs);
         ImGui::Render();
         render_imgui_draw_data(ImGui::GetDrawData());
         restore_overlay_gl_state(overlay_state);
@@ -2132,6 +2453,10 @@ static void selector_task(void *arg)
     int repeat_dir = 0;
     bool options_open = false;
     int options_selected = 0;
+    std::vector<int> marked;
+    std::string feedback;
+    float feedback_time = 0.0f;
+    float idle_time = 0.0f;
     uint32_t previous_buttons = 0;
     SceUInt64 previous_time = sceKernelGetProcessTimeWide();
 
@@ -2141,6 +2466,12 @@ static void selector_task(void *arg)
         previous_time = now;
         if (dt <= 0.0f || dt > 0.1f)
             dt = 1.0f / 60.0f;
+        idle_time += dt;
+        if (feedback_time > 0.0f) {
+            feedback_time -= dt;
+            if (feedback_time <= 0.0f)
+                feedback.clear();
+        }
 
         SceCtrlData pad;
         memset(&pad, 0, sizeof(pad));
@@ -2165,7 +2496,8 @@ static void selector_task(void *arg)
                 adjust_selector_option(options_selected, -1);
             if ((pressed & SCE_CTRL_RIGHT) || (pressed & SCE_CTRL_CROSS))
                 adjust_selector_option(options_selected, 1);
-            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE))
+            if ((pressed & SCE_CTRL_SQUARE) || (pressed & SCE_CTRL_TRIANGLE) ||
+                (pressed & SCE_CTRL_CIRCLE) || (pressed & SCE_CTRL_START))
                 options_open = false;
         } else if (!roms.empty()) {
             int held_dir = 0;
@@ -2228,12 +2560,51 @@ static void selector_task(void *arg)
                 task->result = 1;
                 break;
             }
+            if (pressed & SCE_CTRL_SQUARE) {
+                std::vector<int>::iterator it = std::find(marked.begin(), marked.end(), selected);
+                if (it != marked.end()) {
+                    marked.erase(it);
+                } else if (marked.size() >= VITA_MAX_DISCS) {
+                    feedback = "A playlist can contain at most 8 discs.";
+                    feedback_time = 4.0f;
+                } else if (ends_with_ci(roms[selected].name, ".m3u") ||
+                           ends_with_ci(roms[selected].name, ".pbp") ||
+                           ends_with_ci(roms[selected].name, ".exe")) {
+                    feedback = "Only individual CD images can be grouped.";
+                    feedback_time = 4.0f;
+                } else {
+                    marked.push_back(selected);
+                }
+            }
+            if (pressed & SCE_CTRL_TRIANGLE) {
+                std::string created_path, reason;
+                if (create_disc_playlist(roms, marked, &created_path, &reason)) {
+                    const unsigned grouped = (unsigned)marked.size();
+                    marked.clear();
+                    roms.clear();
+                    scan_roms(roms);
+                    selected = 0;
+                    for (size_t i = 0; i < roms.size(); ++i) {
+                        roms[i].cover_path = resolve_rom_cover(roms[i], covers);
+                        if (roms[i].path == created_path)
+                            selected = (int)i;
+                    }
+                    carousel_position = (float)selected;
+                    manual_yaw = manual_pitch = 0.0f;
+                    char success[80];
+                    snprintf(success, sizeof(success), "Grouped %u discs into a new playlist.", grouped);
+                    feedback = success;
+                } else {
+                    feedback = reason;
+                }
+                feedback_time = 4.0f;
+            }
         }
 
         if (!options_was_open) {
-            if (pressed & SCE_CTRL_SQUARE)
+            if (pressed & SCE_CTRL_START)
                 options_open = true;
-            else if (pressed & SCE_CTRL_TRIANGLE)
+            else if (pressed & SCE_CTRL_CIRCLE)
                 break;
         }
 
@@ -2271,7 +2642,8 @@ static void selector_task(void *arg)
 
                     const float scale = std::max(0.50f, 1.0f - abs_distance * 0.19f);
                     const float x = center_x + distance * 228.0f;
-                    const float y = center_y + abs_distance * 12.0f;
+                    const float y = center_y + abs_distance * 12.0f +
+                                    disc_idle_offset(idle_time, index);
                     const float z = 80.0f - abs_distance * 28.0f;
                     const float yaw = -distance * 18.0f - 7.0f + (is_selected ? manual_yaw : 0.0f);
                     const float pitch = 25.0f + (is_selected ? manual_pitch : 0.0f);
@@ -2291,7 +2663,7 @@ static void selector_task(void *arg)
         if (options_open)
             draw_selector_options(options_selected);
         else
-            draw_text_overlay(roms, selected);
+            draw_text_overlay(roms, selected, marked, carousel_position, idle_time, feedback);
         ImGui::Render();
         render_imgui_draw_data(ImGui::GetDrawData());
         vglSwapBuffers(GL_FALSE);
@@ -2330,12 +2702,17 @@ extern "C" int VitaRomSelector_Run(char *out_path, size_t out_size)
     return task.result;
 }
 
-extern "C" int VitaPauseMenu_Run(const char *game_path, int start_in_save_states)
+extern "C" int VitaPauseMenu_Run(const char *game_path, int start_section,
+    const VitaDiscInfo *discs, unsigned *disc_selection)
 {
     PauseMenuTask task;
     task.game_path = game_path;
-    task.start_in_save_states = start_in_save_states != 0;
+    task.discs = discs;
+    task.start_section = start_section;
+    task.disc_selection = discs ? discs->current : 0;
     task.result = VITA_PAUSE_RESUME;
     NativeGpu_RunBackendTaskSync(pause_menu_task, &task);
+    if (disc_selection)
+        *disc_selection = task.disc_selection;
     return task.result;
 }

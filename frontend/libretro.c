@@ -2477,7 +2477,7 @@ static void update_variables(bool in_flight)
       }
    }
 
-#ifdef GPU_NEON
+#if defined(GPU_NEON) || defined(PCSX_VITA_DUAL_GPU)
    var.value = NULL;
    var.key = "pcsx_rearmed_neon_interlace_enable_v2";
 
@@ -2491,15 +2491,20 @@ static void update_variables(bool in_flight)
          pl_rearmed_cbs.gpu_neon.allow_interlace = 2;
    }
 
-   var.value = NULL;
-   var.key = "pcsx_rearmed_neon_enhancement_enable";
-
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+#ifdef PCSX_VITA_DUAL_GPU
+   if (!in_flight)
+#endif
    {
-      if (strcmp(var.value, "disabled") == 0)
-         pl_rearmed_cbs.gpu_neon.enhancement_enable = 0;
-      else if (strcmp(var.value, "enabled") == 0)
-         pl_rearmed_cbs.gpu_neon.enhancement_enable = 1;
+      var.value = NULL;
+      var.key = "pcsx_rearmed_neon_enhancement_enable";
+
+      if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+      {
+         if (strcmp(var.value, "disabled") == 0)
+            pl_rearmed_cbs.gpu_neon.enhancement_enable = 0;
+         else if (strcmp(var.value, "enabled") == 0)
+            pl_rearmed_cbs.gpu_neon.enhancement_enable = 1;
+      }
    }
 
    var.value = NULL;

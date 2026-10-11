@@ -123,6 +123,7 @@ void renderer_finish(void)
   }
   egpu.enhancement_buf_ptr = NULL;
   egpu.enhancement_current_buf_ptr = NULL;
+  gpu.get_enhancement_bufer = NULL;
   initialized = 0;
 }
 

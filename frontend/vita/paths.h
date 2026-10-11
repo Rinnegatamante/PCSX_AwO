@@ -1,0 +1,12 @@
+#ifndef PCSX_VITA_PATHS_H
+#define PCSX_VITA_PATHS_H
+
+#define PCSX_AWO_APP_ROOT "ux0:data/pcsx-awo"
+#define PCSX_AWO_ROMS_DIR PCSX_AWO_APP_ROOT "/roms"
+#define PCSX_AWO_BIOS_DIR PCSX_AWO_APP_ROOT "/bios"
+#define PCSX_AWO_SAVES_DIR PCSX_AWO_APP_ROOT "/saves"
+#define PCSX_AWO_STATES_DIR PCSX_AWO_APP_ROOT "/savestates"
+#define PCSX_AWO_COVERS_DIR PCSX_AWO_APP_ROOT "/covers"
+#define PCSX_AWO_SHADER_CACHE_DIR PCSX_AWO_APP_ROOT "/shader_cache"
+
+#endif

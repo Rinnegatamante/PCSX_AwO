@@ -23,6 +23,7 @@
 #include "../gpulib/gpu.h"
 #include "../gpulib/gpu_timing.h"
 #include "../../frontend/plugin_lib.h"
+#include "../../frontend/vita/paths.h"
 
 extern int neon_renderer_init(void);
 extern void neon_renderer_finish(void);
@@ -36,6 +37,7 @@ extern void neon_renderer_set_config(const struct rearmed_cbs *cbs);
 extern void neon_renderer_notify_screen_change(const struct psx_gpu_screen *screen);
 
 static int s_neon_selected;
+static int s_game_renderer = -1;
 int VitaGpu_UsingNeon(void) { return s_neon_selected; }
 
 SDL_Window *g_window;
@@ -417,8 +419,8 @@ static int init_context(void)
     if (!s_guest_vram)
         return 0;
 
-    sceIoMkdir("ux0:data/pcsx-rearmed", 0777);
-    sceIoMkdir("ux0:data/pcsx-rearmed/shader_cache", 0777);
+    sceIoMkdir(PCSX_AWO_APP_ROOT, 0777);
+    sceIoMkdir(PCSX_AWO_SHADER_CACHE_DIR, 0777);
 
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         SysPrintf("PCSX AwO: SDL video init failed: %s\n", SDL_GetError());
@@ -581,6 +583,7 @@ void renderer_finish(void)
     if (s_neon_selected)
         neon_renderer_finish();
     s_neon_selected = 0;
+    s_game_renderer = -1;
     if (!s_context_ready)
         return;
 
@@ -707,8 +710,11 @@ void renderer_set_config(const struct rearmed_cbs *cbs)
         SysPrintf("PCSX AwO: deferred High Octane renderer init failed\n");
         return;
     }
-    const char *chosen = VitaSettings_GetOption("vita_renderer");
-    if (chosen && strcmp(chosen, "neon") == 0) {
+    if (s_game_renderer < 0) {
+        const char *chosen = VitaSettings_GetOption("vita_renderer");
+        s_game_renderer = chosen && strcmp(chosen, "neon") == 0 ? 1 : 0;
+    }
+    if (s_game_renderer == 1) {
         if (!s_neon_selected) {
             if (neon_renderer_init() < 0) {
                 SysPrintf("PCSX AwO: NEON renderer init failed\n");

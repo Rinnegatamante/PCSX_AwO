@@ -19,6 +19,7 @@
 #include <psp2/kernel/threadmgr/lw_cond.h>
 #include <psp2/kernel/threadmgr/lw_mutex.h>
 #include <vitaGL.h>
+#include "../../frontend/vita/paths.h"
 #endif
 
 void Platform_PollHostEvents(void);
@@ -300,7 +301,7 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	(void)args;
 	(void)argp;
 	vglSetupRenderTargetScenesNum(2, 2);
-	vglSetShaderCachePath("ux0:data/pcsx-rearmed/shader_cache");
+		vglSetShaderCachePath(PCSX_AWO_SHADER_CACHE_DIR);
 	vglUseLowPrecision(GL_TRUE);
 	vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_TRUE, GL_TRUE);
 	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 24 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);

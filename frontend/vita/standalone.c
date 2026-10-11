@@ -23,12 +23,13 @@
 #include "rom_selector.h"
 #include "savestates.h"
 #include "settings.h"
+#include "paths.h"
 
-#define APP_ROOT "ux0:data/pcsx-rearmed"
-#define BIOS_DIR APP_ROOT "/bios"
-#define SAVE_DIR APP_ROOT "/saves"
-#define ROMS_DIR APP_ROOT "/roms"
-#define COVERS_DIR APP_ROOT "/covers"
+#define APP_ROOT PCSX_AWO_APP_ROOT
+#define BIOS_DIR PCSX_AWO_BIOS_DIR
+#define SAVE_DIR PCSX_AWO_SAVES_DIR
+#define ROMS_DIR PCSX_AWO_ROMS_DIR
+#define COVERS_DIR PCSX_AWO_COVERS_DIR
 
 #define DISPLAY_W 960
 #define DISPLAY_H 544
@@ -61,6 +62,7 @@ static SceCtrlData g_pad;
 static bool g_exit_requested;
 static bool g_pause_requested;
 static bool g_pause_combo_down;
+static struct retro_disk_control_ext_callback g_disk_control;
 extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int pitch);
 
 static SDL_AudioStream *g_audio_stream;
@@ -126,6 +128,53 @@ static const char *option_value(const char *key)
     return VitaSettings_GetOption(key);
 }
 
+static bool disk_control_ready(void)
+{
+    return g_disk_control.get_num_images && g_disk_control.get_image_index &&
+        g_disk_control.get_eject_state && g_disk_control.set_eject_state &&
+        g_disk_control.set_image_index;
+}
+
+static void read_disc_info(VitaDiscInfo *info)
+{
+    memset(info, 0, sizeof(*info));
+    if (!disk_control_ready())
+        return;
+
+    const unsigned count = g_disk_control.get_num_images();
+    if (count > VITA_MAX_DISCS)
+        return;
+    info->count = count;
+    info->current = g_disk_control.get_image_index();
+    for (unsigned i = 0; i < count; ++i) {
+        if (!g_disk_control.get_image_label ||
+            !g_disk_control.get_image_label(i, info->labels[i], VITA_DISC_LABEL_SIZE) ||
+            !info->labels[i][0])
+            snprintf(info->labels[i], VITA_DISC_LABEL_SIZE, "Disc %u", i + 1);
+        info->labels[i][VITA_DISC_LABEL_SIZE - 1] = '\0';
+    }
+}
+
+static bool change_disc(unsigned index)
+{
+    if (!disk_control_ready() || index >= g_disk_control.get_num_images())
+        return false;
+    const unsigned previous = g_disk_control.get_image_index();
+    if (index == previous)
+        return true;
+
+    if (!g_disk_control.get_eject_state() && !g_disk_control.set_eject_state(true))
+        return false;
+    bool ok = g_disk_control.set_image_index(index);
+    if (!ok)
+        g_disk_control.set_image_index(previous);
+    if (!g_disk_control.set_eject_state(false))
+        ok = false;
+    sceClibPrintf("PCSX AwO: disc change %u -> %u %s\n", previous + 1, index + 1,
+        ok ? "completed" : "failed");
+    return ok;
+}
+
 static bool environment_cb(unsigned cmd, void *data)
 {
     switch (cmd) {
@@ -140,7 +189,7 @@ static bool environment_cb(unsigned cmd, void *data)
         return true;
 #ifdef RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY
     case RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY:
-        *(const char **)data = APP_ROOT;
+        *(const char **)data = ROMS_DIR;
         return true;
 #endif
     case RETRO_ENVIRONMENT_GET_CAN_DUPE:
@@ -162,11 +211,33 @@ static bool environment_cb(unsigned cmd, void *data)
     case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
         *(unsigned *)data = 0;
         return true;
+    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION:
+        *(unsigned *)data = 1;
+        return true;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE:
+        if (!data)
+            return false;
+        g_disk_control = *(const struct retro_disk_control_ext_callback *)data;
+        return disk_control_ready();
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE: {
+        const struct retro_disk_control_callback *control =
+            (const struct retro_disk_control_callback *)data;
+        if (!control)
+            return false;
+        memset(&g_disk_control, 0, sizeof(g_disk_control));
+        g_disk_control.set_eject_state = control->set_eject_state;
+        g_disk_control.get_eject_state = control->get_eject_state;
+        g_disk_control.get_image_index = control->get_image_index;
+        g_disk_control.set_image_index = control->set_image_index;
+        g_disk_control.get_num_images = control->get_num_images;
+        g_disk_control.replace_image_index = control->replace_image_index;
+        g_disk_control.add_image_index = control->add_image_index;
+        return disk_control_ready();
+    }
     case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
     case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
     case RETRO_ENVIRONMENT_SET_VARIABLES:
     case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
-    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
     case RETRO_ENVIRONMENT_SET_MEMORY_MAPS:
     case RETRO_ENVIRONMENT_SET_GEOMETRY:
     case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY:
@@ -638,10 +709,13 @@ int main(int argc, char **argv)
 
             g_pause_requested = false;
             audio_set_paused(true);
-            bool reopen_save_states = false;
+            int reopen_section = VITA_PAUSE_MAIN;
             for (;;) {
-                ret = VitaPauseMenu_Run(game_path, reopen_save_states ? 1 : 0);
-                reopen_save_states = false;
+                VitaDiscInfo discs;
+                read_disc_info(&discs);
+                unsigned disc_selection = discs.current;
+                ret = VitaPauseMenu_Run(game_path, reopen_section, &discs, &disc_selection);
+                reopen_section = VITA_PAUSE_MAIN;
                 wait_for_menu_input_release();
 
                 if (ret == VITA_PAUSE_SAVE_STATE) {
@@ -650,7 +724,7 @@ int main(int argc, char **argv)
                         sceClibPrintf("PCSX AwO: saved state slot %d\n", slot);
                     else
                         sceClibPrintf("PCSX AwO: failed to save state slot %d\n", slot);
-                    reopen_save_states = true;
+                    reopen_section = VITA_PAUSE_STATES;
                     continue;
                 }
 
@@ -663,7 +737,17 @@ int main(int argc, char **argv)
                         break;
                     }
                     sceClibPrintf("PCSX AwO: failed to load state slot %d\n", slot);
-                    reopen_save_states = true;
+                    reopen_section = VITA_PAUSE_STATES;
+                    continue;
+                }
+
+                if (ret == VITA_PAUSE_CHANGE_DISC) {
+                    if (change_disc(disc_selection)) {
+                        audio_clear();
+                        ret = VITA_PAUSE_RESUME;
+                        break;
+                    }
+                    reopen_section = VITA_PAUSE_DISCS;
                     continue;
                 }
 

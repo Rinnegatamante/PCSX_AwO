@@ -3,8 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define APP_ROOT "ux0:data/pcsx-rearmed"
-#define SETTINGS_PATH APP_ROOT "/settings.cfg"
+#include "paths.h"
+
+#define SETTINGS_PATH PCSX_AWO_APP_ROOT "/settings.cfg"
 #define VALUE_SIZE 32
 
 typedef struct VitaOptionEntry {
@@ -26,6 +27,7 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_dithering", "enabled", {0} },
     { "pcsx_rearmed_neon_interlace_enable_v2", "auto", {0} },
     { "pcsx_rearmed_neon_enhancement_enable", "disabled", {0} },
+    { "pcsx_rearmed_neon_enhancement_tex_adj_v2", "enabled", {0} },
     { "pcsx_rearmed_scale_hires", "disabled", {0} },
     { "pcsx_rearmed_spu_reverb", "enabled", {0} },
     { "pcsx_rearmed_spu_interpolation", "gaussian", {0} },
