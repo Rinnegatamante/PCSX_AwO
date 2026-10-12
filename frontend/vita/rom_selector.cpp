@@ -272,11 +272,24 @@ static bool upload_disc_mesh();
 static void init_menu_fonts()
 {
     ImGuiIO &io = ImGui::GetIO();
-    const char *font_path = "app0:Roboto.ttf";
-    g_font_body = io.Fonts->AddFontFromFileTTF(font_path, 18.0f);
+    const char *font_path = NULL;
+    const char *paths[] = { "app0:Roboto.ttf", "host0:Roboto.ttf" };
+    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); ++i) {
+        FILE *file = fopen(paths[i], "rb");
+        if (file) {
+            fclose(file);
+            font_path = paths[i];
+            break;
+        }
+    }
+    g_font_body = font_path ? io.Fonts->AddFontFromFileTTF(font_path, 18.0f) : NULL;
     if (g_font_body) {
         g_font_title = io.Fonts->AddFontFromFileTTF(font_path, 28.0f);
         g_font_small = io.Fonts->AddFontFromFileTTF(font_path, 14.0f);
+        if (!g_font_title)
+            g_font_title = g_font_body;
+        if (!g_font_small)
+            g_font_small = g_font_body;
         io.FontDefault = g_font_body;
     } else {
         g_font_body = io.Fonts->AddFontDefault();
