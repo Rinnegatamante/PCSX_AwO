@@ -34,6 +34,9 @@ POSTFX_EMBEDDED_SRC := $(BUILD_DIR)/postfx_embedded.c
 POSTFX_EMBEDDED_OBJ := $(BUILD_DIR)/postfx_embedded.o
 POSTFX_NAMES := crt crt_bleeding daltonic fxaa gamma greyscale hue lcd3x negative sepia sharp_grid sharp_scanlines vignette
 POSTFX_GXP := $(foreach name,$(POSTFX_NAMES),$(BUILD_DIR)/postfx/$(name)/vert.gxp $(BUILD_DIR)/postfx/$(name)/frag.gxp)
+LIVEAREA_PATHS := icon0.png pic0.png livearea/contents/bg.png livearea/contents/startup.png livearea/contents/template.xml
+LIVEAREA_ASSETS := $(addprefix assets/livearea/sce_sys/,$(LIVEAREA_PATHS))
+LIVEAREA_VPK := $(foreach file,$(LIVEAREA_PATHS),-a assets/livearea/sce_sys/$(file)=sce_sys/$(file))
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 		USE_ASYNC_CDROM=1 USE_ASYNC_GPU=1 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
@@ -87,10 +90,10 @@ $(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ)
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
-$(TARGET).vpk: $(TARGET).velf Roboto.ttf assets/Apache-2.0.txt assets/postfx/NOTICE.txt
+$(TARGET).vpk: $(TARGET).velf Roboto.ttf assets/Apache-2.0.txt assets/postfx/NOTICE.txt $(LIVEAREA_ASSETS)
 	vita-make-fself -c -s -na $< eboot.bin
 	vita-mksfoex -s TITLE_ID=$(TITLE_ID) -d ATTRIBUTE2=12 "$(TITLE)" param.sfo
-	vita-pack-vpk -s param.sfo -b eboot.bin -a Roboto.ttf=Roboto.ttf -a assets/Apache-2.0.txt=licenses/Roboto-Apache-2.0.txt -a assets/postfx/NOTICE.txt=licenses/Daedalus-PostFX-NOTICE.txt $@
+	vita-pack-vpk -s param.sfo -b eboot.bin -a Roboto.ttf=Roboto.ttf -a assets/Apache-2.0.txt=licenses/Roboto-Apache-2.0.txt -a assets/postfx/NOTICE.txt=licenses/Daedalus-PostFX-NOTICE.txt $(LIVEAREA_VPK) $@
 
 clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
