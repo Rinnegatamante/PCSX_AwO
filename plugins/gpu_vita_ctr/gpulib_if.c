@@ -71,6 +71,8 @@ extern const char *VitaSettings_GetOption(const char *key);
 extern void VitaCtrNativeRenderer_CopyGuestVRAM(const u16 *src, int x, int y, int w, int h);
 extern void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h);
 extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
+extern void VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw(void);
+extern void VitaCtrNativeRenderer_DiscardMainCpuVRAM(void);
 extern void VitaCtrNativeRenderer_ReadGuestVRAM(u16 *dst, int x, int y, int w, int h);
 extern void NativeGpu_SetFrontendDisplayBlank(int blank);
 extern int NativeGpu_GetRenderDisplayBlank(void);
@@ -152,9 +154,13 @@ void Platform_EndScene(void)
     const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
     const int blank = NativeGpu_GetRenderDisplayBlank();
     const int use_vram_scanout = NativeGpu_FrameUsesVRAMScanout();
-
-    if (!display->isrgb24 && !use_vram_scanout)
+    if (!display->isrgb24 && !use_vram_scanout) {
+        // CPU-only PS1 frames have no primitive batch, so draw-page uploads must also be applied here.
+        VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw();
         VitaCtrNativeRenderer_ApplyMainCpuVRAM();
+    }
+    else
+        VitaCtrNativeRenderer_DiscardMainCpuVRAM();
     NativeRenderer_EndScene();
     if (blank) {
         if (!display->isrgb24 && !use_vram_scanout)

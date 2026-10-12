@@ -2676,9 +2676,9 @@ internal void SetPSXMaskState(u32 code)
 // Draws all polygons after AggregatePTAG
 internal void NativeGpu_DrawPreparedFrame(GrVertex *vertices, GPUDrawSplit *splits, int vertexCount, int splitCount)
 {
-	extern void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void);
+	extern void VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw(void);
 	if (!NativeGpu_GetRenderDispEnv()->isrgb24 && !NativeGpu_FrameUsesVRAMScanout())
-		VitaCtrNativeRenderer_ApplyMainCpuVRAM();
+		VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw();
 
 	if (splitCount > 0)
 	{

@@ -636,9 +636,9 @@ void NativeRenderer_BeginScene(void)
 	{
 		if (!NativeGpu_GetRenderDrawEnv()->isbg)
 		{
+			// Preserve CPU uploads for ordered draw-page and display-page composition.
 			NativeRenderer_LoadRenderTargetFromVRAM(&s_mainRenderTarget, NativeGpu_GetRenderDrawEnv()->clip.x, NativeGpu_GetRenderDrawEnv()->clip.y,
 			                                        s_mainRenderTarget.logicalWidth, s_mainRenderTarget.logicalHeight);
-			NativeRenderer_ClearMainCpuDirty();
 		}
 		else
 		{
@@ -950,6 +950,11 @@ internal void NativeRenderer_ClearMainCpuDirty(void)
 	s_mainCpuDirtyRectCount = 0;
 }
 
+void VitaCtrNativeRenderer_DiscardMainCpuVRAM(void)
+{
+	NativeRenderer_ClearMainCpuDirty();
+}
+
 void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h)
 {
 	RECT16 rect;
@@ -996,15 +1001,12 @@ void VitaCtrNativeRenderer_MarkMainCpuVRAM(int x, int y, int w, int h)
 	current->h = (s16)(y1 - y0);
 }
 
-void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void)
+internal void NativeRenderer_ApplyMainCpuVRAMPage(int clipX, int clipY)
 {
 	if (s_mainCpuDirtyRectCount <= 0 || s_mainRenderTarget.texture == 0 ||
 	    s_mainRenderTarget.width <= 0 || s_mainRenderTarget.height <= 0)
 		return;
 
-	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
-	const int clipX = draw->clip.x;
-	const int clipY = draw->clip.y;
 	const int clipW = s_mainRenderTarget.logicalWidth;
 	const int clipH = s_mainRenderTarget.logicalHeight;
 	if (clipW <= 0 || clipH <= 0)
@@ -1074,6 +1076,46 @@ void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void)
 	NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
 	NativeRenderer_SetScissorState(previousScissorState);
 	NativeRenderer_SetViewPort(0, 0, s_mainRenderTarget.width, s_mainRenderTarget.height);
+}
+
+void VitaCtrNativeRenderer_ApplyMainCpuVRAM(void)
+{
+	const DISPENV *display = NativeGpu_GetRenderDispEnv();
+	NativeRenderer_ApplyMainCpuVRAMPage(display->disp.x, display->disp.y);
+}
+
+void VitaCtrNativeRenderer_ApplyMainCpuVRAMDraw(void)
+{
+	if (!s_mainCpuDirtyRectCount)
+		return;
+
+	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
+	const int width = s_mainRenderTarget.logicalWidth;
+	const int height = s_mainRenderTarget.logicalHeight;
+	if (width <= 0 || height <= 0)
+		return;
+
+	RECT16 fullPage[NATIVE_MAIN_CPU_DIRTY_CAP];
+	RECT16 pending[NATIVE_MAIN_CPU_DIRTY_CAP];
+	int fullCount = 0;
+	int pendingCount = 0;
+	for (int i = 0; i < s_mainCpuDirtyRectCount; ++i)
+	{
+		const RECT16 rect = s_mainCpuDirtyRects[i];
+		if (rect.x == draw->clip.x && rect.y == draw->clip.y &&
+		    rect.w == width && rect.h == height)
+			fullPage[fullCount++] = rect;
+		else
+			pending[pendingCount++] = rect;
+	}
+	if (!fullCount)
+		return;
+
+	memcpy(s_mainCpuDirtyRects, fullPage, (size_t)fullCount * sizeof(fullPage[0]));
+	s_mainCpuDirtyRectCount = fullCount;
+	NativeRenderer_ApplyMainCpuVRAMPage(draw->clip.x, draw->clip.y);
+	memcpy(s_mainCpuDirtyRects, pending, (size_t)pendingCount * sizeof(pending[0]));
+	s_mainCpuDirtyRectCount = pendingCount;
 }
 
 
