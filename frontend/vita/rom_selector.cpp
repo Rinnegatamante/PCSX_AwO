@@ -2313,12 +2313,14 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         IM_COL32(31, 42, 72, 210), 12.0f);
     draw->AddText(small, small->FontSize, ImVec2(43, 19),
         IM_COL32(205, 214, 240, 255), counter);
-    draw->AddRectFilled(ImVec2(816, 15), ImVec2(938, 39),
-        IM_COL32(79, 37, 59, 195), 12.0f);
-    const char *brand = "PCSX AwO";
+    const char *brand = "PCSX AwO v.0.1.0";
     const float brand_width = small->CalcTextSizeA(small->FontSize, 1000.0f, 0.0f,
         brand).x;
-    draw->AddText(small, small->FontSize, ImVec2(877 - brand_width * 0.5f, 19),
+    const float badge_width = std::max(122.0f, brand_width + 20.0f);
+    draw->AddRectFilled(ImVec2(938.0f - badge_width, 15), ImVec2(938, 39),
+        IM_COL32(79, 37, 59, 195), 12.0f);
+    draw->AddText(small, small->FontSize,
+        ImVec2(938.0f - (badge_width + brand_width) * 0.5f, 19),
         IM_COL32(255, 171, 193, 255), brand);
 
     for (size_t i = 0; i < marked.size(); ++i) {
