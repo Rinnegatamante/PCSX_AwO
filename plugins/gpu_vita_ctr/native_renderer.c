@@ -3592,6 +3592,19 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 	const int displayW = displayEnv->disp.w > 0 ? displayEnv->disp.w : 1;
 	const int displayH = displayEnv->disp.h > 0 ? displayEnv->disp.h : 1;
 #endif
+#ifdef __vita__
+	const int clipX = drawRect->x - displayEnv->disp.x;
+	const int clipY = drawRect->y - displayEnv->disp.y;
+	const bool visibleSubViewport = drawRect->w > 0 && drawRect->h > 0 &&
+	                                clipX >= 0 && clipY >= 0 &&
+	                                clipX + drawRect->w <= displayW &&
+	                                clipY + drawRect->h <= displayH;
+	if (visibleSubViewport)
+	{
+		NativeRenderer_Ortho2D(-clipX, displayW - clipX, displayH - clipY, -clipY, -1.0f, 1.0f);
+		return;
+	}
+#endif
 	NativeRenderer_Ortho2D(0, displayW, displayH, 0, -1.0f, 1.0f);
 }
 

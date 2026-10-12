@@ -598,6 +598,24 @@ int NativeGpu_FrameUsesVRAMScanout(void)
 #endif
 }
 
+internal bool NativeGpu_SplitClipInsideDisplay(const GPUDrawSplit *split)
+{
+#ifdef __vita__
+	const RECT16 *clip = &split->drawenv.clip;
+	const DISPENV *display = &split->dispenv;
+	const int visibleW = display->screen.w > 0 ? display->screen.w : display->disp.w;
+	const int visibleH = display->screen.h > 0 ? display->screen.h : display->disp.h;
+	return !display->isrgb24 && visibleW > 0 && visibleH > 0 &&
+	       clip->w > 0 && clip->h > 0 &&
+	       clip->x >= display->disp.x && clip->y >= display->disp.y &&
+	       (int)clip->x + clip->w <= (int)display->disp.x + visibleW &&
+	       (int)clip->y + clip->h <= (int)display->disp.y + visibleH;
+#else
+	(void)split;
+	return false;
+#endif
+}
+
 #ifdef __vita__
 // Keep a persistent VRAM-page FBO across GP0(E3/E4) clip changes.
 internal bool NativeGpu_GetVRAMPageRect(const GPUDrawSplit *split, RECT16 *page)
@@ -1867,7 +1885,8 @@ internal void NativeGpu_DrawSplitRangePass(const GPUDrawSplit *split, int semiTr
 		NativeRenderer_PushDebugLabel(split->debugText);
 	}
 
-	const bool drawOnScreen = split->drawenv.dfe && !NativeGpu_FrameUsesVRAMScanout();
+	const bool drawOnScreen = !NativeGpu_FrameUsesVRAMScanout() &&
+	                          (split->drawenv.dfe || NativeGpu_SplitClipInsideDisplay(split));
 	if ((split->drawenv.clip.w <= 0) || (split->drawenv.clip.h <= 0))
 	{
 		// NOTE(aalhendi): VS/Battle end previews can shrink a losing viewport into an empty retail draw area. Empty clips should consume no pixels, and must not leak stale native offscreen/scissor state.
@@ -2119,7 +2138,8 @@ internal void NativeGpu_DrawDepthBatch(const NativeGpuDepthBatch *batch)
 		NativeRenderer_PushDebugLabel(split->debugText);
 	}
 
-	const bool drawOnScreen = split->drawenv.dfe && !NativeGpu_FrameUsesVRAMScanout();
+	const bool drawOnScreen = !NativeGpu_FrameUsesVRAMScanout() &&
+	                          (split->drawenv.dfe || NativeGpu_SplitClipInsideDisplay(split));
 	NativeRenderer_SetStencilMode(split->drawPrimMode);
 	RECT16 vramPage;
 	const bool useVramPage = !drawOnScreen && NativeGpu_GetVRAMPageRect(split, &vramPage);
