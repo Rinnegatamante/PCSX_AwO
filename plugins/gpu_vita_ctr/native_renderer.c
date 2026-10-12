@@ -2406,8 +2406,15 @@ void NativeRenderer_SetupClipMode(const RECT16 *rect, const DISPENV *displayEnv,
 	}
 
 	// [A] isinterlaced dirty hack for widescreen
+#ifdef __vita__
+	const int displayW = s_mainRenderTarget.logicalWidth > 0 ? s_mainRenderTarget.logicalWidth : displayEnv->disp.w;
+	const int displayH = s_mainRenderTarget.logicalHeight > 0 ? s_mainRenderTarget.logicalHeight : displayEnv->disp.h;
+#else
+	const int displayW = displayEnv->disp.w;
+	const int displayH = displayEnv->disp.h;
+#endif
 	const bool scissorOn = enable && (displayEnv->isinter || (rect->x - displayEnv->disp.x > 0 || rect->y - displayEnv->disp.y > 0 ||
-	                                                          rect->w < displayEnv->disp.w || rect->h < displayEnv->disp.h));
+	                                                          rect->w < displayW || rect->h < displayH));
 
 	NativeRenderer_SetScissorState(scissorOn);
 
@@ -2418,8 +2425,6 @@ void NativeRenderer_SetupClipMode(const RECT16 *rect, const DISPENV *displayEnv,
 
 	const int displayX = displayEnv->disp.x;
 	const int displayY = displayEnv->disp.y;
-	const int displayW = displayEnv->disp.w;
-	const int displayH = displayEnv->disp.h;
 	const int clipRight = rect->x + rect->w;
 	const int clipBottom = rect->y + rect->h;
 	const int displayRight = displayX + displayW;
@@ -3578,8 +3583,15 @@ void NativeRenderer_SetProjection(const RECT16 *drawRect, const DISPENV *display
 		return;
 	}
 
+#ifdef __vita__
+	const int displayW = s_mainRenderTarget.logicalWidth > 0 ? s_mainRenderTarget.logicalWidth :
+	                     (displayEnv->disp.w > 0 ? displayEnv->disp.w : 1);
+	const int displayH = s_mainRenderTarget.logicalHeight > 0 ? s_mainRenderTarget.logicalHeight :
+	                     (displayEnv->disp.h > 0 ? displayEnv->disp.h : 1);
+#else
 	const int displayW = displayEnv->disp.w > 0 ? displayEnv->disp.w : 1;
 	const int displayH = displayEnv->disp.h > 0 ? displayEnv->disp.h : 1;
+#endif
 	NativeRenderer_Ortho2D(0, displayW, displayH, 0, -1.0f, 1.0f);
 }
 
