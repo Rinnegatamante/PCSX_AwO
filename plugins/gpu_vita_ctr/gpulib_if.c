@@ -77,6 +77,7 @@ extern int NativeGpu_GetRenderDisplayBlank(void);
 extern int NativeGpu_FrameUsesVRAMScanout(void);
 extern void NativeGpu_ForceSynchronousFrame(void);
 extern void NativeRenderer_PresentBlank(void);
+extern void NativeRenderer_FinishPostProcessingFrame(void);
 
 void Platform_Log(const char *fmt, ...)
 {
@@ -181,6 +182,7 @@ void VitaCtrNativeRenderer_PresentCurrentFrame(void)
         NativeRenderer_PresentVRAMDisplay();
     else
         NativeRenderer_PresentMainRenderTarget();
+    NativeRenderer_FinishPostProcessingFrame();
 }
 
 typedef struct VitaNeonCpuPresentTask {

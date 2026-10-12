@@ -1,4 +1,5 @@
 #include "rom_selector.h"
+#include "postfx_parameters.h"
 
 #include <algorithm>
 #include <cmath>
@@ -176,6 +177,17 @@ static const OptionChoice k_renderer_choices[] = {
     { "neon", "ReARMed (Neon)" },
     { "high_octane", "High Octane (VitaGL)" }
 };
+static const OptionChoice k_postfx_choices[] = {
+    { "off", "Off" }, { "crt", "CRT" },
+    { "crt_bleeding", "CRT with Bleeding" },
+    { "daltonic", "Daltonic" }, { "fxaa", "FXAA" },
+    { "gamma", "Gamma Correction" }, { "greyscale", "Greyscale" },
+    { "hue", "Hue & Saturation" }, { "lcd3x", "LCD 3x" },
+    { "negative", "Negative" }, { "sepia", "Sepia Tone" },
+    { "sharp_grid", "Sharp Bilinear (Grid)" },
+    { "sharp_scanlines", "Sharp Bilinear (Scanlines)" },
+    { "vignette", "Vignette" }
+};
 
 static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
@@ -187,6 +199,16 @@ static const SelectorOption k_selector_options[] = {
     { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched is exclusive to High Octane and uses an experimental widescreen projection that may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
     { "VIDEO", "Renderer", "ReARMed is the original NEON software rasterizer; High Octane uses the Vita GPU through vitaGL. Applied when starting or restarting a game.", "vita_renderer", k_renderer_choices, 2, false },
     { "VIDEO", "Enhanced Resolution", "NEON only: renders supported low-resolution 3D scenes at 2x internal resolution. Increases CPU and memory usage; may introduce graphical artifacts. Applied on game start/restart.", "pcsx_rearmed_neon_enhancement_enable", k_toggle_choices, 2, false },
+    { "VIDEO", "Post-processing", "Optional post-processing shader", "vita_postfx", k_postfx_choices, (int)(sizeof(k_postfx_choices) / sizeof(k_postfx_choices[0])), false },
+    { "VIDEO", "  Protanopia", "Daltonic color-blindness simulation. Values above 1 activate this mode unless another active mode takes priority.", "vita_fx_protanopia", NULL, 0, false },
+    { "VIDEO", "  Deuteranopia", "Daltonic color-blindness simulation. Values above 1 activate this mode (Tritanopia takes priority).", "vita_fx_deuteranopia", NULL, 0, false },
+    { "VIDEO", "  Tritanopia", "Daltonic color-blindness simulation. Values above 1 activate this mode, with highest priority.", "vita_fx_tritanopia", NULL, 0, false },
+    { "VIDEO", "  Gamma", "Gamma correction, 1.00 is neutral. Adjustable between 0.10 and 2.00.", "vita_fx_gamma", NULL, 0, false },
+    { "VIDEO", "  Hue", "HSV hue multiplier. 1.00 preserves the original hue.", "vita_fx_hue", NULL, 0, false },
+    { "VIDEO", "  Saturation", "HSV saturation multiplier. 0.00 removes saturation; 1.00 is neutral.", "vita_fx_saturation", NULL, 0, false },
+    { "VIDEO", "  Radius", "Vignette radius. Decrease below 1.00 to darken the edges.", "vita_fx_radius", NULL, 0, false },
+    { "VIDEO", "  Softness", "Vignette edge transition width. Higher values produce a softer transition.", "vita_fx_softness", NULL, 0, false },
+    { "VIDEO", "  Opacity", "Vignette strength. 0.00 disables the darkening; 1.00 uses full strength.", "vita_fx_opacity", NULL, 0, false },
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
@@ -195,6 +217,43 @@ static const SelectorOption k_selector_options[] = {
     { "AUDIO", "CD Audio", "Enables CD-DA audio tracks used by games that stream music directly from the disc.", "pcsx_rearmed_nocdaudio", k_toggle_choices, 2, false },
     { "AUDIO", "XA Decoding", "Enables XA audio decoding for streamed voices, music and sound effects stored on the disc.", "pcsx_rearmed_noxadecoding", k_toggle_choices, 2, false },
 };
+
+static const VitaPostFXParameter *selector_postfx_parameter(const char *key)
+{
+    for (size_t i = 0; i < vita_postfx_parameter_count; ++i)
+        if (strcmp(key, vita_postfx_parameters[i].setting) == 0)
+            return &vita_postfx_parameters[i];
+    return NULL;
+}
+
+static bool selector_option_visible(const SelectorOption &option)
+{
+    const VitaPostFXParameter *parameter = selector_postfx_parameter(option.key);
+    if (!parameter)
+        return true;
+    const char *active = VitaSettings_GetOption("vita_postfx");
+    return active && strcmp(parameter->effect, active) == 0;
+}
+
+static int selector_option_count(void)
+{
+    int count = 0;
+    for (size_t i = 0; i < sizeof(k_selector_options) / sizeof(k_selector_options[0]); ++i)
+        if (selector_option_visible(k_selector_options[i]))
+            ++count;
+    return count;
+}
+
+static const SelectorOption &selector_visible_option(int index)
+{
+    for (size_t i = 0; i < sizeof(k_selector_options) / sizeof(k_selector_options[0]); ++i) {
+        if (!selector_option_visible(k_selector_options[i]))
+            continue;
+        if (index-- == 0)
+            return k_selector_options[i];
+    }
+    return k_selector_options[0];
+}
 
 static bool selector_choice_available(const SelectorOption &option, int index)
 {
@@ -2019,15 +2078,29 @@ static void apply_aspect_setting(void)
 
 static void adjust_selector_option(int option_index, int direction)
 {
-    if (option_index < 0 || option_index >= (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0])))
+    if (option_index < 0 || option_index >= selector_option_count())
         return;
 
-    const SelectorOption &option = k_selector_options[option_index];
+    const SelectorOption &option = selector_visible_option(option_index);
     if (!selector_option_available(option))
         return;
     const char *current = VitaSettings_GetOption(option.key);
     if (!current)
         return;
+
+    const VitaPostFXParameter *parameter = selector_postfx_parameter(option.key);
+    if (parameter) {
+        const float current_value = strtof(current, NULL);
+        const float next_value = std::max(parameter->minimum, std::min(parameter->maximum,
+            floorf((current_value - parameter->minimum) / parameter->step + 0.5f +
+                   (direction > 0 ? 1.0f : -1.0f)) * parameter->step +
+                   parameter->minimum));
+        char text[16];
+        snprintf(text, sizeof(text), "%.2f", next_value);
+        if (VitaSettings_SetOption(option.key, text))
+            VitaSettings_Save();
+        return;
+    }
 
     if (option.psx_clock) {
         char value[16];
@@ -2093,7 +2166,7 @@ static void draw_selector_options(int selected)
     const float options_bottom = 438.0f;
     const float scrollbar_x = content_x + content_w - 6.0f;
     const float option_right = scrollbar_x - 14.0f;
-    const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
+    const int option_count = selector_option_count();
     ImDrawList *draw = ImGui::GetWindowDrawList();
 
     ImGui::SetWindowFontScale(1.35f);
@@ -2107,7 +2180,7 @@ static void draw_selector_options(int selected)
     float selected_y = options_top;
     const char *last_category = NULL;
     for (int i = 0; i < option_count; ++i) {
-        const SelectorOption &option = k_selector_options[i];
+        const SelectorOption &option = selector_visible_option(i);
         if (!last_category || strcmp(last_category, option.category) != 0) {
             layout_y += 20.0f;
             last_category = option.category;
@@ -2136,7 +2209,7 @@ static void draw_selector_options(int selected)
     ImGui::PushClipRect(ImVec2(content_x, options_top),
         ImVec2(option_right, options_bottom), true);
     for (int i = 0; i < option_count; ++i) {
-        const SelectorOption &option = k_selector_options[i];
+        const SelectorOption &option = selector_visible_option(i);
         if (!last_category || strcmp(last_category, option.category) != 0) {
             if (y + 20.0f > options_top && y < options_bottom) {
                 ImGui::SetCursorPos(ImVec2(content_x, y));
@@ -2191,7 +2264,7 @@ static void draw_selector_options(int selected)
         ImGui::PushTextWrapPos(content_x + content_w);
         ImGui::PushClipRect(ImVec2(content_x, description_y),
             ImVec2(content_x + content_w, MENU_H - 43.0f), true);
-        const SelectorOption &option = k_selector_options[selected];
+        const SelectorOption &option = selector_visible_option(selected);
         const bool neon_only = !selector_option_available(option);
         const bool inactive = strcmp(option.key, "vita_aspect_ratio") == 0 &&
             strcmp(VitaSettings_GetOption("vita_aspect_ratio"), "16:9_unstretched") == 0 &&
@@ -2675,7 +2748,7 @@ static void pause_menu_task(void *arg)
         }
 
         if (options_open) {
-            const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
+            const int option_count = selector_option_count();
             if (pressed & SCE_CTRL_UP) {
                 options_selected--;
                 if (options_selected < 0)
@@ -2902,7 +2975,7 @@ static void selector_task(void *arg)
         const bool options_was_open = options_open;
 
         if (!launch_pending && !launching && options_open) {
-            const int option_count = (int)(sizeof(k_selector_options) / sizeof(k_selector_options[0]));
+            const int option_count = selector_option_count();
             if (pressed & SCE_CTRL_UP) {
                 options_selected--;
                 if (options_selected < 0)

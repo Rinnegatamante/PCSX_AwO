@@ -28,6 +28,12 @@ STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
 ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
 SETTINGS_OBJ := $(BUILD_DIR)/settings.o
 SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
+POSTFX_OBJ := $(BUILD_DIR)/post_processing.o
+POSTFX_PARAMS_OBJ := $(BUILD_DIR)/postfx_parameters.o
+POSTFX_EMBEDDED_SRC := $(BUILD_DIR)/postfx_embedded.c
+POSTFX_EMBEDDED_OBJ := $(BUILD_DIR)/postfx_embedded.o
+POSTFX_NAMES := crt crt_bleeding daltonic fxaa gamma greyscale hue lcd3x negative sepia sharp_grid sharp_scanlines vignette
+POSTFX_GXP := $(foreach name,$(POSTFX_NAMES),$(BUILD_DIR)/postfx/$(name)/vert.gxp $(BUILD_DIR)/postfx/$(name)/frag.gxp)
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 		USE_ASYNC_CDROM=1 USE_ASYNC_GPU=1 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
@@ -55,19 +61,39 @@ $(SETTINGS_OBJ): frontend/vita/settings.c | $(BUILD_DIR)
 $(SAVESTATES_OBJ): frontend/vita/savestates.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(CORE) $(LIBS) -o $@
+$(POSTFX_OBJ): frontend/vita/post_processing.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(POSTFX_PARAMS_OBJ): frontend/vita/postfx_parameters.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(POSTFX_EMBEDDED_SRC): tools/embed_vita_postfx.py $(POSTFX_GXP)
+	python tools/embed_vita_postfx.py $(BUILD_DIR)/postfx $@ $(POSTFX_NAMES)
+
+$(POSTFX_EMBEDDED_OBJ): $(POSTFX_EMBEDDED_SRC)
+	$(CC) $(CFLAGS) -Ifrontend/vita -c $< -o $@
+
+$(BUILD_DIR)/postfx/%/vert.gxp: assets/postfx/%/vert.cg
+	mkdir -p $(dir $@)
+	psp2cgc -profile sce_vp_psp2 -o $@ $<
+
+$(BUILD_DIR)/postfx/%/frag.gxp: assets/postfx/%/frag.cg
+	mkdir -p $(dir $@)
+	psp2cgc -profile sce_fp_psp2 -o $@ $<
+
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
 
-$(TARGET).vpk: $(TARGET).velf Roboto.ttf assets/Apache-2.0.txt
+$(TARGET).vpk: $(TARGET).velf Roboto.ttf assets/Apache-2.0.txt assets/postfx/NOTICE.txt
 	vita-make-fself -c -s -na $< eboot.bin
 	vita-mksfoex -s TITLE_ID=$(TITLE_ID) -d ATTRIBUTE2=12 "$(TITLE)" param.sfo
-	vita-pack-vpk -s param.sfo -b eboot.bin -a Roboto.ttf=Roboto.ttf -a assets/Apache-2.0.txt=licenses/Roboto-Apache-2.0.txt $@
+	vita-pack-vpk -s param.sfo -b eboot.bin -a Roboto.ttf=Roboto.ttf -a assets/Apache-2.0.txt=licenses/Roboto-Apache-2.0.txt -a assets/postfx/NOTICE.txt=licenses/Daedalus-PostFX-NOTICE.txt $@
 
 clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)

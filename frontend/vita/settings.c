@@ -43,9 +43,20 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_screen_centering", "borderless", {0} },
     { "vita_aspect_ratio", "4:3", {0} },
     { "vita_renderer", "high_octane", {0} },
+    { "vita_postfx", "off", {0} },
+    { "vita_fx_protanopia", "2.00", {0} },
+    { "vita_fx_deuteranopia", "1.00", {0} },
+    { "vita_fx_tritanopia", "1.00", {0} },
+    { "vita_fx_gamma", "1.00", {0} },
+    { "vita_fx_hue", "1.00", {0} },
+    { "vita_fx_saturation", "1.00", {0} },
+    { "vita_fx_radius", "1.00", {0} },
+    { "vita_fx_softness", "1.00", {0} },
+    { "vita_fx_opacity", "1.00", {0} },
 };
 
 static bool g_dirty;
+static unsigned g_revision = 1;
 
 static VitaOptionEntry *find_option(const char *key)
 {
@@ -119,7 +130,15 @@ int VitaSettings_SetOption(const char *key, const char *value)
 
     snprintf(option->value, sizeof(option->value), "%s", value);
     g_dirty = true;
+    ++g_revision;
+    if (g_revision == 0)
+        g_revision = 1;
     return 1;
+}
+
+unsigned VitaSettings_GetRevision(void)
+{
+    return g_revision;
 }
 
 int VitaSettings_Save(void)
