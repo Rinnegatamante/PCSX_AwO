@@ -1,6 +1,6 @@
 # PCSX AwO
 <img src="screenshots/shot1.png"></imd>
-PCSX AwO (Armed with Octane) is a fork of PCSX ReARMed specifically tailored for PSVita, featuring a ultra optimized new renderer derived from [Crash Team Racing: High Octane](https://github.com/Rinnegatamante/Crash-Team-Racing-High-Octane).
+PCSX AwO (ARMed with Octane) is a fork of PCSX ReARMed specifically tailored for PSVita, featuring a ultra optimized new renderer derived from [Crash Team Racing: High Octane](https://github.com/Rinnegatamante/Crash-Team-Racing-High-Octane).
 
 ## Features
 
@@ -27,3 +27,4 @@ PCSX AwO (Armed with Octane) is a fork of PCSX ReARMed specifically tailored for
 - Exophase for the ReARMed NEON renderer.
 - notaz for PCSX ReARMed.
 - Standard-Republic for the Livearea assets.
+- Robin55, Circo, Community for the discs cover arts.
