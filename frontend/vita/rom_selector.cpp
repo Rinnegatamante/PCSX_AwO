@@ -217,6 +217,7 @@ static const SelectorOption k_selector_options[] = {
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
+    { "INPUT", "Swap Cross / Circle", "Exchange Cross (X) and Circle (O) in PS1 games. Emulator menu controls are unchanged. Takes effect immediately.", "vita_swap_cross_circle", k_toggle_choices, 2, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },
     { "AUDIO", "Interpolation", "Selects the SPU sample interpolation method. Higher-quality modes can slightly increase CPU cost.", "pcsx_rearmed_spu_interpolation", k_interp_choices, 4, false },
     { "AUDIO", "CD Audio", "Enables CD-DA audio tracks used by games that stream music directly from the disc.", "pcsx_rearmed_nocdaudio", k_toggle_choices, 2, false },

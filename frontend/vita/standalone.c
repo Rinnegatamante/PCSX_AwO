@@ -442,8 +442,16 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
     }
 
     switch (id) {
-    case RETRO_DEVICE_ID_JOYPAD_B:      button = SCE_CTRL_CROSS; break;
-    case RETRO_DEVICE_ID_JOYPAD_A:      button = SCE_CTRL_CIRCLE; break;
+    case RETRO_DEVICE_ID_JOYPAD_B:
+    case RETRO_DEVICE_ID_JOYPAD_A: {
+        const char *setting = VitaSettings_GetOption("vita_swap_cross_circle");
+        const bool swapped = setting && strcmp(setting, "enabled") == 0;
+        if (id == RETRO_DEVICE_ID_JOYPAD_B)
+            button = swapped ? SCE_CTRL_CIRCLE : SCE_CTRL_CROSS;
+        else
+            button = swapped ? SCE_CTRL_CROSS : SCE_CTRL_CIRCLE;
+        break;
+    }
     case RETRO_DEVICE_ID_JOYPAD_Y:      button = SCE_CTRL_SQUARE; break;
     case RETRO_DEVICE_ID_JOYPAD_X:      button = SCE_CTRL_TRIANGLE; break;
     case RETRO_DEVICE_ID_JOYPAD_L:      button = SCE_CTRL_L1; break;
