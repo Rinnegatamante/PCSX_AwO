@@ -70,6 +70,28 @@ static bool g_pause_combo_down;
 static struct retro_disk_control_ext_callback g_disk_control;
 extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int pitch);
 
+extern int padSetAnalog(unsigned int index, int analog);
+static bool g_controller_dualshock;
+static bool g_controller_analog;
+
+static void apply_controller_settings(bool loaded)
+{
+    const char *controller = VitaSettings_GetOption("vita_controller");
+    const char *mode = VitaSettings_GetOption("vita_controller_mode");
+    bool dualshock = controller && strcmp(controller, "dualshock") == 0;
+    bool analog = mode && strcmp(mode, "analog") == 0;
+    //restart required
+    if (loaded) {
+        g_controller_dualshock = dualshock;
+        retro_set_controller_port_device(0, dualshock ?
+            RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) : RETRO_DEVICE_JOYPAD);
+    }
+    if (g_controller_dualshock && (loaded || analog != g_controller_analog))
+        padSetAnalog(0, analog);
+    g_controller_analog = analog;
+}
+
+
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
 
@@ -690,6 +712,7 @@ int main(int argc, char **argv)
     VitaSettings_Init();
     VitaSaveStates_Init();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+    sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
 
     // So it doesn't take touches from area outside bottom left / bottom right
     g_front_touch_ready =
@@ -771,6 +794,7 @@ int main(int argc, char **argv)
             exit_code = 3;
             break;
         }
+        apply_controller_settings(true);
         if (boot_disc.index > 0 &&
             (!g_disk_control.get_image_index ||
              g_disk_control.get_image_index() != boot_disc.index)) {
@@ -840,6 +864,7 @@ int main(int argc, char **argv)
             }
 
             if (ret == VITA_PAUSE_RESUME) {
+                apply_controller_settings(false);
                 audio_set_paused(false);
                 continue;
             }
@@ -858,6 +883,7 @@ int main(int argc, char **argv)
                     g_exit_requested = true;
                     break;
                 }
+                apply_controller_settings(true);
                 game_loaded = true;
                 g_pause_requested = false;
                 g_pause_combo_down = false;

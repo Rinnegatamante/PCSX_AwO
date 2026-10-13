@@ -188,8 +188,19 @@ static const OptionChoice k_postfx_choices[] = {
     { "sharp_scanlines", "Sharp Bilinear (Scanlines)" },
     { "vignette", "Vignette" }
 };
+static const OptionChoice k_controller_choices[] = {
+    { "standard", "Standard (Digital)" },
+    { "dualshock", "DualShock" }
+};
+static const OptionChoice k_controller_mode_choices[] = {
+    { "digital", "Digital" },
+    { "analog", "Analog" }
+};
 
 static const SelectorOption k_selector_options[] = {
+    //Can possibly set default as true since more people expect to use the analog stick out of the box
+    { "SYSTEM", "Controller", "Port 1 controller. DualShock sends both Vita sticks as real analog axes. Applied on the next game start/restart.", "vita_controller", k_controller_choices, 2, false },
+    { "SYSTEM", "DualShock Mode", "Select Analog or Digital for the DualShock controller. Applied at game start or when changed in the pause menu. Requires Controller set to DualShock. Games can subsequently change the mode.", "vita_controller_mode", k_controller_mode_choices, 2, false },
     { "SYSTEM", "Swap Cross / Circle", "Swap Cross (X) and Circle (O) for game input, including gameplay actions. Emulator menu controls are unchanged. Applies immediately on resume.", "vita_swap_cross_circle", k_toggle_choices, 2, false },
     { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
     { "SYSTEM", "BIOS", "Choose automatic BIOS selection or the built-in HLE BIOS. Auto uses a real BIOS when available. Takes effect on the next game start/restart.", "pcsx_rearmed_bios", k_bios_choices, 2, false },

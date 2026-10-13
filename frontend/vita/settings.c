@@ -15,6 +15,8 @@ typedef struct VitaOptionEntry {
 } VitaOptionEntry;
 
 static VitaOptionEntry g_options[] = {
+    { "vita_controller", "standard", {0} },
+    { "vita_controller_mode", "analog", {0} },
     { "pcsx_rearmed_memcard1", "shared", {0} },
     { "pcsx_rearmed_memcard2", "none", {0} },
     { "pcsx_rearmed_bios", "auto", {0} },
@@ -117,6 +119,8 @@ void VitaSettings_Init(void)
 
 const char *VitaSettings_GetOption(const char *key)
 {
+    if (key && strcmp(key, "pcsx_rearmed_analog_combo") == 0)
+        return "disabled";
     VitaOptionEntry *option = find_option(key);
     return option ? option->value : NULL;
 }
