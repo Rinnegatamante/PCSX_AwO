@@ -178,8 +178,8 @@ static const OptionChoice k_renderer_choices[] = {
     { "high_octane", "High Octane (VitaGL)" }
 };
 static const OptionChoice k_frame_interpolation_choices[] = {
-    { "off", "Off" }, { "blend", "Blend (Experimental)" },
-    { "motion", "Motion (Experimental)" }
+    { "off", "Off" }, { "blend", "Blending (Low Quality)" },
+    { "motion", "Optical Flow (High Quality)" }
 };
 static const OptionChoice k_postfx_choices[] = {
     { "off", "Off" }, { "crt", "CRT" },
@@ -202,7 +202,7 @@ static const SelectorOption k_selector_options[] = {
     { "SYSTEM", "CD Read-Ahead", "Caches upcoming sectors on a background thread. This reduces storage stalls without changing PlayStation CD-ROM timing.", "pcsx_rearmed_cd_readahead", k_cd_readahead_choices, 6, false },
     { "VIDEO", "Aspect Ratio", "4:3 is the original output. 16:9 Stretched fills the screen by stretching 4:3. 16:9 Unstretched is exclusive to High Octane and uses an experimental widescreen projection that may show culling or background artifacts.", "vita_aspect_ratio", k_aspect_choices, 3, false },
     { "VIDEO", "Renderer", "ReARMed is the original NEON software rasterizer; High Octane uses the Vita GPU through vitaGL. Applied when starting or restarting a game.", "vita_renderer", k_renderer_choices, 2, false },
-    { "VIDEO", "Frame Interpolation", "High Octane only: generates intermediate display frames for games rendering near 25-30 FPS. Motion uses GPU motion estimation. Adds latency and GPU load; disabled when post-processing is enabled.", "vita_frame_interpolation", k_frame_interpolation_choices, 3, false },
+    { "VIDEO", "Frame Generation", "High Octane only: generates intermediate display frames for games rendering near 25-30 FPS. Optical Flow estimates motion between frames. Adds latency and GPU load; disabled when post-processing is enabled.", "vita_frame_interpolation", k_frame_interpolation_choices, 3, false },
     { "VIDEO", "Enhanced Resolution", "NEON only: renders supported low-resolution 3D scenes at 2x internal resolution. Increases CPU and memory usage; may introduce graphical artifacts. Applied on game start/restart.", "pcsx_rearmed_neon_enhancement_enable", k_toggle_choices, 2, false },
     { "VIDEO", "Post-processing", "Optional post-processing shader", "vita_postfx", k_postfx_choices, (int)(sizeof(k_postfx_choices) / sizeof(k_postfx_choices[0])), false },
     { "VIDEO", "  Protanopia", "Daltonic color-blindness simulation. Values above 1 activate this mode unless another active mode takes priority.", "vita_fx_protanopia", NULL, 0, false },
