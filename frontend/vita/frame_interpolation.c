@@ -519,9 +519,15 @@ int VitaFrameInterp_Present(void)
     GLboolean previous_color_mask[4];
     GLint previous_viewport[4];
     GLint previous_active_texture;
+    GLint previous_textures[4];
     glGetBooleanv(GL_COLOR_WRITEMASK, previous_color_mask);
     glGetIntegerv(GL_VIEWPORT, previous_viewport);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &previous_active_texture);
+    // Unit 2 contains the native PS1 color LUT outside the optical flow passes.
+    for (int unit = 0; unit < 4; unit++) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_textures[unit]);
+    }
 
     use_frame_textures();
     if (s_mode == 2)
@@ -551,6 +557,10 @@ int VitaFrameInterp_Present(void)
     glBindVertexArray(0);
     glUseProgram(0);
     vglSwapBuffers(GL_FALSE);
+    for (int unit = 0; unit < 4; unit++) {
+        glActiveTexture(GL_TEXTURE0 + unit);
+        glBindTexture(GL_TEXTURE_2D, (GLuint)previous_textures[unit]);
+    }
     glActiveTexture(previous_active_texture);
     glViewport(previous_viewport[0], previous_viewport[1],
                previous_viewport[2], previous_viewport[3]);

@@ -3390,6 +3390,7 @@ internal void NativeRenderer_SyncGpuVRAMToCPU(int x, int y, int w, int h)
 	             s_vram.cpuPixels + (size_t)readRect.y * VRAM_WIDTH + readRect.x);
 #else
 	// vitaGL always packs rows tightly.  Passing a pointer into cpuPixels here would advance each subsequent row by readRect.w instead of VRAM_WIDTH.
+	glFinish();
 	glReadPixels(readRect.x, VRAM_HEIGHT - readRect.y - readRect.h,
 	             readRect.w, readRect.h, VRAM_FORMAT, GL_UNSIGNED_BYTE, s_vitaVramTransferPixels);
 	for (int row = 0; row < readRect.h; row++)
@@ -4930,21 +4931,23 @@ void VitaCtrNativeRenderer_ReadGuestVRAM(u16 *dst, int x, int y, int w, int h)
 {
     if (dst == NULL || w <= 0 || h <= 0)
         return;
-
-    for (int row = 0; row < h; row++)
+    for (int row = 0; row < h; )
     {
         const int yy = (y + row) & (VRAM_HEIGHT - 1);
+        const int rows = SDL_min(h - row, VRAM_HEIGHT - yy);
         int xx = x & (VRAM_WIDTH - 1);
         int remaining = w;
         while (remaining > 0)
         {
             const int chunk = SDL_min(remaining, VRAM_WIDTH - xx);
-            NativeRenderer_ResolveVRAMRead(xx, yy, chunk, 1);
-            SDL_memcpy(dst + yy * VRAM_WIDTH + xx,
-                       s_vram.cpuPixels + yy * VRAM_WIDTH + xx,
-                       (size_t)chunk * sizeof(u16));
+            NativeRenderer_ResolveVRAMRead(xx, yy, chunk, rows);
+            for (int copyRow = 0; copyRow < rows; copyRow++)
+                SDL_memcpy(dst + (yy + copyRow) * VRAM_WIDTH + xx,
+                           s_vram.cpuPixels + (yy + copyRow) * VRAM_WIDTH + xx,
+                           (size_t)chunk * sizeof(u16));
             remaining -= chunk;
             xx = 0;
         }
+        row += rows;
     }
 }
