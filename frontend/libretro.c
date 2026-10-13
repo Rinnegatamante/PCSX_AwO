@@ -1173,6 +1173,15 @@ unsigned retro_api_version(void)
    return RETRO_API_VERSION;
 }
 
+#ifdef VITA
+static void vita_restore_analog_modes(void)
+{
+   for (unsigned port = 0; port < PORTS_NUMBER; port++)
+      if (in_type[port] == PSE_PAD_TYPE_ANALOGPAD)
+         padSetAnalog(port, 1);
+}
+#endif
+
 static void update_multitap(void)
 {
    struct retro_variable var = { 0 };
@@ -1199,6 +1208,9 @@ static void update_multitap(void)
    if (multitap1 != multitap1_old || multitap2 != multitap2_old) {
       SysPrintf("multitap: %d %d\n", multitap1, multitap2);
       padChanged();
+#ifdef VITA
+      vita_restore_analog_modes();
+#endif
    }
 }
 
@@ -1243,6 +1255,9 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
        SysPrintf("port: %u  device: %s\n", port + 1, get_pse_pad_label[in_type[port]]);
        padChanged();
    }
+#ifdef VITA
+   vita_restore_analog_modes();
+#endif
 }
 
 void retro_get_system_info(struct retro_system_info *info)

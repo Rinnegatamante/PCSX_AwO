@@ -620,6 +620,15 @@ int padToggleAnalog(unsigned int index)
 	return r;
 }
 
+int padSetAnalog(unsigned int index, int enabled)
+{
+	if (index >= sizeof(g.pads) / sizeof(g.pads[0]))
+		return -1;
+	g.pads[index].ds.padMode = enabled != 0;
+	g.pads[index].ds.userToggled = 1;
+	return g.pads[index].ds.padMode;
+}
+
 void padChanged(void)
 {
 	padReset();

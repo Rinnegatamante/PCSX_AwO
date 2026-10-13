@@ -177,6 +177,16 @@ static const OptionChoice k_renderer_choices[] = {
     { "neon", "ReARMed (Neon)" },
     { "high_octane", "High Octane (VitaGL)" }
 };
+static const OptionChoice k_controller_choices[] = {
+    { "dualshock", "DualShock (Analog)" },
+    { "digital", "Digital" }
+};
+static const OptionChoice k_multitap_choices[] = {
+    { "disabled", "Off (2 players)" },
+    { "port 1", "Port 1 (P1-P4)" },
+    { "port 2", "Port 2 (P2-P4)" },
+    { "ports 1 and 2", "Both (2+2)" }
+};
 static const OptionChoice k_frame_interpolation_choices[] = {
     { "off", "Off" }, { "blend", "Blending (Low Quality)" },
     { "motion", "Optical Flow (High Quality)" }
@@ -217,6 +227,11 @@ static const SelectorOption k_selector_options[] = {
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
+    { "INPUT", "Player 1 Controller", "DualShock enables both analog sticks. Use Digital for incompatible games. On PS Vita, the upper rear touchpad maps to L2 on the left and R2 on the right.", "vita_controller_type", k_controller_choices, 2, false },
+    { "INPUT", "Player 2 Controller", "PS TV wireless controller 2. Select Digital for games incompatible with DualShock.", "vita_controller_p2", k_controller_choices, 2, false },
+    { "INPUT", "Player 3 Controller", "PS TV wireless controller 3. Requires a compatible Multitap game.", "vita_controller_p3", k_controller_choices, 2, false },
+    { "INPUT", "Player 4 Controller", "PS TV wireless controller 4. Requires a compatible Multitap game.", "vita_controller_p4", k_controller_choices, 2, false },
+    { "INPUT", "Multitap", "PS TV: Off uses ports 1 and 2 normally. Port 1 puts players 1-4 on the first Multitap; Port 2 puts player 1 on port 1 and players 2-4 on the second. Both splits players 1-2 and 3-4 between the two Multitaps. Requires game support.", "pcsx_rearmed_multitap", k_multitap_choices, 4, false },
     { "INPUT", "Swap Cross / Circle", "Exchange Cross (X) and Circle (O) in PS1 games. Emulator menu controls are unchanged. Takes effect immediately.", "vita_swap_cross_circle", k_toggle_choices, 2, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },
     { "AUDIO", "Interpolation", "Selects the SPU sample interpolation method. Higher-quality modes can slightly increase CPU cost.", "pcsx_rearmed_spu_interpolation", k_interp_choices, 4, false },
@@ -234,6 +249,14 @@ static const VitaPostFXParameter *selector_postfx_parameter(const char *key)
 
 static bool selector_option_visible(const SelectorOption &option)
 {
+    if (strcmp(option.key, "pcsx_rearmed_multitap") == 0 ||
+        strcmp(option.key, "vita_controller_p2") == 0 ||
+        strcmp(option.key, "vita_controller_p3") == 0 ||
+        strcmp(option.key, "vita_controller_p4") == 0) {
+        static const bool multi_supported = sceCtrlIsMultiControllerSupported() > 0;
+        if (!multi_supported)
+            return false;
+    }
     const VitaPostFXParameter *parameter = selector_postfx_parameter(option.key);
     if (!parameter)
         return true;
