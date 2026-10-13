@@ -44,7 +44,6 @@
 #define AUDIO_DEVICE_FRAMES 1024
 #define AUDIO_QUEUE_TARGET_FRAMES 2048
 #define AUDIO_FRAME_BYTES (sizeof(int16_t) * 2)
-#define AUDIO_QUEUE_TARGET_BYTES (AUDIO_QUEUE_TARGET_FRAMES * AUDIO_FRAME_BYTES)
 
 static SceUID g_fb_uid[2] = { -1, -1 };
 static uint32_t *g_fb[2];
@@ -69,6 +68,33 @@ extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
+
+static void pacing_wait_tick(SceUInt64 *deadline, SceUInt64 interval)
+{
+    SceUInt64 now = (SceUInt64)sceKernelGetSystemTimeWide();
+    if (!*deadline || now > *deadline + interval || *deadline > now + interval * 2)
+        *deadline = now;
+    while (now < *deadline) {
+        const SceUInt64 remaining = *deadline - now;
+        if (remaining > 700) {
+            SceUInt64 sleep_us = remaining - 500;
+            if (sleep_us > 4000)
+                sleep_us = 4000;
+            sceKernelDelayThread((SceUInt)sleep_us);
+        }
+        now = (SceUInt64)sceKernelGetSystemTimeWide();
+    }
+    *deadline += interval;
+}
+
+static SceUInt64 pacing_frame_interval_us(void)
+{
+    struct retro_system_av_info av;
+    retro_get_system_av_info(&av);
+    if (av.timing.fps < 1.0)
+        return 16667;
+    return (SceUInt64)(1000000.0 / av.timing.fps + 0.5);
+}
 
 unsigned int _newlib_heap_size_user = 40 * 1024 * 1024;
 static SceUID g_vm_block = -1;
@@ -358,7 +384,6 @@ static void video_cb(const void *data, unsigned width, unsigned height, size_t p
 
 static size_t audio_batch_cb(const int16_t *data, size_t frames)
 {
-
     if (!g_audio_stream || !data || frames == 0)
         return frames;
 
@@ -368,10 +393,6 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
         g_audio_put_errors++;
         return frames;
     }
-
-    while (!g_exit_requested &&
-           SDL_GetAudioStreamQueued(g_audio_stream) > (int)AUDIO_QUEUE_TARGET_BYTES)
-        sceKernelDelayThread(1000);
 
     return frames;
 }
@@ -553,6 +574,13 @@ static void audio_clear(void)
 {
     if (g_audio_stream)
         SDL_ClearAudioStream(g_audio_stream);
+}
+
+static void audio_prime(void)
+{
+    static const int16_t silence[AUDIO_QUEUE_TARGET_FRAMES * 2] = {0};
+    if (g_audio_stream)
+        SDL_PutAudioStreamData(g_audio_stream, silence, sizeof(silence));
 }
 
 static void wait_for_menu_input_release(void)
@@ -738,8 +766,12 @@ int main(int argc, char **argv)
         g_pause_combo_down = false;
         memset(&g_pad, 0, sizeof(g_pad));
         audio_clear();
+        audio_prime();
         audio_set_paused(false);
+        SceUInt64 pacing_period_us = pacing_frame_interval_us();
+        SceUInt64 pacing_next_us = 0;
         while (!g_exit_requested && game_loaded) {
+            pacing_wait_tick(&pacing_next_us, pacing_period_us);
             retro_run();
             if (!g_pause_requested)
                 continue;
@@ -770,6 +802,7 @@ int main(int argc, char **argv)
                     if (VitaSaveStates_Load(game_path, slot) == 0) {
                         sceClibPrintf("PCSX AwO: loaded state slot %d\n", slot);
                         audio_clear();
+                        audio_prime();
                         ret = VITA_PAUSE_RESUME;
                         break;
                     }
@@ -781,6 +814,7 @@ int main(int argc, char **argv)
                 if (ret == VITA_PAUSE_CHANGE_DISC) {
                     if (change_disc(disc_selection)) {
                         audio_clear();
+                        audio_prime();
                         ret = VITA_PAUSE_RESUME;
                         break;
                     }
@@ -792,6 +826,8 @@ int main(int argc, char **argv)
             }
 
             if (ret == VITA_PAUSE_RESUME) {
+                pacing_period_us = pacing_frame_interval_us();
+                pacing_next_us = 0;
                 audio_set_paused(false);
                 continue;
             }
