@@ -3814,6 +3814,9 @@ blend_blocks_average_builder(untextured, on)
 .align 3;                                                                      \
                                                                                \
 function(blend_blocks_textured_add_##mask_evaluate)                            \
+  ldrh num_blocks, [psx_gpu, #psx_gpu_num_blocks_offset];                      \
+  cmp num_blocks, #0;                                                          \
+  bxeq lr;                                                                     \
   stmdb sp!, { r4, r14 };                                                      \
   save_abi_regs();                                                             \
   add mask_msb_ptr, psx_gpu, #psx_gpu_mask_msb_offset;                         \

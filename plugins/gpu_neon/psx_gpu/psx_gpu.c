@@ -482,6 +482,12 @@ void update_texture_8bpp_cache(psx_gpu_struct *psx_gpu)
 
 void flush_render_block_buffer(psx_gpu_struct *psx_gpu)
 {
+  if(psx_gpu->num_blocks > MAX_BLOCKS_PER_ROW)
+  {
+    psx_gpu->num_blocks = 0;
+    return;
+  }
+
   if((psx_gpu->render_mode & RENDER_INTERLACE_ENABLED) &&
    (psx_gpu->primitive_type == PRIMITIVE_TYPE_SPRITE))
   {
@@ -535,8 +541,10 @@ void flush_render_block_buffer(psx_gpu_struct *psx_gpu)
 #endif
 
     render_block_handler->texture_blocks(psx_gpu);
-    render_block_handler->shade_blocks(psx_gpu);
-    render_block_handler->blend_blocks(psx_gpu);
+    if(psx_gpu->num_blocks && psx_gpu->num_blocks <= MAX_BLOCKS_PER_ROW)
+      render_block_handler->shade_blocks(psx_gpu);
+    if(psx_gpu->num_blocks && psx_gpu->num_blocks <= MAX_BLOCKS_PER_ROW)
+      render_block_handler->blend_blocks(psx_gpu);
 
 #ifdef PROFILE
     span_pixel_blocks += psx_gpu->num_blocks;

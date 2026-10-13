@@ -593,6 +593,9 @@ static noinline void start_vram_transfer(struct psx_gpu *gpu, uint32_t pos_word,
 
   if (is_read) {
 #ifdef GPU_VITA_CTR
+    // A GP0 VRAM readback must drain the GPU worker before flushing NEON.
+    if (gpu_async_enabled(gpu))
+      gpu_async_sync(gpu);
     renderer_sync_vram_to_cpu(gpu->dma.x, gpu->dma.y, gpu->dma.w, gpu->dma.h);
 #endif
     const uint16_t *mem = VRAM_MEM_XY(gpu->vram, gpu->dma.x, gpu->dma.y);
