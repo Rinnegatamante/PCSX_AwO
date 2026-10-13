@@ -8,6 +8,7 @@
 
 #include <psp2/appmgr.h>
 #include <psp2/ctrl.h>
+#include <psp2/touch.h>
 #include <psp2/display.h>
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
@@ -61,6 +62,8 @@ static uint32_t g_rgb565_lut[65536];
 static bool g_rgb565_lut_ready;
 
 static SceCtrlData g_pad;
+static SceTouchPanelInfo g_front_touch_panel;
+static bool g_front_touch_ready;
 static bool g_exit_requested;
 static bool g_pause_requested;
 static bool g_pause_combo_down;
@@ -376,12 +379,38 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
     return frames;
 }
 
+static uint32_t front_touch_buttons(void)
+{
+    SceTouchData touch;
+    uint32_t buttons = 0;
+    if (!g_front_touch_ready ||
+        sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1) <= 0)
+        return 0;
+
+    const int width = g_front_touch_panel.maxDispX - g_front_touch_panel.minDispX + 1;
+    const int height = g_front_touch_panel.maxDispY - g_front_touch_panel.minDispY + 1;
+    for (unsigned i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT; ++i) {
+        const int x = touch.report[i].x - g_front_touch_panel.minDispX;
+        const int y = touch.report[i].y - g_front_touch_panel.minDispY;
+        if (x < 0 || x >= width || y < (height * 2) / 3 || y >= height) // using thirds here to determine where to touch
+            continue;
+        if (x < width / 3)
+            buttons |= SCE_CTRL_L2;
+        else if (x >= (width * 2) / 3)
+            buttons |= SCE_CTRL_R2;
+    }
+    return buttons;
+}
+
+
 static void input_poll_cb(void)
 {
     const uint32_t pause_mask = SCE_CTRL_SELECT | SCE_CTRL_START;
     memset(&g_pad, 0, sizeof(g_pad));
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
         sceCtrlPeekBufferPositive(0, &g_pad, 1);
+
+    g_pad.buttons |= front_touch_buttons();
 
     const char *swap = VitaSettings_GetOption("vita_swap_cross_circle");
     if (swap && strcmp(swap, "enabled") == 0) {
@@ -661,6 +690,13 @@ int main(int argc, char **argv)
     VitaSettings_Init();
     VitaSaveStates_Init();
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+
+    // So it doesn't take touches from area outside bottom left / bottom right
+    g_front_touch_ready =
+        sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &g_front_touch_panel) >= 0 &&
+        g_front_touch_panel.maxDispX > g_front_touch_panel.minDispX &&
+        g_front_touch_panel.maxDispY > g_front_touch_panel.minDispY &&
+        sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START) >= 0;
 
     ret = display_init();
     if (ret < 0) {
