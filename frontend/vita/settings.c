@@ -43,6 +43,7 @@ static VitaOptionEntry g_options[] = {
     { "pcsx_rearmed_screen_centering", "borderless", {0} },
     { "vita_aspect_ratio", "4:3", {0} },
     { "vita_renderer", "high_octane", {0} },
+    { "vita_frame_interpolation", "off", {0} },
     { "vita_postfx", "off", {0} },
     { "vita_fx_protanopia", "2.00", {0} },
     { "vita_fx_deuteranopia", "1.00", {0} },

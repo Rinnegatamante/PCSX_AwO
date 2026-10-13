@@ -32,6 +32,7 @@ extern int NativeGpu_FrameUsesVRAMScanout(void);
 #include <png.h>
 #include "vita_rgb24.h"
 #include "../../frontend/vita/post_processing.h"
+#include "../../frontend/vita/frame_interpolation.h"
 extern int VitaCtrNativeGpu_GetRenderRGB24SourceByteOffset(void);
 #else
 #define STB_IMAGE_STATIC
@@ -542,6 +543,7 @@ int NativeRenderer_InitialiseRender(char *windowName, int width, int height, int
 void NativeRenderer_Shutdown(void)
 {
 #ifdef __vita__
+	VitaFrameInterp_Shutdown();
 	VitaPostFX_Shutdown();
 #endif
 	glDeleteVertexArrays(MAX_NUM_VERTEX_BUFFERS, s_glVertexArray);
@@ -3945,6 +3947,14 @@ void NativeRenderer_UpdateVRAM(void)
 
 }
 
+#ifdef __vita__
+internal GLuint NativeRenderer_PresentationFramebuffer(void)
+{
+	const GLuint target = VitaFrameInterp_TargetFramebuffer(g_windowWidth, g_windowHeight);
+	return target ? target : VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight);
+}
+#endif
+
 void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, int displayH)
 {
 	if (displayW <= 0 || displayH <= 0)
@@ -3958,7 +3968,7 @@ void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, in
 	s_postfxViewport = viewport;
 #endif
 #ifdef __vita__
-	glBindFramebuffer(GL_FRAMEBUFFER, VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight));
+	glBindFramebuffer(GL_FRAMEBUFFER, NativeRenderer_PresentationFramebuffer());
 #else
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
@@ -3997,6 +4007,7 @@ void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, in
 void NativeRenderer_PresentBlank(void)
 {
 #ifdef __vita__
+	VitaFrameInterp_CancelFrame();
 	VitaPostFX_Discard();
 #endif
 	GLfloat previousClearColor[4];
@@ -4030,7 +4041,7 @@ void NativeRenderer_PresentMainRenderTarget(void)
 	NativeRenderer_SetViewPort(s_presentViewport.x, s_presentViewport.y, s_presentViewport.w, s_presentViewport.h);
 #ifdef __vita__
 	s_postfxViewport = s_presentViewport;
-	glBindFramebuffer(GL_FRAMEBUFFER, VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight));
+	glBindFramebuffer(GL_FRAMEBUFFER, NativeRenderer_PresentationFramebuffer());
 #else
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
@@ -4376,7 +4387,7 @@ void NativeRenderer_PresentStreamingTexture(TextureID texture, int contentHeight
 	}
 
 #ifdef __vita__
-	glBindFramebuffer(GL_FRAMEBUFFER, VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight));
+	glBindFramebuffer(GL_FRAMEBUFFER, NativeRenderer_PresentationFramebuffer());
 #else
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
@@ -4557,7 +4568,7 @@ static void NativeRenderer_PresentRGB24(const DISPENV *display)
 	NativeRenderer_DrawTriangles(0, 2);
 	glFlush();
 
-	glBindFramebuffer(GL_FRAMEBUFFER, VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight));
+	glBindFramebuffer(GL_FRAMEBUFFER, NativeRenderer_PresentationFramebuffer());
 	NativeRenderer_SetViewPort(0, 0, g_windowWidth, g_windowHeight);
 	glDisable(GL_SCISSOR_TEST);
 	s_previousScissorState = 0;
@@ -4622,6 +4633,14 @@ void NativeRenderer_SwapWindow(void)
 {
 #ifdef __vita__
 	NativeRenderer_FinishPostProcessingFrame();
+	if (VitaFrameInterp_Present())
+	{
+		s_previousShader = (ShaderID)-1;
+		s_lastBoundTexture = (TextureID)-1;
+		s_previousScissorState = 0;
+		NativeRenderer_InvalidateScissorRectCache();
+		return;
+	}
 	vglSwapBuffers(GL_FALSE);
 #else
 	SDL_GL_SwapWindow(g_window);

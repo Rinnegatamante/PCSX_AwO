@@ -30,6 +30,7 @@ ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
 SETTINGS_OBJ := $(BUILD_DIR)/settings.o
 SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
 POSTFX_OBJ := $(BUILD_DIR)/post_processing.o
+FRAME_INTERP_OBJ := $(BUILD_DIR)/frame_interpolation.o
 POSTFX_PARAMS_OBJ := $(BUILD_DIR)/postfx_parameters.o
 POSTFX_EMBEDDED_SRC := $(BUILD_DIR)/postfx_embedded.c
 POSTFX_EMBEDDED_OBJ := $(BUILD_DIR)/postfx_embedded.o
@@ -71,6 +72,9 @@ $(SAVESTATES_OBJ): frontend/vita/savestates.c | $(BUILD_DIR)
 $(POSTFX_OBJ): frontend/vita/post_processing.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
+$(FRAME_INTERP_OBJ): frontend/vita/frame_interpolation.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
 $(POSTFX_PARAMS_OBJ): frontend/vita/postfx_parameters.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
@@ -88,8 +92,8 @@ $(BUILD_DIR)/postfx/%/frag.gxp: assets/postfx/%/frag.cg
 	mkdir -p $(dir $@)
 	psp2cgc -profile sce_fp_psp2 -o $@ $<
 
-$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
@@ -103,4 +107,4 @@ clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(FRAME_INTERP_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)

@@ -80,6 +80,9 @@ extern int NativeGpu_FrameUsesVRAMScanout(void);
 extern void NativeGpu_ForceSynchronousFrame(void);
 extern void NativeRenderer_PresentBlank(void);
 extern void NativeRenderer_FinishPostProcessingFrame(void);
+#ifdef __vita__
+#include "../../frontend/vita/frame_interpolation.h"
+#endif
 
 void Platform_Log(const char *fmt, ...)
 {
@@ -144,6 +147,10 @@ int NativeGpuLinks_IsRegisteredHostRange(const void *hostPtr, size_t size)
 
 int Platform_BeginScene(void)
 {
+#ifdef __vita__
+    if (!s_neon_selected)
+        VitaFrameInterp_BeginFrame();
+#endif
     NativeRenderer_BeginScene();
     return 1;
 }
