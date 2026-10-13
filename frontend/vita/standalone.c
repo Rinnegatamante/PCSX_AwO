@@ -6,6 +6,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include <psp2/appmgr.h>
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/io/dirent.h>
@@ -21,6 +22,7 @@
 #include <libretro.h>
 
 #include "rom_selector.h"
+#include "livearea_launch.h"
 #include "savestates.h"
 #include "settings.h"
 #include "paths.h"
@@ -676,6 +678,23 @@ int main(int argc, char **argv)
     for (ret = 1; ret < argc; ret++) {
         if (is_game_path(argv[ret])) {
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
+        }
+    }
+    if (!game_path[0]) {
+        char launch_params[1024] = {0};
+        char launch_path[sizeof(game_path)];
+        if (sceAppMgrGetAppParam(launch_params) >= 0) {
+            launch_params[sizeof(launch_params) - 1] = '\0';
+            if (VitaLiveArea_ParseGamePath(launch_params, launch_path, sizeof(launch_path)) &&
+                is_game_path(launch_path)) {
+                SceIoStat stat;
+                if (sceIoGetstat(launch_path, &stat) >= 0) {
+                    snprintf(game_path, sizeof(game_path), "%s", launch_path);
+                    sceClibPrintf("PCSX AwO: LiveArea boot %s\n", game_path);
+                } else {
+                    sceClibPrintf("PCSX AwO: LiveArea ROM not found: %s\n", launch_path);
+                }
+            }
         }
     }
 

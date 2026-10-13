@@ -25,6 +25,7 @@ LIBS := -lSDL3 -limgui $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -lt
 	-lSceRtc_stub -lScePower_stub -lSceIofilemgr_stub -lcurl -lssl -lcrypto -lz
 BUILD_DIR := build-vita
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
+LIVEAREA_LAUNCH_OBJ := $(BUILD_DIR)/livearea_launch.o
 ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
 SETTINGS_OBJ := $(BUILD_DIR)/settings.o
 SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
@@ -53,6 +54,9 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(STANDALONE_OBJ): frontend/vita/standalone.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(LIVEAREA_LAUNCH_OBJ): frontend/vita/livearea_launch.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(ROM_SELECTOR_OBJ): frontend/vita/rom_selector.cpp | $(BUILD_DIR)
@@ -84,8 +88,8 @@ $(BUILD_DIR)/postfx/%/frag.gxp: assets/postfx/%/frag.cg
 	mkdir -p $(dir $@)
 	psp2cgc -profile sce_fp_psp2 -o $@ $<
 
-$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
@@ -99,4 +103,4 @@ clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
