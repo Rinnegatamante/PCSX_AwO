@@ -53,6 +53,7 @@ static VitaOptionEntry g_options[] = {
     { "vita_fx_radius", "1.00", {0} },
     { "vita_fx_softness", "1.00", {0} },
     { "vita_fx_opacity", "1.00", {0} },
+    { "vita_swap_cross_circle", "disabled", {0} },
 };
 
 static bool g_dirty;

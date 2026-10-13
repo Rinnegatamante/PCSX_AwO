@@ -383,6 +383,18 @@ static void input_poll_cb(void)
     if (sceCtrlPeekBufferPositiveExt2(0, &g_pad, 1) < 0)
         sceCtrlPeekBufferPositive(0, &g_pad, 1);
 
+    const char *swap = VitaSettings_GetOption("vita_swap_cross_circle");
+    if (swap && strcmp(swap, "enabled") == 0) {
+        /* Snapshot both original bits before clearing them, including simultaneous presses. */
+        const uint32_t buttons = g_pad.buttons;
+        /* Preserve every other button while replacing the two face-button bits. */
+        g_pad.buttons &= ~(SCE_CTRL_CROSS | SCE_CTRL_CIRCLE);
+        if (buttons & SCE_CTRL_CROSS)
+            g_pad.buttons |= SCE_CTRL_CIRCLE;
+        if (buttons & SCE_CTRL_CIRCLE)
+            g_pad.buttons |= SCE_CTRL_CROSS;
+    }
+
     {
         const bool combo_down = (g_pad.buttons & pause_mask) == pause_mask;
         if (combo_down && !g_pause_combo_down)
