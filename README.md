@@ -16,6 +16,11 @@ PCSX AwO (ARMed with Octane) is a fork of PCSX ReARMed specifically tailored for
 - Unstretched widescreen 16:9 aspect ratio. (Only for High Octane renderer)
 - Support for custom bubbles generation.
 
+## Paths
+
+- Games go in ux0:data/pcsx-awo/roms
+- Bios (optional) goes in ux0:/data/pcsx-awo/bios
+
 ## Special Controls
 
 - Start + Select: Opens the Pause menu during emulation
