@@ -14,6 +14,7 @@ PCSX AwO (Armed with Octane) is a fork of PCSX ReARMed specifically tailored for
 - Support to up to 4 controllers on PSTV or PSVita using MinivitaTV plugin.
 - Turbo CD and CD read ahead features for faster loading times in games.
 - Unstretched widescreen 16:9 aspect ratio. (Only for High Octane renderer)
+- Support for custom bubbles generation.
 
 ## Special Controls
 
@@ -25,3 +26,4 @@ PCSX AwO (Armed with Octane) is a fork of PCSX ReARMed specifically tailored for
 - Ari64 for the original PCSX DynaRec.
 - Exophase for the ReARMed NEON renderer.
 - notaz for PCSX ReARMed.
+- Standard-Republic for the Livearea assets.
