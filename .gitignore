@@ -13,7 +13,8 @@ config.mak
 config.log
 cheatpops.db
 /include/revision.h
-/tools
+/tools/*
+!/tools/build_covers_psarc.py
 obj/
 .vscode/
 .vscode/ipch/*
@@ -36,6 +37,7 @@ psx_gpu_offsets_update
 /tests/testcd.cue
 /tests/testcd.bin
 /build-vita/
+/covers.psarc
 /pcsx-rearmed-vita.elf
 /pcsx-rearmed-vita.velf
 /pcsx-rearmed-vita.vpk

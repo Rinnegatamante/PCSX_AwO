@@ -10,8 +10,12 @@
 #ifndef GAME_SETTINGS_DIR
 #define GAME_SETTINGS_DIR PCSX_AWO_GAME_CONFIGS_DIR
 #endif
+#ifndef GAME_MEMCARD_DIR
+#define GAME_MEMCARD_DIR PCSX_AWO_SAVES_DIR
+#endif
 #define VALUE_SIZE 32
 #define GAME_CONFIG_PATH_SIZE 512
+#define PSX_MEMCARD_SIZE (128 * 1024)
 
 typedef struct VitaOptionEntry {
     const char *key;
@@ -20,8 +24,8 @@ typedef struct VitaOptionEntry {
 } VitaOptionEntry;
 
 static VitaOptionEntry g_options[] = {
-    { "pcsx_rearmed_memcard1", "shared", {0} },
-    { "pcsx_rearmed_memcard2", "none", {0} },
+    { "vita_memcard1", "game", {0} },
+    { "vita_memcard2", "none", {0} },
     { "pcsx_rearmed_bios", "auto", {0} },
     { "pcsx_rearmed_show_bios_bootlogo", "disabled", {0} },
     { "pcsx_rearmed_rgb32_output", "disabled", {0} },
@@ -180,6 +184,103 @@ int VitaSettings_GameConfigPath(const char *game_path, char *out, size_t out_siz
     written = snprintf(out, out_size, GAME_SETTINGS_DIR "/%s_%08x%08x.cfg",
         label, (unsigned)(hash >> 32), (unsigned)hash);
     return written > 0 && (size_t)written < out_size;
+}
+
+int VitaSettings_GameMemoryCardPath(const char *game_path, unsigned slot,
+    char *out, size_t out_size)
+{
+    char config_path[GAME_CONFIG_PATH_SIZE];
+    const char *name;
+    const char *extension;
+    int written;
+
+    if (!out || out_size == 0)
+        return 0;
+    out[0] = '\0';
+    if ((slot != 1 && slot != 2) ||
+        !VitaSettings_GameConfigPath(game_path, config_path, sizeof(config_path)))
+        return 0;
+
+    name = strrchr(config_path, '/');
+    name = name ? name + 1 : config_path;
+    extension = strrchr(name, '.');
+    if (!extension || strcmp(extension, ".cfg") != 0)
+        return 0;
+
+    written = snprintf(out, out_size, GAME_MEMCARD_DIR "/%.*s_%u.mcd",
+        (int)(extension - name), name, slot);
+    return written > 0 && (size_t)written < out_size;
+}
+
+int VitaSettings_PrepareGameMemoryCard(const char *game_path, unsigned slot,
+    char *out, size_t out_size)
+{
+    char shared_path[GAME_CONFIG_PATH_SIZE];
+    char temp_path[GAME_CONFIG_PATH_SIZE];
+    unsigned char buffer[4096];
+    FILE *source, *destination;
+    long size;
+    size_t length;
+    int written;
+    int success = 1;
+
+    if (!VitaSettings_GameMemoryCardPath(game_path, slot, out, out_size))
+        return 0;
+
+    destination = fopen(out, "rb");
+    if (destination) {
+        fclose(destination);
+        return 1;
+    }
+    if (errno != ENOENT)
+        return 0;
+
+    written = snprintf(shared_path, sizeof(shared_path),
+        GAME_MEMCARD_DIR "/pcsx-card%u.mcd", slot);
+    if (written <= 0 || (size_t)written >= sizeof(shared_path))
+        return 0;
+    source = fopen(shared_path, "rb");
+    if (!source)
+        return errno == ENOENT;
+
+    if (fseek(source, 0, SEEK_END) != 0) {
+        fclose(source);
+        return 0;
+    }
+    size = ftell(source);
+    if (size != PSX_MEMCARD_SIZE && size != PSX_MEMCARD_SIZE + 64 &&
+        size != PSX_MEMCARD_SIZE + 3904) {
+        fclose(source);
+        return 0;
+    }
+    rewind(source);
+
+    written = snprintf(temp_path, sizeof(temp_path), "%s.tmp", out);
+    if (written <= 0 || (size_t)written >= sizeof(temp_path)) {
+        fclose(source);
+        return 0;
+    }
+    destination = fopen(temp_path, "wb");
+    if (!destination) {
+        fclose(source);
+        return 0;
+    }
+    while ((length = fread(buffer, 1, sizeof(buffer), source)) != 0)
+        if (fwrite(buffer, 1, length, destination) != length) {
+            success = 0;
+            break;
+        }
+    if (ferror(source))
+        success = 0;
+    if (fclose(destination) != 0)
+        success = 0;
+    fclose(source);
+
+    if (success && rename(temp_path, out) != 0)
+        success = 0;
+    if (!success)
+        remove(temp_path);
+    return success;
 }
 
 void VitaSettings_Init(void)

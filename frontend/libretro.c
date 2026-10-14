@@ -52,6 +52,9 @@
 
 #include <libretro.h>
 #ifdef VITA
+#include "vita/settings.h"
+#endif
+#ifdef VITA
 #include <psp2/kernel/sysmem.h>
 #endif
 #include "libretro_core_options.h"
@@ -138,6 +141,7 @@ static enum {
    MEMCARDTYPE_NONE = 0,
    MEMCARDTYPE_SERIAL,
    MEMCARDTYPE_SHARED,
+   MEMCARDTYPE_GAME,
    MEMCARDTYPE_LIBRETRO,
 } memcard_type[2];
 
@@ -1941,7 +1945,7 @@ static void retro_set_audio_buff_status_cb(void)
 }
 
 static void update_variables(bool in_flight);
-static void load_memcards(void);
+static void load_memcards(const char *game_path);
 static bool get_bios_config_hle(void);
 static void prepare_bios(bool use_hle);
 
@@ -2220,7 +2224,7 @@ bool retro_load_game(const struct retro_game_info *info)
       Config.PsxType = PSX_TYPE_NTSC;
    }
 
-   load_memcards();
+   load_memcards(info->path);
    plugin_call_rearmed_cbs();
    prepare_bios(get_bios_config_hle());
    SysReset();
@@ -3834,13 +3838,16 @@ static void get_dash_serial(char *dst, size_t size)
    dst[d] = 0;
 }
 
-static void load_memcards(void)
+static void load_memcards(const char *game_path)
 {
    struct retro_variable var = { NULL, };
    const char *dir = NULL;
    char buf[128];
    int c;
 
+#ifndef VITA
+   (void)game_path;
+#endif
    if (!environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir)
       LogErr("Could not get save directory! Memory card saving might not work.");
    else if (strlen(dir) + strlen("XXXX-00000_1.mcd") + 2 > sizeof(Config.Mcd1)) {
@@ -3850,7 +3857,11 @@ static void load_memcards(void)
 
    for (c = 1; c <= 2; c++) {
       char *mcdpath = (c == 1) ? Config.Mcd1 : Config.Mcd2;
+#ifdef VITA
+      snprintf(buf, sizeof(buf), "vita_memcard%d", c);
+#else
       snprintf(buf, sizeof(buf), "pcsx_rearmed_memcard%d", c);
+#endif
       var.key = buf;
       if (!environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) || !var.value) {
          LogErr("non memcard%d config?", c);
@@ -3861,6 +3872,20 @@ static void load_memcards(void)
          mcdpath[0] = 0;
          SysPrintf("memcard %d is libretro-managed\n", c);
       }
+#ifdef VITA
+      else if (!strcmp(var.value, "game")) {
+         if (VitaSettings_PrepareGameMemoryCard(game_path, c, mcdpath,
+               sizeof(Config.Mcd1))) {
+            memcard_type[c - 1] = MEMCARDTYPE_GAME;
+            SysPrintf("memcard %d uses per-game file %s\n", c, mcdpath);
+         }
+         else {
+            memcard_type[c - 1] = MEMCARDTYPE_NONE;
+            snprintf(mcdpath, sizeof(Config.Mcd1), "none");
+            LogErr("Could not prepare per-game memory card %d for %s\n", c, game_path);
+         }
+      }
+#endif
       else if (!strcmp(var.value, "serial") && dir && CdromId[0]) {
          memcard_type[c - 1] = MEMCARDTYPE_SERIAL;
          get_dash_serial(buf, sizeof(buf));

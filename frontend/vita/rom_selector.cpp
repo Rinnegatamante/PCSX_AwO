@@ -28,12 +28,14 @@
 #include "disc_grouping.h"
 #include "launch_animation.h"
 #include "paths.h"
+#include "fios_covers.h"
 #include "rom_paths.h"
 #include "settings.h"
 #include "savestates.h"
 
 #define ROMS_DIR PCSX_AWO_ROMS_DIR
 #define COVERS_DIR PCSX_AWO_COVERS_DIR
+#define COVER_PSARC_PREFIX "psarc:"
 
 #define MENU_W 960
 #define MENU_H 544
@@ -66,6 +68,8 @@ struct CoverEntry {
     std::string path;
     uint64_t title_hash;
 };
+
+static VitaFiosCovers g_cover_archive;
 
 struct __attribute__((packed)) PsxSerialTitleHash {
     char serial[10];
@@ -183,6 +187,12 @@ static const OptionChoice k_controller_choices[] = {
     { "dualshock", "DualShock (Analog)" },
     { "digital", "Digital" }
 };
+static const OptionChoice k_memcard_choices[] = {
+    { "game", "Per Game" },
+    { "shared", "Shared (Legacy)" },
+    { "serial", "By Disc Serial" },
+    { "none", "Disabled" }
+};
 static const OptionChoice k_multitap_choices[] = {
     { "disabled", "Off (2 players)" },
     { "port 1", "Port 1 (P1-P4)" },
@@ -206,6 +216,8 @@ static const OptionChoice k_postfx_choices[] = {
 };
 
 static const SelectorOption k_selector_options[] = {
+    { "SYSTEM", "Memory Card 1", "Each game has its own .mcd file by default; multi-disc playlists share one card. Shared uses the original pcsx-card1.mcd; Serial uses the disc code. Changes apply on game restart.", "vita_memcard1", k_memcard_choices, 4, false },
+    { "SYSTEM", "Memory Card 2", "Optional second card. Per Game creates a separate card for this title; Shared uses pcsx-card2.mcd. Changes apply on game restart.", "vita_memcard2", k_memcard_choices, 4, false },
     { "SYSTEM", "Region", "Select the console video region. Auto detects it from the game; forcing NTSC/PAL changes timing and refresh rate.", "pcsx_rearmed_region", k_region_choices, 3, false },
     { "SYSTEM", "BIOS", "Choose automatic BIOS selection or the built-in HLE BIOS. Auto uses a real BIOS when available. Takes effect on the next game start/restart.", "pcsx_rearmed_bios", k_bios_choices, 2, false },
     { "SYSTEM", "BIOS Boot Logo", "Controls whether the PlayStation BIOS boot animation is shown. Takes effect on the next game start/restart.", "pcsx_rearmed_show_bios_bootlogo", k_bios_logo_choices, 3, false },
@@ -844,6 +856,22 @@ static bool file_exists(const char *path)
 
 static void scan_cover_index(std::vector<CoverEntry> &covers)
 {
+    if (g_cover_archive.open(PCSX_AWO_COVERS_PSARC)) {
+        const std::vector<std::string> &names = g_cover_archive.names();
+        for (size_t i = 0; i < names.size(); ++i) {
+            if (!ends_with_ci(names[i], ".png"))
+                continue;
+            CoverEntry cover;
+            cover.title = strip_extension(names[i]);
+            cover.path = COVER_PSARC_PREFIX + names[i];
+            cover.title_hash = title_root_hash(cover.title);
+            covers.push_back(cover);
+        }
+        sceClibPrintf("[ROMSEL] FIOS2 PSARC indexed: %u covers, RAM cache %s\n",
+            (unsigned)covers.size(), g_cover_archive.cache_enabled() ? "enabled" : "disabled");
+        return;
+    }
+
     SceUID dir = sceIoDopen(COVERS_DIR);
     if (dir < 0)
         return;
@@ -866,6 +894,9 @@ static void scan_cover_index(std::vector<CoverEntry> &covers)
 
 static std::string resolve_cover(const std::string &rom_title, const std::vector<CoverEntry> &covers)
 {
+    const std::string archive_name = rom_title + ".png";
+    if (g_cover_archive.contains(archive_name))
+        return COVER_PSARC_PREFIX + archive_name;
     const std::string exact = std::string(COVERS_DIR) + "/" + rom_title + ".png";
     if (file_exists(exact.c_str()))
         return exact;
@@ -1693,10 +1724,20 @@ static void destroy_disc_mesh()
 static GLuint load_png_texture(const std::string &path, int max_w, int max_h,
                                int *out_width = NULL, int *out_height = NULL)
 {
+    const bool archived = path.compare(0, sizeof(COVER_PSARC_PREFIX) - 1,
+                                       COVER_PSARC_PREFIX) == 0;
+    std::vector<unsigned char> png_data;
+    if (archived && !g_cover_archive.read(path.substr(sizeof(COVER_PSARC_PREFIX) - 1),
+                                          png_data)) {
+        sceClibPrintf("[ROMSEL] PSARC cover read failed: %s\n", path.c_str());
+        return 0;
+    }
     png_image image;
     memset(&image, 0, sizeof(image));
     image.version = PNG_IMAGE_VERSION;
-    if (!png_image_begin_read_from_file(&image, path.c_str())) {
+    if (!(archived ?
+          png_image_begin_read_from_memory(&image, png_data.data(), png_data.size()) :
+          png_image_begin_read_from_file(&image, path.c_str()))) {
         sceClibPrintf("[ROMSEL] PNG open failed: %s (%s)\n", path.c_str(), image.message);
         return 0;
     }
@@ -3096,6 +3137,9 @@ static void pause_menu_task(void *arg)
 
 static void selector_task(void *arg)
 {
+    struct CoverArchiveCleanup {
+        ~CoverArchiveCleanup() { g_cover_archive.close(); }
+    } archive_cleanup;
     SelectorTask *task = (SelectorTask *)arg;
     task->result = -1;
 

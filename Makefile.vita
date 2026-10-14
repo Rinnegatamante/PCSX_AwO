@@ -18,7 +18,7 @@ LDFLAGS := -Wl,-q
 LIBS := -lSDL3 -limgui $(VITAGL_DIR)/libvitaGL.a -lvitashark -lSceShaccCgExt -ltaihen_stub -lSceShaccCg_stub \
 	-lSceKernelDmacMgr_stub -lpthread -lc -lSceCommonDialog_stub -lSceAudio_stub \
 	-lSceLibKernel_stub -lmathneon -lkubridge_stub -lSceNet_stub -lSceNetCtl_stub \
-	-lpng -lSceDisplay_stub -lSceGxm_stub -lSceAudioIn_stub \
+	-lpng -lSceDisplay_stub -lSceGxm_stub -lSceAudioIn_stub -lSceFios2_stub \
 	-Wl,--whole-archive -lSceSysmodule_stub -Wl,--no-whole-archive -lSceIme_stub \
 	-lSceCamera_stub -lSceCtrl_stub -lSceTouch_stub -lSceMotion_stub -lm \
 	-lSceAppMgr_stub -lSceHid_stub -lSceAppUtil_stub -lScePgf_stub -ljpeg \
@@ -27,6 +27,7 @@ BUILD_DIR := build-vita
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
 LIVEAREA_LAUNCH_OBJ := $(BUILD_DIR)/livearea_launch.o
 ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
+FIOS_COVERS_OBJ := $(BUILD_DIR)/fios_covers.o
 SETTINGS_OBJ := $(BUILD_DIR)/settings.o
 SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
 POSTFX_OBJ := $(BUILD_DIR)/post_processing.o
@@ -42,8 +43,11 @@ LIVEAREA_VPK := $(foreach file,$(LIVEAREA_PATHS),-a assets/livearea/sce_sys/$(fi
 CORE_ARGS := platform=vita GIT_VERSION=$(GIT_VERSION) USE_LIBRETRO_VFS=0 \
 		USE_ASYNC_CDROM=1 USE_ASYNC_GPU=1 USE_ASYNC_SPU=0 VITAGL_DIR=$(VITAGL_DIR)
 
-.PHONY: all core vitagl clean
+.PHONY: all core vitagl clean covers-psarc
 all: $(TARGET).vpk
+
+covers-psarc:
+	python tools/build_covers_psarc.py
 
 vitagl:
 	$(MAKE) -C $(VITAGL_DIR) $(VITAGL_BUILD_FLAGS) -j4
@@ -61,6 +65,9 @@ $(LIVEAREA_LAUNCH_OBJ): frontend/vita/livearea_launch.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(ROM_SELECTOR_OBJ): frontend/vita/rom_selector.cpp | $(BUILD_DIR)
+	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
+
+$(FIOS_COVERS_OBJ): frontend/vita/fios_covers.cpp frontend/vita/fios_covers.h | $(BUILD_DIR)
 	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
 
 $(SETTINGS_OBJ): frontend/vita/settings.c | $(BUILD_DIR)
@@ -92,8 +99,8 @@ $(BUILD_DIR)/postfx/%/frag.gxp: assets/postfx/%/frag.cg
 	mkdir -p $(dir $@)
 	psp2cgc -profile sce_fp_psp2 -o $@ $<
 
-$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
@@ -107,4 +114,4 @@ clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(FRAME_INTERP_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(FIOS_COVERS_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(FRAME_INTERP_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
