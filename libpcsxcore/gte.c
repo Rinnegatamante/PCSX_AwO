@@ -172,6 +172,7 @@
 
 #ifndef FLAGLESS
 int gte_widescreen_hack;
+static int gte_widescreen_projection_applied;
 
 static inline s16 gteWidescreenScaleX(psxCP2Regs *regs, s16 x)
 {
@@ -183,15 +184,26 @@ static inline s16 gteWidescreenScaleX(psxCP2Regs *regs, s16 x)
 void gteSetWidescreenHack(int enabled)
 {
 	gte_widescreen_hack = enabled != 0;
+	if (!gte_widescreen_hack)
+		gte_widescreen_projection_applied = 0;
+}
+
+int gteConsumeWidescreenProjectionFlag(void)
+{
+	const int applied = gte_widescreen_projection_applied;
+	gte_widescreen_projection_applied = 0;
+	return applied;
 }
 
 void gteWidescreenRTPS(psxCP2Regs *regs)
 {
+	gte_widescreen_projection_applied = 1;
 	gteSX2 = gteWidescreenScaleX(regs, gteSX2);
 }
 
 void gteWidescreenRTPT(psxCP2Regs *regs)
 {
+	gte_widescreen_projection_applied = 1;
 	gteSX0 = gteWidescreenScaleX(regs, gteSX0);
 	gteSX1 = gteWidescreenScaleX(regs, gteSX1);
 	gteSX2 = gteWidescreenScaleX(regs, gteSX2);

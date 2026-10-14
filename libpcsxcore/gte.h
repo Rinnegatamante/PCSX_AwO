@@ -71,6 +71,7 @@ gte_handler *gteGetHandler_nf(u32 code);
 
 extern int gte_widescreen_hack;
 void gteSetWidescreenHack(int enabled);
+int gteConsumeWidescreenProjectionFlag(void);
 void gteWidescreenRTPS(psxCP2Regs *regs);
 void gteWidescreenRTPT(psxCP2Regs *regs);
 

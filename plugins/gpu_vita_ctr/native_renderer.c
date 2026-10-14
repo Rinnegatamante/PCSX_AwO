@@ -13,6 +13,7 @@
 #endif
 extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX, u8 *stickLY, u8 *stickRX, u8 *stickRY);
 extern int NativeGpu_FrameUsesVRAMScanout(void);
+extern int NativeGpu_FrameHadWidescreenProjection(void);
 
 #include "platform/native_assets.h"
 #include "platform/native_gpu.h"
@@ -3964,7 +3965,8 @@ void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, in
 	}
 
 	NativeRenderer_UpdateVRAM();
-	const SDL_Rect viewport = s_presentAspectMode == 2 ? NativeRenderer_GetFourThreeViewport() : s_presentViewport;
+	const SDL_Rect viewport = s_presentAspectMode == 2 && !NativeGpu_FrameHadWidescreenProjection() ?
+	                          NativeRenderer_GetFourThreeViewport() : s_presentViewport;
 #ifdef __vita__
 	s_postfxViewport = viewport;
 #endif

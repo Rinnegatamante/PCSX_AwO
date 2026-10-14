@@ -20,6 +20,7 @@
 #include <psp2/kernel/threadmgr/lw_mutex.h>
 #include <vitaGL.h>
 #include "../../frontend/vita/paths.h"
+extern int gteConsumeWidescreenProjectionFlag(void);
 #endif
 
 void Platform_PollHostEvents(void);
@@ -148,6 +149,7 @@ typedef struct
 	int splitCount;
 	int blankDisplay;
 	int rgb24SourceByteOffset;
+	int widescreenProjection;
 } NativeGpuFramePacket;
 
 #define NATIVE_GPU_FRAME_PACKET_COUNT 2
@@ -156,6 +158,7 @@ global_variable NativeGpuFramePacket s_gpuFramePackets[NATIVE_GPU_FRAME_PACKET_C
 global_variable int s_gpuFrontendPacketIndex;
 global_variable int s_gpuFrontendFramePrepared;
 global_variable int s_gpuSynchronousFrame;
+global_variable int s_gpuSynchronousWidescreenProjection;
 global_variable NativeGpuFramePacket *s_gpuBackendPacket;
 global_variable NativeGpuBackendTaskFn s_gpuBackendTask;
 global_variable void *s_gpuBackendTaskArg;
@@ -615,6 +618,16 @@ int NativeGpu_FrameUsesVRAMScanout(void)
 #endif
 }
 
+int NativeGpu_FrameHadWidescreenProjection(void)
+{
+#ifdef __vita__
+	return s_gpuBackendPacket ? s_gpuBackendPacket->widescreenProjection :
+	       s_gpuSynchronousWidescreenProjection;
+#else
+	return 0;
+#endif
+}
+
 internal bool NativeGpu_SplitClipInsideDisplay(const GPUDrawSplit *split)
 {
 #ifdef __vita__
@@ -723,6 +736,7 @@ void NativeGpu_FinishSynchronousFrame(void)
 		return;
 	}
 	NativeGpu_FlushFrontendSplitsSync();
+	s_gpuSynchronousWidescreenProjection = gteConsumeWidescreenProjectionFlag();
 	NativeGpu_RunBackendTaskSync(NativeGpu_BackendEndSceneTask, NULL);
 	s_gpuSynchronousFrame = 0;
 	s_gpuFrontendFramePrepared = 0;
@@ -758,6 +772,7 @@ int NativeGpu_SubmitFrontendFrame(void)
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
 	packet->vertexCount = s_gpu.vertexIndex;
 	packet->splitCount = s_gpu.splitIndex;
+	packet->widescreenProjection = gteConsumeWidescreenProjectionFlag();
 
 	if (!s_gpuBackendEnabled)
 	{
