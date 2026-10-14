@@ -320,7 +320,8 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	vglSetShaderCachePath(PCSX_AWO_SHADER_CACHE_DIR);
 	vglUseLowPrecision(GL_TRUE);
 	vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_TRUE, GL_TRUE);
-	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 24 * 1024 * 1024, s_gpuBackendMsaaMode);
+	vglInitWithCustomThreshold(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight,
+		24 * 1024 * 1024, 0, 0, 0, s_gpuBackendMsaaMode);
 	NativeGpu_BackendLock();
 	s_gpuBackendInitSucceeded = 1;
 	s_gpuBackendInitComplete = 1;
