@@ -1990,8 +1990,35 @@ static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const ch
             ImVec2(center.x + 4, center.y + 2), glyph, 1.8f);
     }
     ImFont *font = menu_font(g_font_small);
-    draw->AddText(font, font->FontSize, ImVec2(pos.x + 27.0f, pos.y + 1.0f),
+    const float text_height = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, label).y;
+    draw->AddText(font, font->FontSize,
+        ImVec2(pos.x + 27.0f, center.y - text_height * 0.5f),
         IM_COL32(225, 231, 247, 255), label);
+}
+
+struct FooterHint {
+    PadHint button;
+    const char *label;
+};
+
+static void draw_footer_hints(ImDrawList *draw, float y,
+                              const FooterHint *hints, int count)
+{
+    if (count <= 0)
+        return;
+
+    const float margin = 16.0f;
+    const float slot_width = (MENU_W - margin * 2.0f) / (float)count;
+    ImFont *font = menu_font(g_font_small);
+    for (int i = 0; i < count; ++i) {
+        const float text_width = font->CalcTextSizeA(
+            font->FontSize, FLT_MAX, 0.0f, hints[i].label).x;
+        const float group_width = 28.0f + text_width;
+        const float slot_center = margin + slot_width * (i + 0.5f);
+        draw_pad_hint(draw,
+            ImVec2(slot_center - group_width * 0.5f + 1.0f, y),
+            hints[i].button, hints[i].label);
+    }
 }
 
 static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
@@ -2002,25 +2029,28 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
     draw->AddLine(ImVec2(0, 496), ImVec2(MENU_W, 496),
         IM_COL32(150, 167, 218, 35), 1.0f);
     const float y = 510.0f;
+    FooterHint hints[9];
+    int count = 0;
     if (selector) {
-        draw_pad_hint(draw, ImVec2(32, y), PAD_HINT_CROSS, "Play");
-        draw_pad_hint(draw, ImVec2(118, y), PAD_HINT_DPAD_HORIZONTAL, "Games");
+        hints[count++] = { PAD_HINT_CROSS, "Play" };
+        hints[count++] = { PAD_HINT_DPAD_HORIZONTAL, "Games" };
         if (multi_disc)
-            draw_pad_hint(draw, ImVec2(211, y), PAD_HINT_DPAD_VERTICAL, "Discs");
-        draw_pad_hint(draw, ImVec2(301, y), PAD_HINT_SQUARE, "Mark");
-        draw_pad_hint(draw, ImVec2(390, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
-        draw_pad_hint(draw, ImVec2(492, y), PAD_HINT_START, "Options");
-        draw_pad_hint(draw, ImVec2(621, y), PAD_HINT_RIGHT_STICK, "Rotate");
-        draw_pad_hint(draw, ImVec2(751, y), PAD_HINT_SELECT, "Folders");
-        draw_pad_hint(draw, ImVec2(861, y), PAD_HINT_CIRCLE, "Exit");
+            hints[count++] = { PAD_HINT_DPAD_VERTICAL, "Discs" };
+        hints[count++] = { PAD_HINT_SQUARE, "Mark" };
+        hints[count++] = { PAD_HINT_TRIANGLE, marked ? "Create set" : "Group" };
+        hints[count++] = { PAD_HINT_START, "Options" };
+        hints[count++] = { PAD_HINT_RIGHT_STICK, "Rotate" };
+        hints[count++] = { PAD_HINT_SELECT, "Folders" };
+        hints[count++] = { PAD_HINT_CIRCLE, "Exit" };
     } else {
-        draw_pad_hint(draw, ImVec2(122, y), PAD_HINT_DPAD, "Select");
-        draw_pad_hint(draw, ImVec2(286, y), PAD_HINT_CROSS, "Confirm");
+        hints[count++] = { PAD_HINT_DPAD, "Select" };
+        hints[count++] = { PAD_HINT_CROSS, "Confirm" };
         if (pause_main)
-            draw_pad_hint(draw, ImVec2(698, y), PAD_HINT_START, "Start+Select: Resume");
+            hints[count++] = { PAD_HINT_START, "Start+Select: Resume" };
         else
-            draw_pad_hint(draw, ImVec2(746, y), PAD_HINT_SQUARE, "Back");
+            hints[count++] = { PAD_HINT_SQUARE, "Back" };
     }
+    draw_footer_hints(draw, y, hints, count);
 }
 
 static void draw_disc_swap_hint(ImDrawList *draw, float x, float y, ImFont *font)
@@ -2466,14 +2496,15 @@ static void draw_rom_folders_menu(const std::vector<std::string> &extra_folders,
     draw->AddLine(ImVec2(0, 496), ImVec2(MENU_W, 496),
         IM_COL32(150, 167, 218, 35), 1.0f);
     const float footer_y = 510.0f;
-    draw_pad_hint(draw, ImVec2(98, footer_y), PAD_HINT_DPAD, "Scroll (hold)");
-    draw_pad_hint(draw, ImVec2(260, footer_y), PAD_HINT_CROSS, browsing ? "Open" : "Add");
-    draw_pad_hint(draw, ImVec2(415, footer_y), PAD_HINT_SQUARE,
-        browsing ? "Add here" : "Remove");
-    draw_pad_hint(draw, ImVec2(599, footer_y), PAD_HINT_CIRCLE,
-        browsing ? "Up" : "Done");
+    FooterHint hints[5];
+    int hint_count = 0;
+    hints[hint_count++] = { PAD_HINT_DPAD, "Scroll (hold)" };
+    hints[hint_count++] = { PAD_HINT_CROSS, browsing ? "Open" : "Add" };
+    hints[hint_count++] = { PAD_HINT_SQUARE, browsing ? "Add here" : "Remove" };
+    hints[hint_count++] = { PAD_HINT_CIRCLE, browsing ? "Up" : "Done" };
     if (browsing)
-        draw_pad_hint(draw, ImVec2(768, footer_y), PAD_HINT_TRIANGLE, "Cancel");
+        hints[hint_count++] = { PAD_HINT_TRIANGLE, "Cancel" };
+    draw_footer_hints(draw, footer_y, hints, hint_count);
     ImGui::End();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
