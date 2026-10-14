@@ -796,6 +796,7 @@ static void make_dirs(void)
     sceIoMkdir(SAVE_DIR, 0777);
     sceIoMkdir(ROMS_DIR, 0777);
     sceIoMkdir(COVERS_DIR, 0777);
+    sceIoMkdir(PCSX_AWO_GAME_CONFIGS_DIR, 0777);
 }
 
 int main(int argc, char **argv)
@@ -881,6 +882,8 @@ int main(int argc, char **argv)
             exit_code = 3;
             break;
         }
+        if (VitaSettings_BeginGame(game_path) < 0)
+            sceClibPrintf("PCSX AwO: could not load or create game settings for %s\n", game_path);
         sceClibPrintf("PCSX AwO: booting %s\n", game_path);
         memset(&game, 0, sizeof(game));
         game.path = game_path;
@@ -1003,6 +1006,7 @@ int main(int argc, char **argv)
             }
 
             sceClibPrintf("PCSX AwO: closing game\n");
+            VitaSettings_EndGame();
             game_path[0] = '\0';
         }
 
@@ -1020,6 +1024,7 @@ int main(int argc, char **argv)
         }
     }
 
+    VitaSettings_EndGame();
     retro_deinit();
     if (g_rear_touch_enabled)
         sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_STOP);

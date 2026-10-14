@@ -2022,7 +2022,8 @@ static void draw_footer_hints(ImDrawList *draw, float y,
 }
 
 static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
-                             bool pause_main = false, bool multi_disc = false)
+                             bool pause_main = false, bool multi_disc = false,
+                             bool game_available = true)
 {
     draw->AddRectFilled(ImVec2(0, 496), ImVec2(MENU_W, MENU_H),
         IM_COL32(9, 12, 26, 195));
@@ -2032,14 +2033,16 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
     FooterHint hints[9];
     int count = 0;
     if (selector) {
-        hints[count++] = { PAD_HINT_CROSS, "Play" };
-        hints[count++] = { PAD_HINT_DPAD_HORIZONTAL, "Games" };
-        if (multi_disc)
-            hints[count++] = { PAD_HINT_DPAD_VERTICAL, "Discs" };
-        hints[count++] = { PAD_HINT_SQUARE, "Mark" };
-        hints[count++] = { PAD_HINT_TRIANGLE, marked ? "Create set" : "Group" };
-        hints[count++] = { PAD_HINT_START, "Options" };
-        hints[count++] = { PAD_HINT_RIGHT_STICK, "Rotate" };
+        if (game_available) {
+            hints[count++] = { PAD_HINT_CROSS, "Play" };
+            hints[count++] = { PAD_HINT_DPAD_HORIZONTAL, "Games" };
+            if (multi_disc)
+                hints[count++] = { PAD_HINT_DPAD_VERTICAL, "Discs" };
+            hints[count++] = { PAD_HINT_SQUARE, "Mark" };
+            hints[count++] = { PAD_HINT_TRIANGLE, marked ? "Create set" : "Group" };
+            hints[count++] = { PAD_HINT_START, "Options" };
+            hints[count++] = { PAD_HINT_RIGHT_STICK, "Rotate" };
+        }
         hints[count++] = { PAD_HINT_SELECT, "Folders" };
         hints[count++] = { PAD_HINT_CIRCLE, "Exit" };
     } else {
@@ -2269,7 +2272,7 @@ static void adjust_selector_option(int option_index, int direction)
     }
 }
 
-static void draw_selector_options(int selected)
+static void draw_selector_options(int selected, const char *game_title)
 {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -2296,8 +2299,16 @@ static void draw_selector_options(int selected)
 
     ImGui::SetWindowFontScale(1.35f);
     ImGui::SetCursorPos(ImVec2(content_x, 48.0f));
-    ImGui::Text("OPTIONS");
+    ImGui::Text("GAME OPTIONS");
     ImGui::SetWindowFontScale(1.0f);
+    if (game_title && game_title[0]) {
+        const std::string title = fit_ui_title(game_title, menu_font(g_font_body),
+            content_w - 230.0f);
+        ImGui::SetCursorPos(ImVec2(content_x + 230.0f, 56.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.70f, 0.78f, 1.0f));
+        ImGui::Text("%s", title.c_str());
+        ImGui::PopStyleColor();
+    }
     draw->AddLine(ImVec2(content_x, 88.0f),
         ImVec2((float)MENU_W - content_x, 88.0f),
         IM_COL32(220, 220, 220, 150), 1.0f);
@@ -2671,7 +2682,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         draw->PopClipRect();
     }
     draw_menu_footer(draw, true, !marked.empty(), false,
-        !roms.empty() && roms[selected].disc_members.size() > 1);
+        !roms.empty() && roms[selected].disc_members.size() > 1, !roms.empty());
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -3063,7 +3074,7 @@ static void pause_menu_task(void *arg)
         restore_ui_state();
         ImGui_ImplVitaGL_NewFrame();
         if (options_open)
-            draw_selector_options(options_selected);
+            draw_selector_options(options_selected, NULL);
         else if (save_states_open)
             draw_save_states_menu(save_states_selected, task->game_path);
         else if (discs_open)
@@ -3481,10 +3492,23 @@ static void selector_task(void *arg)
                 folders_open = true;
                 folders_selected = 0;
                 folders_feedback.clear();
-            } else if (pressed & SCE_CTRL_START)
-                options_open = true;
-            else if (pressed & SCE_CTRL_CIRCLE)
+            } else if ((pressed & SCE_CTRL_START) && !roms.empty()) {
+                if (VitaSettings_BeginGame(roms[selected].path.c_str()) == 0) {
+                    options_selected = 0;
+                    options_open = true;
+                } else {
+                    feedback = "Could not create the game's configuration file.";
+                    feedback_time = 4.0f;
+                }
+            } else if (pressed & SCE_CTRL_CIRCLE)
                 break;
+        }
+
+        if (!roms.empty() && !launching) {
+            const unsigned revision = VitaSettings_GetRevision();
+            if (VitaSettings_SelectGame(roms[selected].path.c_str()) == 0 &&
+                revision != VitaSettings_GetRevision())
+                apply_aspect_setting();
         }
 
         if (!launching) {
@@ -3575,7 +3599,8 @@ static void selector_task(void *arg)
                 folder_browser_open ? browser_selected : folders_selected,
                 folder_browser_open, browser_path, browser_children, folders_feedback);
         else if (options_open)
-            draw_selector_options(options_selected);
+            draw_selector_options(options_selected,
+                roms.empty() ? NULL : roms[selected].title.c_str());
         else
             draw_text_overlay(roms, selected, marked, carousel_position, idle_time, feedback,
                 roms.empty() ? 0 : selected_discs[selected]);

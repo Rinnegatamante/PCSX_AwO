@@ -1,12 +1,17 @@
 #include "settings.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
+#include <errno.h>
 
 #include "paths.h"
 
-#define SETTINGS_PATH PCSX_AWO_APP_ROOT "/settings.cfg"
+#ifndef GAME_SETTINGS_DIR
+#define GAME_SETTINGS_DIR PCSX_AWO_GAME_CONFIGS_DIR
+#endif
 #define VALUE_SIZE 32
+#define GAME_CONFIG_PATH_SIZE 512
 
 typedef struct VitaOptionEntry {
     const char *key;
@@ -62,6 +67,10 @@ static VitaOptionEntry g_options[] = {
     { "vita_fx_opacity", "1.00", {0} },
 };
 
+#define OPTION_COUNT (sizeof(g_options) / sizeof(g_options[0]))
+
+static char g_game_config_path[GAME_CONFIG_PATH_SIZE];
+static bool g_game_config_exists;
 static bool g_dirty;
 static unsigned g_revision = 1;
 
@@ -70,7 +79,7 @@ static VitaOptionEntry *find_option(const char *key)
     size_t i;
     if (!key)
         return NULL;
-    for (i = 0; i < sizeof(g_options) / sizeof(g_options[0]); ++i)
+    for (i = 0; i < OPTION_COUNT; ++i)
         if (strcmp(g_options[i].key, key) == 0)
             return &g_options[i];
     return NULL;
@@ -79,23 +88,20 @@ static VitaOptionEntry *find_option(const char *key)
 static void reset_defaults(void)
 {
     size_t i;
-    for (i = 0; i < sizeof(g_options) / sizeof(g_options[0]); ++i) {
+    for (i = 0; i < OPTION_COUNT; ++i) {
         snprintf(g_options[i].value, sizeof(g_options[i].value), "%s",
             g_options[i].default_value);
     }
 }
 
-void VitaSettings_Init(void)
+static int load_options(const char *path)
 {
     FILE *file;
     char line[160];
 
-    reset_defaults();
-    g_dirty = false;
-
-    file = fopen(SETTINGS_PATH, "rb");
+    file = fopen(path, "rb");
     if (!file)
-        return;
+        return -1;
 
     while (fgets(line, sizeof(line), file)) {
         char *eq;
@@ -119,6 +125,118 @@ void VitaSettings_Init(void)
     }
 
     fclose(file);
+    return 0;
+}
+
+static void notify_options_changed(void)
+{
+    g_dirty = true;
+    ++g_revision;
+    if (g_revision == 0)
+        g_revision = 1;
+}
+
+int VitaSettings_GameConfigPath(const char *game_path, char *out, size_t out_size)
+{
+    const char *basename;
+    const char *p;
+    uint64_t hash = UINT64_C(14695981039346656037);
+    char label[49];
+    size_t i = 0;
+    int written;
+
+    if (!out || out_size == 0)
+        return 0;
+    out[0] = '\0';
+    if (!game_path || !game_path[0])
+        return 0;
+
+    basename = game_path;
+    for (p = game_path; *p; ++p) {
+        unsigned char c = (unsigned char)*p;
+        if (c == '\\')
+            c = '/';
+        if (c >= 'A' && c <= 'Z')
+            c = (unsigned char)(c + ('a' - 'A'));
+        hash ^= c;
+        hash *= UINT64_C(1099511628211);
+        if (*p == '/' || *p == '\\')
+            basename = p + 1;
+    }
+    if (!basename[0])
+        return 0;
+
+    for (p = basename; *p && i < sizeof(label) - 1; ++p) {
+        const unsigned char c = (unsigned char)*p;
+        if (c >= 'A' && c <= 'Z')
+            label[i++] = (char)(c + ('a' - 'A'));
+        else if ((c >= 'a' && c <= 'z') ||
+                 (c >= '0' && c <= '9') || c == '-' || c == '_')
+            label[i++] = (char)c;
+        else
+            label[i++] = '_';
+    }
+    label[i] = '\0';
+    written = snprintf(out, out_size, GAME_SETTINGS_DIR "/%s_%08x%08x.cfg",
+        label, (unsigned)(hash >> 32), (unsigned)hash);
+    return written > 0 && (size_t)written < out_size;
+}
+
+void VitaSettings_Init(void)
+{
+    reset_defaults();
+    g_game_config_path[0] = '\0';
+    g_game_config_exists = false;
+    g_dirty = false;
+}
+
+int VitaSettings_SelectGame(const char *game_path)
+{
+    char filename[GAME_CONFIG_PATH_SIZE];
+    int error;
+    if (!VitaSettings_GameConfigPath(game_path, filename, sizeof(filename)))
+        return -1;
+    if (strcmp(g_game_config_path, filename) == 0)
+        return 0;
+
+    reset_defaults();
+    snprintf(g_game_config_path, sizeof(g_game_config_path), "%s", filename);
+    if (load_options(filename) == 0) {
+        g_game_config_exists = true;
+        notify_options_changed();
+        return 0;
+    }
+
+    error = errno;
+    g_game_config_exists = false;
+    notify_options_changed();
+    if (error != ENOENT) {
+        g_game_config_path[0] = '\0';
+        return -1;
+    }
+    return 0;
+}
+
+int VitaSettings_BeginGame(const char *game_path)
+{
+    if (VitaSettings_SelectGame(game_path) < 0)
+        return -1;
+    return g_game_config_exists ? 0 : VitaSettings_Save();
+}
+
+void VitaSettings_EndGame(void)
+{
+    if (!g_game_config_path[0])
+        return;
+    g_game_config_path[0] = '\0';
+    g_game_config_exists = false;
+    reset_defaults();
+    notify_options_changed();
+}
+
+bool VitaSettings_IsGameActive(void)
+{
+    return g_game_config_path[0] != '\0';
 }
 
 const char *VitaSettings_GetOption(const char *key)
@@ -130,16 +248,13 @@ const char *VitaSettings_GetOption(const char *key)
 int VitaSettings_SetOption(const char *key, const char *value)
 {
     VitaOptionEntry *option = find_option(key);
-    if (!option || !value || !value[0])
+    if (!g_game_config_path[0] || !option || !value || !value[0])
         return 0;
     if (strcmp(option->value, value) == 0)
         return 0;
 
     snprintf(option->value, sizeof(option->value), "%s", value);
-    g_dirty = true;
-    ++g_revision;
-    if (g_revision == 0)
-        g_revision = 1;
+    notify_options_changed();
     return 1;
 }
 
@@ -153,14 +268,21 @@ int VitaSettings_Save(void)
     FILE *file;
     size_t i;
 
-    file = fopen(SETTINGS_PATH, "wb");
+    if (!g_game_config_path[0])
+        return -1;
+    file = fopen(g_game_config_path, "wb");
     if (!file)
         return -1;
 
-    for (i = 0; i < sizeof(g_options) / sizeof(g_options[0]); ++i)
-        fprintf(file, "%s=%s\n", g_options[i].key, g_options[i].value);
+    for (i = 0; i < OPTION_COUNT; ++i)
+        if (fprintf(file, "%s=%s\n", g_options[i].key, g_options[i].value) < 0) {
+            fclose(file);
+            return -1;
+        }
 
-    fclose(file);
+    if (fclose(file) != 0)
+        return -1;
+    g_game_config_exists = true;
     return 0;
 }
 

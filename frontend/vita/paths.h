@@ -8,5 +8,6 @@
 #define PCSX_AWO_STATES_DIR PCSX_AWO_APP_ROOT "/savestates"
 #define PCSX_AWO_COVERS_DIR PCSX_AWO_APP_ROOT "/covers"
 #define PCSX_AWO_SHADER_CACHE_DIR PCSX_AWO_APP_ROOT "/shader_cache"
+#define PCSX_AWO_GAME_CONFIGS_DIR PCSX_AWO_APP_ROOT "/configs"
 
 #endif
