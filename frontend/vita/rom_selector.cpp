@@ -2603,7 +2603,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         IM_COL32(31, 42, 72, 210), 12.0f);
     draw->AddText(small, small->FontSize, ImVec2(43, 19),
         IM_COL32(205, 214, 240, 255), counter);
-    const char *brand = "PCSX AwO v.0.5.0";
+    const char *brand = "PCSX AwO v.0.5.1";
     const float brand_width = small->CalcTextSizeA(small->FontSize, 1000.0f, 0.0f,
         brand).x;
     const float badge_width = std::max(122.0f, brand_width + 20.0f);

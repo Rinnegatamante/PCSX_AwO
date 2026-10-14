@@ -26,6 +26,19 @@ PCSX AwO (ARMed with Octane) is a fork of PCSX ReARMed specifically tailored for
 - Start + Select: Opens the Pause menu during emulation
 - Top left/Top right on rearpad: L2/R2
 
+## Changelog
+
+### v.0.5.1
+- Moved covers arts into a PSARC archive: installing the emulator will be significantly faster and it fixes stutters in the game selector when scrolling discs.
+- Fixed L2 and R2 mapping being inverted.
+- Added support for custom paths for games.
+- Properly aligned footbar button hints in the game selector and pause menu.
+- Made so that settings are saved on a per-game basis.
+- Removed the vitaGL splashscreen at boot.
+- Increased the memory pool available to vitaGL during execution.
+- Added an hack that fixes sporadic GPU crashes with Ehrgeiz.
+- Added a new option that allows to change the way memory cards are handled on each game.
+
 ## Credits
 
 - Ari64 for the original PCSX DynaRec.
