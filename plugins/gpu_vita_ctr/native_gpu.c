@@ -21,6 +21,7 @@
 #include <vitaGL.h>
 #include "../../frontend/vita/paths.h"
 extern int gteConsumeWidescreenProjectionFlag(void);
+extern int gte_widescreen_hack;
 #endif
 
 void Platform_PollHostEvents(void);
@@ -159,6 +160,9 @@ global_variable int s_gpuFrontendPacketIndex;
 global_variable int s_gpuFrontendFramePrepared;
 global_variable int s_gpuSynchronousFrame;
 global_variable int s_gpuSynchronousWidescreenProjection;
+global_variable int s_gpuWidescreenFreezeActive;
+global_variable int s_gpuWidescreenFreezeWidth;
+global_variable int s_gpuWidescreenFreezeHeight;
 global_variable NativeGpuFramePacket *s_gpuBackendPacket;
 global_variable NativeGpuBackendTaskFn s_gpuBackendTask;
 global_variable void *s_gpuBackendTaskArg;
@@ -355,6 +359,18 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 		if (packet != NULL)
 		{
 			s_pcsxRenderHadGeometry = (packet->vertexCount > 0 || packet->splitCount > 0) ? 1 : 0;
+			const int visibleW = packet->dispEnv.screen.w > 0 ? packet->dispEnv.screen.w : packet->dispEnv.disp.w;
+			const int visibleH = packet->dispEnv.screen.h > 0 ? packet->dispEnv.screen.h : packet->dispEnv.disp.h;
+			if (!gte_widescreen_hack || packet->blankDisplay || packet->dispEnv.isrgb24 ||
+			    (s_gpuWidescreenFreezeActive &&
+			     (visibleW != s_gpuWidescreenFreezeWidth || visibleH != s_gpuWidescreenFreezeHeight)))
+				s_gpuWidescreenFreezeActive = 0;
+			if (packet->widescreenProjection && !packet->blankDisplay && !packet->dispEnv.isrgb24 &&
+			    packet->drawEnv.clip.w > 0 && packet->drawEnv.clip.h > 0) {
+				s_gpuWidescreenFreezeActive = 1;
+				s_gpuWidescreenFreezeWidth = visibleW;
+				s_gpuWidescreenFreezeHeight = visibleH;
+			}
 			Platform_BeginScene();
 			NativeGpu_DrawPreparedFrame(packet->vertices, packet->splits, packet->vertexCount, packet->splitCount);
 			Platform_EndScene();
@@ -610,6 +626,10 @@ int NativeGpu_FrameUsesVRAMScanout(void)
 	// Compare with the visible region, not the nominal timing canvas: CTR draws 216 lines inside a 240-line display.
 	const int activeW = display->screen.w > 0 ? display->screen.w : display->disp.w;
 	const int activeH = display->screen.h > 0 ? display->screen.h : display->disp.h;
+	if (s_gpuBackendPacket && s_gpuWidescreenFreezeActive && !display->isrgb24 &&
+	    activeW == s_gpuWidescreenFreezeWidth && activeH == s_gpuWidescreenFreezeHeight &&
+	    (draw->clip.w <= 0 || draw->clip.h <= 0))
+		return 1;
 	return !display->isrgb24 && draw->clip.w > 0 && draw->clip.h > 0 &&
 	       display->disp.w > 0 && display->disp.h > 0 &&
 	       (draw->clip.w < activeW || draw->clip.h < activeH);
@@ -621,10 +641,23 @@ int NativeGpu_FrameUsesVRAMScanout(void)
 int NativeGpu_FrameHadWidescreenProjection(void)
 {
 #ifdef __vita__
-	return s_gpuBackendPacket ? s_gpuBackendPacket->widescreenProjection :
+	return s_gpuBackendPacket ?
+	       (s_gpuBackendPacket->widescreenProjection ||
+	        (s_gpuWidescreenFreezeActive &&
+	         (s_gpuBackendPacket->drawEnv.clip.w <= 0 || s_gpuBackendPacket->drawEnv.clip.h <= 0))) :
 	       s_gpuSynchronousWidescreenProjection;
 #else
 	return 0;
+#endif
+}
+
+void NativeGpu_ResetWidescreenPresentation(void)
+{
+#ifdef __vita__
+	s_gpuWidescreenFreezeActive = 0;
+	s_gpuWidescreenFreezeWidth = 0;
+	s_gpuWidescreenFreezeHeight = 0;
+	s_gpuSynchronousWidescreenProjection = 0;
 #endif
 }
 

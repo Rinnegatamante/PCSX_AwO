@@ -14,6 +14,7 @@
 extern b32 NativeGhostInput_GetReplayOverlayState(u32 *buttonsHeld, u8 *stickLX, u8 *stickLY, u8 *stickRX, u8 *stickRY);
 extern int NativeGpu_FrameUsesVRAMScanout(void);
 extern int NativeGpu_FrameHadWidescreenProjection(void);
+extern void NativeGpu_ResetWidescreenPresentation(void);
 
 #include "platform/native_assets.h"
 #include "platform/native_gpu.h"
@@ -4899,6 +4900,7 @@ void VitaCtrNativeRenderer_SetAspectMode(int mode)
 		mode = 0;
 
 	s_presentAspectMode = mode;
+	NativeGpu_ResetWidescreenPresentation();
 	if (mode == 0)
 		NativeRenderer_SetPresentationAspect(4, 3);
 	else
