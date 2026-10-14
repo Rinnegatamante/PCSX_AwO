@@ -15,6 +15,7 @@ typedef struct VitaBootDisc {
 } VitaBootDisc;
 
 int VitaRomSelector_Run(char *out_path, size_t out_size, VitaBootDisc *boot_disc);
+int VitaRomSelector_IsEhrgeiz(const char *game_path);
 
 #define VITA_MAX_DISCS 8
 #define VITA_DISC_LABEL_SIZE 128

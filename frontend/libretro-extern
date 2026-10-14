@@ -25,3 +25,5 @@ retro_unload_game
 retro_unserialize
 NativeGpu_InitBackend
 NativeGpu_RunBackendTaskSync
+NativeGpu_SetMultisampleSamples
+NativeGpu_GetMultisampleSamples

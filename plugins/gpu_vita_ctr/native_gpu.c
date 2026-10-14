@@ -176,6 +176,7 @@ global_variable int s_gpuBackendEnabled;
 global_variable int s_gpuBackendInitWidth;
 global_variable int s_gpuBackendInitHeight;
 global_variable int s_gpuBackendInitSucceeded;
+global_variable SceGxmMultisampleMode s_gpuBackendMsaaMode = SCE_GXM_MULTISAMPLE_4X;
 #endif
 
 global_variable GrVertex *s_gpuDrawVertices;
@@ -200,6 +201,21 @@ void NativeGpu_ResetOrderDepth(void)
 }
 
 #ifdef __vita__
+int NativeGpu_SetMultisampleSamples(int samples)
+{
+	if (s_gpuBackendEnabled || s_gpuBackendThread >= 0)
+		return 0;
+	if (samples != 2 && samples != 4)
+		return 0;
+	s_gpuBackendMsaaMode = samples == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_4X;
+	return 1;
+}
+
+int NativeGpu_GetMultisampleSamples(void)
+{
+	return s_gpuBackendMsaaMode == SCE_GXM_MULTISAMPLE_2X ? 2 : 4;
+}
+
 internal void NativeGpu_BindFrontendPacket(void)
 {
 	NativeGpuFramePacket *packet = &s_gpuFramePackets[s_gpuFrontendPacketIndex];
@@ -301,10 +317,10 @@ internal int NativeGpu_BackendThreadMain(SceSize args, void *argp)
 	(void)args;
 	(void)argp;
 	vglSetupRenderTargetScenesNum(2, 2);
-		vglSetShaderCachePath(PCSX_AWO_SHADER_CACHE_DIR);
+	vglSetShaderCachePath(PCSX_AWO_SHADER_CACHE_DIR);
 	vglUseLowPrecision(GL_TRUE);
 	vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, GL_TRUE, GL_TRUE, GL_TRUE);
-	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 24 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+	vglInitExtended(0, s_gpuBackendInitWidth, s_gpuBackendInitHeight, 24 * 1024 * 1024, s_gpuBackendMsaaMode);
 	NativeGpu_BackendLock();
 	s_gpuBackendInitSucceeded = 1;
 	s_gpuBackendInitComplete = 1;

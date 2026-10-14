@@ -15,8 +15,10 @@
 #include <psp2/io/stat.h>
 #include <psp2/kernel/clib.h>
 #include <psp2/kernel/dmac.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/rtc.h>
 #include <kubridge.h>
 
 #include <SDL3/SDL.h>
@@ -74,6 +76,78 @@ static bool g_pause_requested;
 static bool g_pause_combo_down;
 static struct retro_disk_control_ext_callback g_disk_control;
 extern int VitaGpu_PresentNeonFrame(const void *data, int width, int height, int pitch);
+extern int NativeGpu_SetMultisampleSamples(int samples);
+extern int NativeGpu_GetMultisampleSamples(void);
+
+#define MSAA_RELAUNCH_PATH PCSX_AWO_APP_ROOT "/msaa_relaunch.dat"
+#define MSAA_RELAUNCH_MAGIC 0x4D534131u
+
+typedef struct VitaMsaaRelaunch {
+    uint32_t magic;
+    uint32_t samples;
+    SceUInt64 tick;
+    unsigned disc_index;
+    char game_path[1024];
+    char disc_path[VITA_DISC_PATH_SIZE];
+} VitaMsaaRelaunch;
+
+static int load_msaa_relaunch(char *game_path, size_t size, VitaBootDisc *boot_disc,
+    int *samples)
+{
+    VitaMsaaRelaunch state;
+    SceRtcTick now;
+    FILE *file = fopen(MSAA_RELAUNCH_PATH, "rb");
+    if (!file)
+        return 0;
+    const size_t read_size = fread(&state, 1, sizeof(state), file);
+    fclose(file);
+    if (remove(MSAA_RELAUNCH_PATH) != 0)
+        return 0;
+    if (read_size != sizeof(state) || state.magic != MSAA_RELAUNCH_MAGIC ||
+        (state.samples != 2 && state.samples != 4) ||
+        state.disc_index >= VITA_MAX_DISCS ||
+        !memchr(state.game_path, '\0', sizeof(state.game_path)) ||
+        !memchr(state.disc_path, '\0', sizeof(state.disc_path)) ||
+        !state.game_path[0] || strlen(state.game_path) >= size ||
+        sceRtcGetCurrentTick(&now) < 0 || now.tick < state.tick ||
+        now.tick - state.tick > UINT64_C(120000000))
+        return 0;
+    snprintf(game_path, size, "%s", state.game_path);
+    boot_disc->index = state.disc_index;
+    snprintf(boot_disc->path, sizeof(boot_disc->path), "%s", state.disc_path);
+    *samples = state.samples;
+    return 1;
+}
+
+static int relaunch_with_msaa(const char *game_path, const VitaBootDisc *boot_disc,
+    int samples)
+{
+    VitaMsaaRelaunch state;
+    SceRtcTick now;
+    if (sceRtcGetCurrentTick(&now) < 0)
+        return -1;
+    memset(&state, 0, sizeof(state));
+    state.magic = MSAA_RELAUNCH_MAGIC;
+    state.samples = samples;
+    state.tick = now.tick;
+    state.disc_index = boot_disc->index;
+    snprintf(state.game_path, sizeof(state.game_path), "%s", game_path);
+    snprintf(state.disc_path, sizeof(state.disc_path), "%s", boot_disc->path);
+    FILE *file = fopen(MSAA_RELAUNCH_PATH, "wb");
+    if (!file)
+        return -1;
+    const int written = fwrite(&state, 1, sizeof(state), file) == sizeof(state);
+    const int closed = fclose(file) == 0;
+    if (!written || !closed) {
+        remove(MSAA_RELAUNCH_PATH);
+        return -1;
+    }
+    const int result = sceAppMgrLoadExec("app0:eboot.bin", NULL, NULL);
+    if (result >= 0)
+        sceKernelExitProcess(0);
+    remove(MSAA_RELAUNCH_PATH);
+    return result;
+}
 
 static SDL_AudioStream *g_audio_stream;
 static uint32_t g_audio_put_errors;
@@ -807,6 +881,7 @@ int main(int argc, char **argv)
     bool game_loaded = false;
     int exit_code = 0;
     int ret;
+    int relaunch_samples = 0;
 
     sceClibPrintf("PCSX AwO: main entered\n");
     make_dirs();
@@ -847,6 +922,11 @@ int main(int argc, char **argv)
             snprintf(game_path, sizeof(game_path), "%s", argv[ret]);
         }
     }
+    if (game_path[0])
+        remove(MSAA_RELAUNCH_PATH);
+    if (!game_path[0] && load_msaa_relaunch(game_path, sizeof(game_path),
+        &boot_disc, &relaunch_samples))
+        sceClibPrintf("PCSX AwO: resume game after MSAA switch: %s\n", game_path);
     if (!game_path[0]) {
         char launch_params[1024] = {0};
         char launch_path[sizeof(game_path)];
@@ -864,6 +944,16 @@ int main(int argc, char **argv)
             }
         }
     }
+    if (game_path[0]) {
+        const char *disc_path = boot_disc.path[0] ? boot_disc.path : game_path;
+        // HACK: Ehrgeiz triggers a GPU fragment lockup with MSAA 4x; use 2x instead.
+        const int samples = relaunch_samples ? relaunch_samples :
+            (VitaRomSelector_IsEhrgeiz(disc_path) ? 2 : 4);
+        if (!NativeGpu_SetMultisampleSamples(samples))
+            sceClibPrintf("PCSX AwO: cannot set initial MSAA %dx\n", samples);
+        else
+            sceClibPrintf("PCSX AwO: initial MSAA %dx\n", samples);
+    }
 
     for (;;) {
         if (game_path[0] == '\0') {
@@ -873,6 +963,22 @@ int main(int argc, char **argv)
                 exit_code = ret < 0 ? 2 : 0;
                 break;
             }
+        }
+
+        const char *msaa_disc_path = boot_disc.path[0] ? boot_disc.path : game_path;
+        const int required_samples = VitaRomSelector_IsEhrgeiz(msaa_disc_path) ? 2 : 4;
+        if (required_samples != NativeGpu_GetMultisampleSamples()) {
+            sceClibPrintf("PCSX AwO: switching MSAA from %dx to %dx for %s\n",
+                NativeGpu_GetMultisampleSamples(), required_samples, game_path);
+            const int error = relaunch_with_msaa(game_path, &boot_disc, required_samples);
+            sceClibPrintf("PCSX AwO: MSAA relaunch failed: 0x%08x\n", (unsigned)error);
+            if (required_samples == 2) {
+                VitaSettings_EndGame();
+                game_path[0] = '\0';
+                memset(&boot_disc, 0, sizeof(boot_disc));
+                continue;
+            }
+            sceClibPrintf("PCSX AwO: using MSAA 2x for this game after relaunch failure\n");
         }
 
         const char *initial_path = boot_disc.path[0] ? boot_disc.path : game_path;
