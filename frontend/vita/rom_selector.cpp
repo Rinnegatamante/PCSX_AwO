@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "disc_grouping.h"
 #include "launch_animation.h"
 #include "paths.h"
+#include "rom_paths.h"
 #include "settings.h"
 #include "savestates.h"
 
@@ -1310,7 +1312,7 @@ static void scan_rom_dir(const char *root, std::vector<RomEntry> &roms)
         const std::string name(ent.d_name);
         if (is_rom_file(name)) {
             RomEntry rom;
-            rom.path = std::string(root) + "/" + name;
+            rom.path = vita_rom_paths::join(root, name);
             rom.name = name;
             rom.title = strip_extension(name);
             roms.push_back(rom);
@@ -1320,12 +1322,17 @@ static void scan_rom_dir(const char *root, std::vector<RomEntry> &roms)
     sceIoDclose(dir);
 }
 
-static void scan_roms(std::vector<RomEntry> &roms)
+static void scan_roms(std::vector<RomEntry> &roms,
+                      const std::vector<std::string> &extra_folders)
 {
     scan_rom_dir(ROMS_DIR, roms);
+    for (size_t i = 0; i < extra_folders.size(); ++i)
+        scan_rom_dir(extra_folders[i].c_str(), roms);
 
     std::sort(roms.begin(), roms.end(), [](const RomEntry &a, const RomEntry &b) {
-        return lower_ascii(a.title) < lower_ascii(b.title);
+        if (lower_ascii(a.title) != lower_ascii(b.title))
+            return lower_ascii(a.title) < lower_ascii(b.title);
+        return lower_ascii(a.path) < lower_ascii(b.path);
     });
 
     std::vector<std::string> playlist_members;
@@ -1344,8 +1351,9 @@ static void scan_roms(std::vector<RomEntry> &roms)
 
     std::vector<RomEntry> filtered;
     filtered.reserve(roms.size());
+    std::set<std::string> seen_paths;
     for (size_t i = 0; i < roms.size(); ++i) {
-        if (i > 0 && roms[i].path == roms[i - 1].path)
+        if (!seen_paths.insert(normalized_disc_path(roms[i].path)).second)
             continue;
 
         bool in_playlist = false;
@@ -1388,6 +1396,50 @@ static void scan_roms(std::vector<RomEntry> &roms)
     roms.swap(filtered);
 }
 
+static bool rom_folder_accessible(const std::string &folder)
+{
+    const SceUID dir = sceIoDopen(folder.c_str());
+    if (dir < 0)
+        return false;
+    sceIoDclose(dir);
+    return true;
+}
+
+static std::vector<std::string> rom_folder_children(const std::string &folder)
+{
+    std::vector<std::string> result;
+    if (folder.empty()) {
+        static const char *mounts[] = {
+            "ux0:", "uma0:", "imc0:", "xmc0:", "grw0:", "ur0:", "host0:"
+        };
+        for (size_t i = 0; i < sizeof(mounts) / sizeof(mounts[0]); ++i)
+            if (rom_folder_accessible(mounts[i]))
+                result.push_back(mounts[i]);
+        return result;
+    }
+
+    const SceUID dir = sceIoDopen(folder.c_str());
+    if (dir < 0)
+        return result;
+    SceIoDirent ent;
+    memset(&ent, 0, sizeof(ent));
+    while (sceIoDread(dir, &ent) > 0) {
+        const std::string name(ent.d_name);
+        if (name != "." && name != ".." && !name.empty()) {
+            const std::string child = vita_rom_paths::join(folder, name);
+            if (child.size() <= vita_rom_paths::kMaxFolderLength &&
+                rom_folder_accessible(child))
+                result.push_back(name);
+        }
+        memset(&ent, 0, sizeof(ent));
+    }
+    sceIoDclose(dir);
+    std::sort(result.begin(), result.end(), [](const std::string &a, const std::string &b) {
+        return lower_ascii(a) < lower_ascii(b);
+    });
+    return result;
+}
+
 static bool create_disc_playlist(const std::vector<RomEntry> &roms,
                                  const std::vector<int> &marked,
                                  std::string *created_path, std::string *reason)
@@ -1409,9 +1461,8 @@ static bool create_disc_playlist(const std::vector<RomEntry> &roms,
             *reason = "Only individual CD images can be grouped.";
             return false;
         }
-        if (normalized_disc_path(path_dirname(rom.path)) != normalized_disc_path(ROMS_DIR) ||
-            !file_exists(rom.path.c_str())) {
-            *reason = "All discs must exist in the ROMs directory.";
+        if (!file_exists(rom.path.c_str()) || rom.path.size() >= 900) {
+            *reason = "A selected disc is missing or has an invalid path.";
             return false;
         }
         vita_disc_grouping::Candidate candidate;
@@ -1436,7 +1487,10 @@ static bool create_disc_playlist(const std::vector<RomEntry> &roms,
 
     bool ok = true;
     for (size_t i = 0; i < order.size(); ++i) {
-        const std::string line = candidates[order[i]].filename + "\n";
+        const std::string &disc_path = roms[marked[order[i]]].path;
+        const std::string line =
+            vita_rom_paths::key(path_dirname(disc_path)) == vita_rom_paths::key(ROMS_DIR) ?
+            candidates[order[i]].filename + "\n" : disc_path + "\n";
         if (sceIoWrite(fd, line.data(), (SceSize)line.size()) != (int)line.size()) {
             ok = false;
             break;
@@ -1865,6 +1919,7 @@ enum PadHint {
     PAD_HINT_TRIANGLE,
     PAD_HINT_DPAD,
     PAD_HINT_START,
+    PAD_HINT_SELECT,
     PAD_HINT_RIGHT_STICK,
     PAD_HINT_DPAD_HORIZONTAL,
     PAD_HINT_DPAD_VERTICAL
@@ -1920,6 +1975,10 @@ static void draw_pad_hint(ImDrawList *draw, ImVec2 pos, PadHint button, const ch
             draw->AddLine(ImVec2(center.x, center.y + 6),
                 ImVec2(center.x + 4, center.y + 2), glyph, 1.6f);
         }
+    } else if (button == PAD_HINT_SELECT) {
+        draw->AddCircleFilled(ImVec2(center.x - 4, center.y), 1.5f, glyph, 10);
+        draw->AddCircleFilled(ImVec2(center.x, center.y), 1.5f, glyph, 10);
+        draw->AddCircleFilled(ImVec2(center.x + 4, center.y), 1.5f, glyph, 10);
     } else if (button == PAD_HINT_RIGHT_STICK) {
         draw->AddCircle(center, 7.0f, glyph, 24, 1.5f);
         draw->AddCircleFilled(ImVec2(center.x + 1.8f, center.y - 1.8f),
@@ -1951,8 +2010,9 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
         draw_pad_hint(draw, ImVec2(301, y), PAD_HINT_SQUARE, "Mark");
         draw_pad_hint(draw, ImVec2(390, y), PAD_HINT_TRIANGLE, marked ? "Create set" : "Group");
         draw_pad_hint(draw, ImVec2(492, y), PAD_HINT_START, "Options");
-        draw_pad_hint(draw, ImVec2(637, y), PAD_HINT_RIGHT_STICK, "Rotate disc");
-        draw_pad_hint(draw, ImVec2(859, y), PAD_HINT_CIRCLE, "Exit");
+        draw_pad_hint(draw, ImVec2(621, y), PAD_HINT_RIGHT_STICK, "Rotate");
+        draw_pad_hint(draw, ImVec2(751, y), PAD_HINT_SELECT, "Folders");
+        draw_pad_hint(draw, ImVec2(861, y), PAD_HINT_CIRCLE, "Exit");
     } else {
         draw_pad_hint(draw, ImVec2(122, y), PAD_HINT_DPAD, "Select");
         draw_pad_hint(draw, ImVec2(286, y), PAD_HINT_CROSS, "Confirm");
@@ -2321,6 +2381,99 @@ static void draw_selector_options(int selected)
 
     draw_menu_footer(draw, false, false);
 
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+}
+
+static void draw_rom_folders_menu(const std::vector<std::string> &extra_folders,
+                                  int selected, bool browsing,
+                                  const std::string &current_folder,
+                                  const std::vector<std::string> &subfolders,
+                                  const std::string &message)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.80f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.96f, 0.97f, 0.98f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiSetCond_Always);
+    ImGui::SetNextWindowSize(ImVec2((float)MENU_W, (float)MENU_H), ImGuiSetCond_Always);
+    ImGui::Begin("ROM Folders", NULL,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    const float left = 115.0f, right = MENU_W - left;
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    ImGui::SetWindowFontScale(1.35f);
+    ImGui::SetCursorPos(ImVec2(left, 43.0f));
+    ImGui::Text("%s", browsing ? "CHOOSE ROM DIRECTORY" : "ROM FOLDERS");
+    ImGui::SetWindowFontScale(1.0f);
+    draw->AddLine(ImVec2(left, 90.0f), ImVec2(right, 90.0f),
+        IM_COL32(220, 220, 220, 140), 1.0f);
+    ImGui::SetCursorPos(ImVec2(left, 105.0f));
+    if (browsing) {
+        const std::string path = current_folder.empty() ?
+            "Select a storage device" :
+            fit_ui_title(current_folder, menu_font(g_font_body), right - left);
+        ImGui::Text("%s", path.c_str());
+    } else {
+        ImGui::Text("Default folder is always scanned. Up to %d extra folders.",
+            vita_rom_paths::kMaxExtraFolders);
+    }
+
+    const int count = browsing ? (int)subfolders.size() : (int)extra_folders.size() + 2;
+    const int visible_rows = 9;
+    const int first = std::max(0, std::min(selected - visible_rows / 2,
+        count - visible_rows));
+    for (int row = 0; row < visible_rows && first + row < count; ++row) {
+        const int index = first + row;
+        const float y = 149.0f + (float)row * 31.0f;
+        if (index == selected) {
+            draw->AddRectFilled(ImVec2(left, y), ImVec2(right, y + 29.0f),
+                IM_COL32(38, 42, 47, 220));
+            draw->AddRect(ImVec2(left, y), ImVec2(right, y + 29.0f),
+                IM_COL32(0, 190, 220, 255));
+        }
+        std::string label;
+        if (browsing)
+            label = subfolders[index];
+        else if (index == 0)
+            label = std::string(ROMS_DIR) + "  [Default]";
+        else if (index <= (int)extra_folders.size())
+            label = extra_folders[index - 1];
+        else
+            label = "+ Add another folder...";
+        label = fit_ui_title(label, menu_font(g_font_body), right - left - 32.0f);
+        ImGui::SetCursorPos(ImVec2(left + 14.0f, y + 5.0f));
+        ImGui::Text("%s", label.c_str());
+    }
+    if (count == 0) {
+        ImGui::SetCursorPos(ImVec2(left, 175.0f));
+        ImGui::Text("No subdirectories found.");
+    }
+    if (!message.empty()) {
+        ImGui::SetCursorPos(ImVec2(left, 446.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.96f, 0.80f, 0.52f, 1.0f));
+        ImGui::Text("%s", fit_ui_title(message, menu_font(g_font_body),
+            right - left).c_str());
+        ImGui::PopStyleColor();
+    }
+    draw->AddRectFilled(ImVec2(0, 496), ImVec2(MENU_W, MENU_H),
+        IM_COL32(9, 12, 26, 195));
+    draw->AddLine(ImVec2(0, 496), ImVec2(MENU_W, 496),
+        IM_COL32(150, 167, 218, 35), 1.0f);
+    const float footer_y = 510.0f;
+    draw_pad_hint(draw, ImVec2(98, footer_y), PAD_HINT_DPAD, "Scroll (hold)");
+    draw_pad_hint(draw, ImVec2(260, footer_y), PAD_HINT_CROSS, browsing ? "Open" : "Add");
+    draw_pad_hint(draw, ImVec2(415, footer_y), PAD_HINT_SQUARE,
+        browsing ? "Add here" : "Remove");
+    draw_pad_hint(draw, ImVec2(599, footer_y), PAD_HINT_CIRCLE,
+        browsing ? "Up" : "Done");
+    if (browsing)
+        draw_pad_hint(draw, ImVec2(768, footer_y), PAD_HINT_TRIANGLE, "Cancel");
     ImGui::End();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
@@ -2906,7 +3059,8 @@ static void selector_task(void *arg)
 
     std::vector<RomEntry> roms;
     std::vector<CoverEntry> covers;
-    scan_roms(roms);
+    std::vector<std::string> extra_folders = vita_rom_paths::load();
+    scan_roms(roms, extra_folders);
     scan_cover_index(covers);
     for (size_t i = 0; i < roms.size(); ++i)
         roms[i].cover_path = resolve_rom_cover(roms[i], covers);
@@ -2976,6 +3130,18 @@ static void selector_task(void *arg)
     int repeat_dir = 0;
     bool options_open = false;
     int options_selected = 0;
+    bool folders_open = false;
+    bool folder_browser_open = false;
+    bool folders_changed = false;
+    int folders_selected = 0;
+    int browser_selected = 0;
+    int folder_repeat_dir = 0;
+    bool folder_repeat_browser = false;
+    float folder_repeat_hold = 0.0f;
+    float folder_repeat_time = 0.0f;
+    std::string browser_path;
+    std::vector<std::string> browser_children;
+    std::string folders_feedback;
     std::vector<int> marked;
     std::string feedback;
     float feedback_time = 0.0f;
@@ -2990,6 +3156,21 @@ static void selector_task(void *arg)
     float launch_pitch = 25.0f;
     uint32_t previous_buttons = 0;
     SceUInt64 previous_time = sceKernelGetProcessTimeWide();
+
+    auto rescan_roms = [&](const std::string &wanted) {
+        roms.clear();
+        scan_roms(roms, extra_folders);
+        selected_discs.assign(roms.size(), 0);
+        marked.clear();
+        selected = 0;
+        for (size_t i = 0; i < roms.size(); ++i) {
+            roms[i].cover_path = resolve_rom_cover(roms[i], covers);
+            if (roms[i].path == wanted)
+                selected = (int)i;
+        }
+        carousel_position = (float)selected;
+        manual_yaw = manual_pitch = 0.0f;
+    };
 
     for (;;) {
         const SceUInt64 now = sceKernelGetProcessTimeWide();
@@ -3016,8 +3197,111 @@ static void selector_task(void *arg)
         const uint32_t pressed = pad.buttons & ~previous_buttons;
         previous_buttons = pad.buttons;
         const bool options_was_open = options_open;
+        const bool folders_were_open = folders_open;
+        if (!folders_open) {
+            folder_repeat_dir = 0;
+            folder_repeat_hold = folder_repeat_time = 0.0f;
+        }
 
-        if (!launch_pending && !launching && options_open) {
+        if (!launch_pending && !launching && folders_open) {
+            const uint32_t arrows = pad.buttons & (SCE_CTRL_UP | SCE_CTRL_DOWN);
+            const int held_dir = arrows == SCE_CTRL_UP ? -1 :
+                (arrows == SCE_CTRL_DOWN ? 1 : 0);
+            int move_dir = 0;
+            if (held_dir != folder_repeat_dir || folder_repeat_browser != folder_browser_open) {
+                folder_repeat_dir = held_dir;
+                folder_repeat_browser = folder_browser_open;
+                folder_repeat_hold = folder_repeat_time = 0.0f;
+                if ((held_dir < 0 && (pressed & SCE_CTRL_UP)) ||
+                    (held_dir > 0 && (pressed & SCE_CTRL_DOWN)))
+                    move_dir = held_dir;
+            } else if (held_dir != 0) {
+                folder_repeat_hold += dt;
+                if (folder_repeat_hold >= 0.32f) {
+                    folder_repeat_time += dt;
+                    const float interval = folder_repeat_hold >= 1.25f ? 0.045f : 0.075f;
+                    if (folder_repeat_time >= interval) {
+                        folder_repeat_time -= interval;
+                        move_dir = held_dir;
+                    }
+                }
+            }
+            const int folder_count = folder_browser_open ? (int)browser_children.size() :
+                (int)extra_folders.size() + 2;
+            if (move_dir != 0 && folder_count > 0) {
+                int &index = folder_browser_open ? browser_selected : folders_selected;
+                index = (index + folder_count + move_dir) % folder_count;
+            }
+            if (folder_browser_open) {
+                const int count = (int)browser_children.size();
+                if (count > 0 && (pressed & SCE_CTRL_CROSS)) {
+                    browser_path = browser_path.empty() ? browser_children[browser_selected] :
+                        vita_rom_paths::join(browser_path, browser_children[browser_selected]);
+                    browser_children = rom_folder_children(browser_path);
+                    browser_selected = 0;
+                    folder_repeat_dir = 0;
+                    folders_feedback.clear();
+                } else if (pressed & SCE_CTRL_SQUARE) {
+                    std::vector<std::string> updated = extra_folders;
+                    if (browser_path.empty())
+                        folders_feedback = "Select a storage device first.";
+                    else if (!vita_rom_paths::add(updated, browser_path))
+                        folders_feedback = "Folder already selected or the limit was reached.";
+                    else if (!vita_rom_paths::save(updated))
+                        folders_feedback = "Failed to save the ROM folder list.";
+                    else {
+                        extra_folders.swap(updated);
+                        folders_changed = true;
+                        folders_selected = (int)extra_folders.size();
+                        folder_browser_open = false;
+                        folders_feedback = "Folder added. Press Circle to scan for games.";
+                    }
+                } else if (pressed & SCE_CTRL_TRIANGLE) {
+                    folder_browser_open = false;
+                    folders_feedback.clear();
+                } else if (pressed & SCE_CTRL_CIRCLE) {
+                    if (browser_path.empty()) {
+                        folder_browser_open = false;
+                    } else {
+                        browser_path = vita_rom_paths::parent(browser_path);
+                        browser_children = rom_folder_children(browser_path);
+                        browser_selected = 0;
+                        folder_repeat_dir = 0;
+                    }
+                    folders_feedback.clear();
+                }
+            } else {
+                const int count = (int)extra_folders.size() + 2;
+                if ((pressed & SCE_CTRL_CROSS) && folders_selected == count - 1) {
+                    browser_path.clear();
+                    browser_children = rom_folder_children(browser_path);
+                    browser_selected = 0;
+                    folder_browser_open = true;
+                    folders_feedback.clear();
+                } else if ((pressed & SCE_CTRL_SQUARE) && folders_selected > 0 &&
+                           folders_selected < count - 1) {
+                    std::vector<std::string> updated = extra_folders;
+                    vita_rom_paths::remove(updated, folders_selected - 1);
+                    if (!vita_rom_paths::save(updated)) {
+                        folders_feedback = "Failed to save the ROM folder list.";
+                    } else {
+                        extra_folders.swap(updated);
+                        folders_selected = std::min(folders_selected,
+                            (int)extra_folders.size() + 1);
+                        folders_changed = true;
+                        folders_feedback = "Folder removed. Press Circle to rescan.";
+                    }
+                } else if (pressed & SCE_CTRL_CIRCLE) {
+                    folders_open = false;
+                    if (folders_changed) {
+                        const std::string wanted = roms.empty() ? std::string() : roms[selected].path;
+                        rescan_roms(wanted);
+                        folders_changed = false;
+                    }
+                    folders_feedback.clear();
+                }
+            }
+        } else if (!launch_pending && !launching && options_open) {
             const int option_count = selector_option_count();
             if (pressed & SCE_CTRL_UP) {
                 options_selected--;
@@ -3150,18 +3434,7 @@ static void selector_task(void *arg)
                 std::string created_path, reason;
                 if (create_disc_playlist(roms, marked, &created_path, &reason)) {
                     const unsigned grouped = (unsigned)marked.size();
-                    marked.clear();
-                    roms.clear();
-                    scan_roms(roms);
-                    selected_discs.assign(roms.size(), 0);
-                    selected = 0;
-                    for (size_t i = 0; i < roms.size(); ++i) {
-                        roms[i].cover_path = resolve_rom_cover(roms[i], covers);
-                        if (roms[i].path == created_path)
-                            selected = (int)i;
-                    }
-                    carousel_position = (float)selected;
-                    manual_yaw = manual_pitch = 0.0f;
+                    rescan_roms(created_path);
                     char success[80];
                     snprintf(success, sizeof(success), "Grouped %u discs into a new playlist.", grouped);
                     feedback = success;
@@ -3172,8 +3445,12 @@ static void selector_task(void *arg)
             }
         }
 
-        if (!launching && !launch_pending && !options_was_open) {
-            if (pressed & SCE_CTRL_START)
+        if (!launching && !launch_pending && !options_was_open && !folders_were_open) {
+            if (pressed & SCE_CTRL_SELECT) {
+                folders_open = true;
+                folders_selected = 0;
+                folders_feedback.clear();
+            } else if (pressed & SCE_CTRL_START)
                 options_open = true;
             else if (pressed & SCE_CTRL_CIRCLE)
                 break;
@@ -3262,6 +3539,10 @@ static void selector_task(void *arg)
         restore_ui_state();
         if (launching)
             draw_launch_overlay(launch_pose, launch_center_x, (float)MENU_H + 12.0f);
+        else if (folders_open)
+            draw_rom_folders_menu(extra_folders,
+                folder_browser_open ? browser_selected : folders_selected,
+                folder_browser_open, browser_path, browser_children, folders_feedback);
         else if (options_open)
             draw_selector_options(options_selected);
         else
