@@ -434,7 +434,7 @@ static void input_poll_rear_touch(void)
         const SceTouchReport *report = &touch.report[i];
         if (report->info & SCE_TOUCH_REPORT_INFO_HIDE_UPPER_LAYER)
             continue;
-        // Rear-panel X increases toward the left when viewed from the screen side.
+        // Rear-panel X is mirrored when viewed from the back.
         g_rear_buttons |= vita_rear_trigger_at(report->x, report->y,
             g_rear_panel.minAaX, g_rear_panel.maxAaX,
             g_rear_panel.minAaY, g_rear_panel.maxAaY);

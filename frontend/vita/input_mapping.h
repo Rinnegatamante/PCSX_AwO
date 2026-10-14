@@ -45,7 +45,7 @@ static inline unsigned vita_rear_trigger_at(int x, int y,
         x < min_x || x > max_x || y < min_y ||
         y >= min_y + (max_y - min_y) / 2)
         return 0;
-    return x >= min_x + (max_x - min_x) / 2 ? VITA_REAR_L2 : VITA_REAR_R2;
+    return x >= min_x + (max_x - min_x) / 2 ? VITA_REAR_R2 : VITA_REAR_L2;
 }
 
 #endif
