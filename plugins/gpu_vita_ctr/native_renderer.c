@@ -282,6 +282,13 @@ struct NativeWidePage {
 };
 global_variable struct NativeWidePage s_widePages[NATIVE_WIDE_PAGE_COUNT];
 global_variable u64 s_widePageUseCounter;
+#define NATIVE_SIZED_OFFSCREEN_COUNT 3
+struct NativeSizedOffscreen {
+	struct NativeRenderTarget target;
+	u64 lastUsed;
+};
+global_variable struct NativeSizedOffscreen s_sizedOffscreen[NATIVE_SIZED_OFFSCREEN_COUNT];
+global_variable u64 s_sizedOffscreenUseCounter;
 #endif
 #define NATIVE_MAIN_CPU_DIRTY_CAP 32
 global_variable RECT16 s_mainCpuDirtyRects[NATIVE_MAIN_CPU_DIRTY_CAP];
@@ -642,6 +649,8 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyRenderTarget(&s_rgb24RenderTarget);
 	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
 		NativeRenderer_DestroyRenderTarget(&s_widePages[i].target);
+	for (int i = 0; i < NATIVE_SIZED_OFFSCREEN_COUNT; i++)
+		NativeRenderer_DestroyRenderTarget(&s_sizedOffscreen[i].target);
 #endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
@@ -2425,6 +2434,10 @@ int NativeRenderer_InitialisePSX(void)
 	s_widePageUseCounter = 0;
 	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
 		NativeRenderer_InitRenderTarget(&s_widePages[i].target);
+	SDL_memset(s_sizedOffscreen, 0, sizeof(s_sizedOffscreen));
+	s_sizedOffscreenUseCounter = 0;
+	for (int i = 0; i < NATIVE_SIZED_OFFSCREEN_COUNT; i++)
+		NativeRenderer_InitRenderTarget(&s_sizedOffscreen[i].target);
 #endif
 
 	// gen VRAM texture (single, persistent - mirrors PS1's single 1MB VRAM)
@@ -3710,6 +3723,37 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 	}
 }
 
+#ifdef __vita__
+// Reuse fixed-size offscreen surfaces while keeping PS1 VRAM authoritative across draw-area switches.
+internal struct NativeRenderTarget *NativeRenderer_GetSizedOffscreenTarget(const RECT16 *rect)
+{
+	if (!NativeGpu_FrameUsesVRAMScanout() || rect->w < 320 || rect->w > 512 ||
+	    rect->h < 256 || rect->h > 480 || rect->x < 0 || rect->y < 0 ||
+	    rect->x + rect->w > VRAM_WIDTH || rect->y + rect->h > VRAM_HEIGHT)
+		return NULL;
+
+	struct NativeSizedOffscreen *best = NULL;
+	for (int i = 0; i < NATIVE_SIZED_OFFSCREEN_COUNT; ++i)
+	{
+		struct NativeSizedOffscreen *slot = &s_sizedOffscreen[i];
+		if (slot->target.width == rect->w && slot->target.height == rect->h)
+		{
+			slot->lastUsed = ++s_sizedOffscreenUseCounter;
+			return &slot->target;
+		}
+		if (s_previousOffscreenState && s_activeOffscreenTarget == &slot->target)
+			continue;
+		if (!best || (slot->target.width == 0 && best->target.width != 0) ||
+		    (slot->target.width != 0 && best->target.width != 0 && slot->lastUsed < best->lastUsed))
+			best = slot;
+	}
+	if (!best)
+		return NULL;
+	best->lastUsed = ++s_sizedOffscreenUseCounter;
+	return &best->target;
+}
+#endif
+
 void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 {
 #ifdef __vita__
@@ -3727,6 +3771,15 @@ void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 	{
 		NativeRenderer_SetOffscreenStateTarget(offscreenRect, 1, &s_offscreenFullVramRenderTarget);
 		return;
+	}
+	if (enable)
+	{
+		struct NativeRenderTarget *sized = NativeRenderer_GetSizedOffscreenTarget(offscreenRect);
+		if (sized)
+		{
+			NativeRenderer_SetOffscreenStateTarget(offscreenRect, 1, sized);
+			return;
+		}
 	}
 #endif
 	NativeRenderer_SetOffscreenStateTarget(offscreenRect, enable, &s_offscreenRenderTarget);
