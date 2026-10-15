@@ -66,9 +66,10 @@ static bool g_rgb565_lut_ready;
 static SceCtrlData g_pads[4];
 static bool g_simulated_analog[4];
 static unsigned g_simulated_dpad[4];
-static SceTouchPanelInfo g_rear_panel;
-static unsigned g_rear_buttons;
-static bool g_rear_touch_enabled;
+static SceTouchPanelInfo g_touch_panels[2];
+static bool g_touch_enabled[2];
+static unsigned g_touch_zones;
+static unsigned g_touch_bindings[4];
 static bool g_multi_controller_supported;
 static unsigned g_connected_players;
 static unsigned g_multitap_mode = VITA_MULTITAP_OFF;
@@ -487,36 +488,39 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames)
     return frames;
 }
 
-static void input_init_rear_touch(void)
+static void input_init_touch(void)
 {
     SceCtrlPortInfo info;
     if (g_multi_controller_supported &&
         sceCtrlGetControllerPortInfo(&info) >= 0 &&
         info.port[0] != SCE_CTRL_TYPE_PHY)
         return;
-    if (sceTouchGetPanelInfo(SCE_TOUCH_PORT_BACK, &g_rear_panel) >= 0 &&
-        sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START) >= 0)
-        g_rear_touch_enabled = true;
+    const int ports[2] = { SCE_TOUCH_PORT_FRONT, SCE_TOUCH_PORT_BACK };
+    for (unsigned i = 0; i < 2; ++i)
+        if (sceTouchGetPanelInfo(ports[i], &g_touch_panels[i]) >= 0 &&
+            sceTouchSetSamplingState(ports[i], SCE_TOUCH_SAMPLING_STATE_START) >= 0)
+            g_touch_enabled[i] = true;
 }
 
-static void input_poll_rear_touch(void)
+static void input_poll_touch(void)
 {
-    SceTouchData touch;
-    g_rear_buttons = 0;
-    if (!g_rear_touch_enabled || sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) <= 0)
-        return;
-    if (touch.status & 0x00010000u)
-        return;
-    const unsigned count = touch.reportNum < SCE_TOUCH_MAX_REPORT ?
-                           touch.reportNum : SCE_TOUCH_MAX_REPORT;
-    for (unsigned i = 0; i < count; ++i) {
-        const SceTouchReport *report = &touch.report[i];
-        if (report->info & SCE_TOUCH_REPORT_INFO_HIDE_UPPER_LAYER)
+    const int ports[2] = { SCE_TOUCH_PORT_FRONT, SCE_TOUCH_PORT_BACK };
+    g_touch_zones = 0;
+    for (unsigned panel = 0; panel < 2; ++panel) {
+        SceTouchData touch;
+        if (!g_touch_enabled[panel] || sceTouchPeek(ports[panel], &touch, 1) <= 0 ||
+            (touch.status & 0x00010000u))
             continue;
-        // Rear-panel X is mirrored when viewed from the back.
-        g_rear_buttons |= vita_rear_trigger_at(report->x, report->y,
-            g_rear_panel.minAaX, g_rear_panel.maxAaX,
-            g_rear_panel.minAaY, g_rear_panel.maxAaY);
+        const unsigned count = touch.reportNum < SCE_TOUCH_MAX_REPORT ?
+                               touch.reportNum : SCE_TOUCH_MAX_REPORT;
+        for (unsigned i = 0; i < count; ++i) {
+            const SceTouchReport *report = &touch.report[i];
+            if (report->info & SCE_TOUCH_REPORT_INFO_HIDE_UPPER_LAYER)
+                continue;
+            const SceTouchPanelInfo *info = &g_touch_panels[panel];
+            g_touch_zones |= vita_touch_corner_at(report->x, report->y,
+                info->minAaX, info->maxAaX, info->minAaY, info->maxAaY, panel == 1);
+        }
     }
 }
 
@@ -586,6 +590,11 @@ static void input_configure_psx_controllers(bool force)
     static const char *const keys[4] = {
         "vita_controller_type", "vita_controller_p2", "vita_controller_p3", "vita_controller_p4"
     };
+    static const char *const touch_keys[4] = {
+        "vita_touch_l2", "vita_touch_r2", "vita_touch_l3", "vita_touch_r3"
+    };
+    for (unsigned i = 0; i < 4; ++i)
+        g_touch_bindings[i] = vita_touch_binding(VitaSettings_GetOption(touch_keys[i]));
     const unsigned multitap = g_multitap_mode = input_multitap_mode();
     for (unsigned port = 0; port < 8; ++port) {
         const int player = vita_player_for_psx_port(port, multitap);
@@ -620,7 +629,7 @@ static void input_poll_cb(void)
         else
             g_simulated_dpad[i] = 0;
     }
-    input_poll_rear_touch();
+    input_poll_touch();
 
     const bool combo_down = (g_pads[0].buttons & pause_mask) == pause_mask;
     if (combo_down && !g_pause_combo_down)
@@ -671,11 +680,13 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
     case RETRO_DEVICE_ID_JOYPAD_L:      button = SCE_CTRL_L1; break;
     case RETRO_DEVICE_ID_JOYPAD_R:      button = SCE_CTRL_R1; break;
     case RETRO_DEVICE_ID_JOYPAD_L2:
-        return !!((pad->buttons & SCE_CTRL_L2) || (player == 0 && (g_rear_buttons & VITA_REAR_L2)));
+        return !!((pad->buttons & SCE_CTRL_L2) || (player == 0 && (g_touch_zones & g_touch_bindings[0])));
     case RETRO_DEVICE_ID_JOYPAD_R2:
-        return !!((pad->buttons & SCE_CTRL_R2) || (player == 0 && (g_rear_buttons & VITA_REAR_R2)));
-    case RETRO_DEVICE_ID_JOYPAD_L3:     button = SCE_CTRL_L3; break;
-    case RETRO_DEVICE_ID_JOYPAD_R3:     button = SCE_CTRL_R3; break;
+        return !!((pad->buttons & SCE_CTRL_R2) || (player == 0 && (g_touch_zones & g_touch_bindings[1])));
+    case RETRO_DEVICE_ID_JOYPAD_L3:
+        return !!((pad->buttons & SCE_CTRL_L3) || (player == 0 && (g_touch_zones & g_touch_bindings[2])));
+    case RETRO_DEVICE_ID_JOYPAD_R3:
+        return !!((pad->buttons & SCE_CTRL_R3) || (player == 0 && (g_touch_zones & g_touch_bindings[3])));
     case RETRO_DEVICE_ID_JOYPAD_UP:
         return (pad->buttons & (SCE_CTRL_UP | SCE_CTRL_DOWN)) ?
             !!(pad->buttons & SCE_CTRL_UP) : !!(g_simulated_dpad[player] & VITA_SIM_DPAD_UP);
@@ -914,7 +925,7 @@ int main(int argc, char **argv)
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
     sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
     g_multi_controller_supported = sceCtrlIsMultiControllerSupported() > 0;
-    input_init_rear_touch();
+    input_init_touch();
 
     ret = display_init();
     if (ret < 0) {
@@ -1156,8 +1167,10 @@ int main(int argc, char **argv)
 
     VitaSettings_EndGame();
     retro_deinit();
-    if (g_rear_touch_enabled)
-        sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_STOP);
+    const int touch_ports[2] = { SCE_TOUCH_PORT_FRONT, SCE_TOUCH_PORT_BACK };
+    for (unsigned i = 0; i < 2; ++i)
+        if (g_touch_enabled[i])
+            sceTouchSetSamplingState(touch_ports[i], SCE_TOUCH_SAMPLING_STATE_STOP);
     audio_finish();
     display_finish();
     if (g_vm_block > 0)

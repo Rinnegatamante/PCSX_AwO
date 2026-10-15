@@ -188,6 +188,17 @@ static const OptionChoice k_controller_choices[] = {
     { "digital", "Digital" },
     { "simulated_analog", "Simulated Analog" }
 };
+static const OptionChoice k_touch_corner_choices[] = {
+    { "front_top_left", "Front Top Left" },
+    { "front_top_right", "Front Top Right" },
+    { "front_bottom_left", "Front Bottom Left" },
+    { "front_bottom_right", "Front Bottom Right" },
+    { "rear_top_left", "Rear Top Left" },
+    { "rear_top_right", "Rear Top Right" },
+    { "rear_bottom_left", "Rear Bottom Left" },
+    { "rear_bottom_right", "Rear Bottom Right" },
+    { "disabled", "Disabled" }
+};
 static const OptionChoice k_memcard_choices[] = {
     { "game", "Per Game" },
     { "shared", "Shared (Legacy)" },
@@ -246,6 +257,10 @@ static const SelectorOption k_selector_options[] = {
     { "INPUT", "Player 2 Controller", "PS TV wireless controller 2. Simulated Analog maps the left stick to a standard digital D-pad.", "vita_controller_p2", k_controller_choices, 3, false },
     { "INPUT", "Player 3 Controller", "PS TV wireless controller 3. Requires a compatible Multitap game. Simulated Analog maps the left stick to D-pad.", "vita_controller_p3", k_controller_choices, 3, false },
     { "INPUT", "Player 4 Controller", "PS TV wireless controller 4. Requires a compatible Multitap game. Simulated Analog maps the left stick to D-pad.", "vita_controller_p4", k_controller_choices, 3, false },
+    { "INPUT", "L2 Touch", "Touch corner mapped to L2.", "vita_touch_l2", k_touch_corner_choices, 9, false },
+    { "INPUT", "R2 Touch", "Touch corner mapped to R2.", "vita_touch_r2", k_touch_corner_choices, 9, false },
+    { "INPUT", "L3 Touch", "Touch corner mapped to L3.", "vita_touch_l3", k_touch_corner_choices, 9, false },
+    { "INPUT", "R3 Touch", "Touch corner mapped to R3.", "vita_touch_r3", k_touch_corner_choices, 9, false },
     { "INPUT", "Multitap", "PS TV: Off uses ports 1 and 2 normally. Port 1 puts players 1-4 on the first Multitap; Port 2 puts player 1 on port 1 and players 2-4 on the second. Both splits players 1-2 and 3-4 between the two Multitaps. Requires game support.", "pcsx_rearmed_multitap", k_multitap_choices, 4, false },
     { "INPUT", "Swap Cross / Circle", "Exchange Cross (X) and Circle (O) in PS1 games. Emulator menu controls are unchanged. Takes effect immediately.", "vita_swap_cross_circle", k_toggle_choices, 2, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },
