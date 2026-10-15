@@ -184,7 +184,7 @@ static const OptionChoice k_renderer_choices[] = {
     { "high_octane", "High Octane (VitaGL)" }
 };
 static const OptionChoice k_controller_choices[] = {
-    { "dualshock", "DualShock (Analog)" },
+    { "dualshock", "DualShock (Auto)" },
     { "digital", "Digital" }
 };
 static const OptionChoice k_memcard_choices[] = {
@@ -241,7 +241,7 @@ static const SelectorOption k_selector_options[] = {
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
-    { "INPUT", "Player 1 Controller", "DualShock enables both analog sticks. Use Digital for incompatible games. On PS Vita, the upper rear touchpad maps to L2 on the left and R2 on the right.", "vita_controller_type", k_controller_choices, 2, false },
+    { "INPUT", "Player 1 Controller", "DualShock starts in digital mode and automatically enables analog when the game initializes it. On PS Vita, upper rear touchpad maps to L2 and R2.", "vita_controller_type", k_controller_choices, 2, false },
     { "INPUT", "Player 2 Controller", "PS TV wireless controller 2. Select Digital for games incompatible with DualShock.", "vita_controller_p2", k_controller_choices, 2, false },
     { "INPUT", "Player 3 Controller", "PS TV wireless controller 3. Requires a compatible Multitap game.", "vita_controller_p3", k_controller_choices, 2, false },
     { "INPUT", "Player 4 Controller", "PS TV wireless controller 4. Requires a compatible Multitap game.", "vita_controller_p4", k_controller_choices, 2, false },

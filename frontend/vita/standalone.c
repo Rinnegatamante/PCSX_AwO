@@ -311,9 +311,12 @@ static bool environment_cb(unsigned cmd, void *data)
         return true;
     case RETRO_ENVIRONMENT_GET_VARIABLE: {
         struct retro_variable *var = (struct retro_variable *)data;
-        var->value = !g_multi_controller_supported &&
-            strcmp(var->key, "pcsx_rearmed_multitap") == 0 ?
-            "disabled" : option_value(var->key);
+        if (strcmp(var->key, "pcsx_rearmed_analog_combo") == 0)
+            var->value = "disabled";
+        else
+            var->value = !g_multi_controller_supported &&
+                strcmp(var->key, "pcsx_rearmed_multitap") == 0 ?
+                "disabled" : option_value(var->key);
         return var->value != NULL;
     }
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:

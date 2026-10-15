@@ -1180,6 +1180,8 @@ unsigned retro_api_version(void)
 #ifdef VITA
 static void vita_restore_analog_modes(void)
 {
+   if (!Config.hacks.dualshock_init_analog)
+      return;
    for (unsigned port = 0; port < PORTS_NUMBER; port++)
       if (in_type[port] == PSE_PAD_TYPE_ANALOGPAD)
          padSetAnalog(port, 1);
