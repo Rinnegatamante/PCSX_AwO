@@ -271,6 +271,17 @@ global_variable struct NativeRenderTarget s_offscreenFullVramRenderTarget;
 global_variable struct NativeRenderTarget s_rgb24RenderTarget;
 global_variable RECT16 s_fullOffscreenDrawBounds;
 global_variable int s_fullOffscreenDrawBoundsValid;
+#define NATIVE_WIDE_PAGE_COUNT 2
+#define NATIVE_WIDE_PAGE_WIDTH 960
+#define NATIVE_WIDE_PAGE_HEIGHT 512
+struct NativeWidePage {
+	struct NativeRenderTarget target;
+	RECT16 rect;
+	u64 lastUsed;
+	int valid;
+};
+global_variable struct NativeWidePage s_widePages[NATIVE_WIDE_PAGE_COUNT];
+global_variable u64 s_widePageUseCounter;
 #endif
 #define NATIVE_MAIN_CPU_DIRTY_CAP 32
 global_variable RECT16 s_mainCpuDirtyRects[NATIVE_MAIN_CPU_DIRTY_CAP];
@@ -417,6 +428,78 @@ internal void NativeRenderer_LoadRenderTargetFromVRAM(struct NativeRenderTarget 
 internal void NativeRenderer_ClearMainCpuDirty(void);
 internal void NativeRenderer_DestroyPSXShaders(void);
 
+#ifdef __vita__
+internal int NativeRenderer_WidePageOverlaps(const RECT16 *a, int x, int y, int w, int h)
+{
+	return w > 0 && h > 0 && a->x < x + w && x < a->x + a->w &&
+	       a->y < y + h && y < a->y + a->h;
+}
+
+internal void NativeRenderer_InvalidateWidePages(int x, int y, int w, int h, TextureID preservedTexture)
+{
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+	{
+		struct NativeWidePage *page = &s_widePages[i];
+		if (page->valid && page->target.texture != preservedTexture &&
+		    NativeRenderer_WidePageOverlaps(&page->rect, x, y, w, h))
+			page->valid = 0;
+	}
+}
+
+internal struct NativeWidePage *NativeRenderer_FindWidePage(const RECT16 *rect)
+{
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+	{
+		struct NativeWidePage *page = &s_widePages[i];
+		if (page->rect.x == rect->x && page->rect.y == rect->y &&
+		    page->rect.w == rect->w && page->rect.h == rect->h)
+			return page;
+	}
+	return NULL;
+}
+
+internal struct NativeWidePage *NativeRenderer_AcquireWidePage(const RECT16 *rect)
+{
+	struct NativeWidePage *page = NativeRenderer_FindWidePage(rect);
+	if (page == NULL)
+	{
+		for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+		{
+			struct NativeWidePage *candidate = &s_widePages[i];
+			if (s_previousOffscreenState && s_activeOffscreenTarget == &candidate->target)
+				continue;
+			if (page == NULL || (!candidate->valid && page->valid) ||
+			    (candidate->valid == page->valid && candidate->lastUsed < page->lastUsed))
+				page = candidate;
+		}
+		if (page == NULL)
+			return NULL;
+		page->rect = *rect;
+		page->valid = 0;
+	}
+	page->lastUsed = ++s_widePageUseCounter;
+	return page;
+}
+
+internal int NativeRenderer_WidePageEligible(const RECT16 *rect)
+{
+	const DISPENV *display = NativeGpu_GetRenderDispEnv();
+	const DRAWENV *draw = NativeGpu_GetRenderDrawEnv();
+	return s_presentAspectMode == 2 && NativeGpu_FrameHadWidescreenProjection() &&
+	       NativeGpu_FrameUsesVRAMScanout() && !display->isrgb24 &&
+	       rect->x == draw->clip.x && rect->y == draw->clip.y &&
+	       rect->w == draw->clip.w && rect->h == draw->clip.h &&
+	       rect->w >= 320 && rect->w <= 512 && rect->h > 256 && rect->h <= 480 &&
+	       rect->x >= 0 && rect->y >= 0 &&
+	       rect->x + rect->w <= VRAM_WIDTH && rect->y + rect->h <= VRAM_HEIGHT &&
+	       rect->w == display->disp.w && display->disp.h >= rect->h &&
+	       display->disp.h - rect->h <= 48 &&
+	       rect->x >= display->disp.x && rect->y >= display->disp.y &&
+	       rect->x + rect->w <= display->disp.x + display->disp.w &&
+	       rect->y + rect->h <= display->disp.y + display->disp.h;
+}
+#endif
+
 global_variable GLuint s_glVertexArray[MAX_NUM_VERTEX_BUFFERS];
 global_variable GLuint s_glVertexBuffer[MAX_NUM_VERTEX_BUFFERS];
 global_variable int s_curVertexBuffer = 0;
@@ -557,6 +640,8 @@ void NativeRenderer_Shutdown(void)
 	NativeRenderer_DestroyRenderTarget(&s_offscreenPageRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_offscreenFullVramRenderTarget);
 	NativeRenderer_DestroyRenderTarget(&s_rgb24RenderTarget);
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+		NativeRenderer_DestroyRenderTarget(&s_widePages[i].target);
 #endif
 	glDeleteFramebuffers(1, &s_glVramFramebuffer);
 
@@ -2331,11 +2416,15 @@ int NativeRenderer_InitialisePSX(void)
 
 	// Main and offscreen draws share one explicit render-target contract. The main target stays at CTR's logical display size; host scaling is deferred to presentation.
 		NativeRenderer_InitRenderTarget(&s_mainRenderTarget);
-		NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
+	NativeRenderer_InitRenderTarget(&s_offscreenRenderTarget);
 #ifdef __vita__
-		NativeRenderer_InitRenderTarget(&s_offscreenPageRenderTarget);
-		NativeRenderer_InitRenderTarget(&s_offscreenFullVramRenderTarget);
-		NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
+	NativeRenderer_InitRenderTarget(&s_offscreenPageRenderTarget);
+	NativeRenderer_InitRenderTarget(&s_offscreenFullVramRenderTarget);
+	NativeRenderer_InitRenderTarget(&s_rgb24RenderTarget);
+	SDL_memset(s_widePages, 0, sizeof(s_widePages));
+	s_widePageUseCounter = 0;
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+		NativeRenderer_InitRenderTarget(&s_widePages[i].target);
 #endif
 
 	// gen VRAM texture (single, persistent - mirrors PS1's single 1MB VRAM)
@@ -3134,6 +3223,7 @@ internal void NativeRenderer_MarkVRAMDirty(int x, int y, int w, int h)
 	}
 
 #ifdef __vita__
+	NativeRenderer_InvalidateWidePages(rect.x, rect.y, rect.w, rect.h, 0);
 	NativeRenderer_InvalidateP4CacheRect(&rect);
 	NativeRenderer_InvalidatePaletteCacheRows(&rect);
 #endif
@@ -3538,6 +3628,14 @@ internal void NativeRenderer_SetScissorState(int enable)
 internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect, int enable, struct NativeRenderTarget *target)
 {
 	const int sameOffscreenRect = s_activeOffscreenTarget == target && NativeRenderer_RectEquals(&s_previousOffscreen, offscreenRect);
+#ifdef __vita__
+	struct NativeWidePage *widePage = NULL;
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+	{
+		if (target == &s_widePages[i].target)
+			widePage = &s_widePages[i];
+	}
+#endif
 	if (!enable && !s_previousOffscreenState)
 	{
 		return;
@@ -3545,6 +3643,14 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 
 	if (enable && s_previousOffscreenState && sameOffscreenRect)
 	{
+#ifdef __vita__
+		if (widePage && !widePage->valid)
+		{
+			NativeRenderer_LoadRenderTargetFromVRAM(target, offscreenRect->x, offscreenRect->y,
+					offscreenRect->w, offscreenRect->h);
+			widePage->valid = 1;
+		}
+#endif
 		return;
 	}
 
@@ -3557,6 +3663,11 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 
 		s_previousOffscreenState = 1;
 		s_activeOffscreenTarget = target;
+#ifdef __vita__
+		if (widePage)
+			NativeRenderer_EnsureRenderTarget(target, NATIVE_WIDE_PAGE_WIDTH, NATIVE_WIDE_PAGE_HEIGHT);
+		else
+#endif
 		NativeRenderer_EnsureRenderTarget(target, offscreenRect->w, offscreenRect->h);
 	#ifdef __vita__
 		if (target == &s_offscreenFullVramRenderTarget)
@@ -3565,7 +3676,28 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 		target->logicalWidth = offscreenRect->w;
 		target->logicalHeight = offscreenRect->h;
 		s_previousOffscreen = *offscreenRect;
-		NativeRenderer_LoadRenderTargetFromVRAM(target, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
+#ifdef __vita__
+		if (widePage && widePage->valid)
+		{
+			const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+			const int previousDepthMode = s_previousDepthMode;
+			const int previousDepthWrite = s_previousDepthWrite;
+			glBindFramebuffer(GL_FRAMEBUFFER, target->framebuffer);
+			glViewport(0, 0, target->width, target->height);
+			NativeRenderer_SetDepthState(0, 1);
+			glDisable(GL_SCISSOR_TEST);
+			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+			if (scissorEnabled)
+				glEnable(GL_SCISSOR_TEST);
+			NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
+		}
+		else
+#endif
+			NativeRenderer_LoadRenderTargetFromVRAM(target, offscreenRect->x, offscreenRect->y, offscreenRect->w, offscreenRect->h);
+#ifdef __vita__
+		if (widePage)
+			widePage->valid = 1;
+#endif
 	}
 	else
 	{
@@ -3581,6 +3713,15 @@ internal void NativeRenderer_SetOffscreenStateTarget(const RECT16 *offscreenRect
 void NativeRenderer_SetOffscreenState(const RECT16 *offscreenRect, int enable)
 {
 #ifdef __vita__
+	if (enable && NativeRenderer_WidePageEligible(offscreenRect))
+	{
+		struct NativeWidePage *page = NativeRenderer_AcquireWidePage(offscreenRect);
+		if (page != NULL)
+		{
+			NativeRenderer_SetOffscreenStateTarget(offscreenRect, 1, &page->target);
+			return;
+		}
+	}
 	// Preserve the 1024x512 MSAA target instead of reallocating it between tiny PS1 offscreen effects.
 	if (enable && offscreenRect->w == VRAM_WIDTH && offscreenRect->h == VRAM_HEIGHT)
 	{
@@ -3733,6 +3874,9 @@ internal void NativeRenderer_GpuPackTextureToVRAM(TextureID sourceTexture, int x
 	NativeRenderer_SetDepthState(previousDepthMode, previousDepthWrite);
 	NativeRenderer_SetScissorState(previousScissorState);
 	NativeRenderer_MarkGpuVRAMNewer(x, y, w, h);
+#ifdef __vita__
+	NativeRenderer_InvalidateWidePages(x, y, w, h, sourceTexture);
+#endif
 }
 
 // NOTE(aalhendi): PS1 draws into VRAM and can texture from that same VRAM. Native mirrors that by flushing pending CPU VRAM writes, then packing the presented framebuffer into the persistent RG8 VRAM texture. CPU-side VRAM reads pull from that packed texture lazily, avoiding the old per-frame GPU->CPU->GPU round trip.
@@ -3956,6 +4100,43 @@ internal GLuint NativeRenderer_PresentationFramebuffer(void)
 	const GLuint target = VitaFrameInterp_TargetFramebuffer(g_windowWidth, g_windowHeight);
 	return target ? target : VitaPostFX_TargetFramebuffer(g_windowWidth, g_windowHeight);
 }
+
+internal void NativeRenderer_PresentWidePages(int displayX, int displayY, int displayW, int displayH, const SDL_Rect *viewport)
+{
+	if (s_presentAspectMode != 2 || !NativeGpu_FrameHadWidescreenProjection())
+		return;
+
+	int drawing = 0;
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+	{
+		const struct NativeWidePage *page = &s_widePages[i];
+		const RECT16 *rect = &page->rect;
+		if (!page->valid || rect->x < displayX || rect->y < displayY ||
+		    rect->x + rect->w > displayX + displayW || rect->y + rect->h > displayY + displayH)
+			continue;
+
+		const int left = viewport->x + (rect->x - displayX) * viewport->w / displayW;
+		const int right = viewport->x + (rect->x + rect->w - displayX) * viewport->w / displayW;
+		const int bottom = viewport->y + (displayY + displayH - rect->y - rect->h) * viewport->h / displayH;
+		const int top = viewport->y + (displayY + displayH - rect->y) * viewport->h / displayH;
+		if (right <= left || top <= bottom)
+			continue;
+
+		if (!drawing)
+		{
+			glUseProgram(s_presentRgbaShader);
+			glUniform1f(s_presentRgbaFlipYLoc, 0.0f);
+			drawing = 1;
+		}
+		glViewport(left, bottom, right - left, top - bottom);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, page->target.texture);
+		glBindVertexArray(s_vramQuadVAO);
+		NativeRenderer_DrawTriangles(0, 2);
+	}
+	if (drawing)
+		NativeRenderer_SetViewPort(viewport->x, viewport->y, viewport->w, viewport->h);
+}
 #endif
 
 void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, int displayH)
@@ -3998,6 +4179,9 @@ void NativeRenderer_PresentVRAMRect(int displayX, int displayY, int displayW, in
 	glDisable(GL_STENCIL_TEST);
 
 	NativeRenderer_DrawVRAMRegion(displayX, displayY, displayW, displayH);
+#ifdef __vita__
+	NativeRenderer_PresentWidePages(displayX, displayY, displayW, displayH, &viewport);
+#endif
 	if (previousStencilEnabled)
 	{
 		glEnable(GL_STENCIL_TEST);
@@ -4901,6 +5085,10 @@ void VitaCtrNativeRenderer_SetAspectMode(int mode)
 
 	s_presentAspectMode = mode;
 	NativeGpu_ResetWidescreenPresentation();
+#ifdef __vita__
+	for (int i = 0; i < NATIVE_WIDE_PAGE_COUNT; i++)
+		s_widePages[i].valid = 0;
+#endif
 	if (mode == 0)
 		NativeRenderer_SetPresentationAspect(4, 3);
 	else
