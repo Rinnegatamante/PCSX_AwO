@@ -27,6 +27,9 @@ BUILD_DIR := build-vita
 STANDALONE_OBJ := $(BUILD_DIR)/standalone.o
 LIVEAREA_LAUNCH_OBJ := $(BUILD_DIR)/livearea_launch.o
 ROM_SELECTOR_OBJ := $(BUILD_DIR)/rom_selector.o
+PBP_READER_OBJ := $(BUILD_DIR)/pbp_reader.o
+PBP_DECODER_SRCS := frontend/vita/psxtract/crypto.c frontend/vita/psxtract/lz.c $(wildcard frontend/vita/psxtract/libkirk/*.c)
+PBP_DECODER_OBJS := $(patsubst frontend/vita/psxtract/%.c,$(BUILD_DIR)/psxtract/%.o,$(PBP_DECODER_SRCS))
 FIOS_COVERS_OBJ := $(BUILD_DIR)/fios_covers.o
 SETTINGS_OBJ := $(BUILD_DIR)/settings.o
 SAVESTATES_OBJ := $(BUILD_DIR)/savestates.o
@@ -67,6 +70,13 @@ $(LIVEAREA_LAUNCH_OBJ): frontend/vita/livearea_launch.c | $(BUILD_DIR)
 $(ROM_SELECTOR_OBJ): frontend/vita/rom_selector.cpp | $(BUILD_DIR)
 	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
 
+$(PBP_READER_OBJ): frontend/vita/pbp_reader.cpp | $(BUILD_DIR)
+	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
+
+$(BUILD_DIR)/psxtract/%.o: frontend/vita/psxtract/%.c | $(BUILD_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -Wno-stringop-overread -MMD -MP -c $< -o $@
+
 $(FIOS_COVERS_OBJ): frontend/vita/fios_covers.cpp frontend/vita/fios_covers.h | $(BUILD_DIR)
 	$(CXX) $(CFLAGS) -std=gnu++11 -MMD -MP -c $< -o $@
 
@@ -99,8 +109,8 @@ $(BUILD_DIR)/postfx/%/frag.gxp: assets/postfx/%/frag.cg
 	mkdir -p $(dir $@)
 	psp2cgc -profile sce_fp_psp2 -o $@ $<
 
-$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
-	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
+$(TARGET).elf: vitagl core $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(PBP_READER_OBJ) $(PBP_DECODER_OBJS) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ)
+	$(CXX) $(CFLAGS) $(LDFLAGS) $(STANDALONE_OBJ) $(LIVEAREA_LAUNCH_OBJ) $(ROM_SELECTOR_OBJ) $(PBP_READER_OBJ) $(PBP_DECODER_OBJS) $(FIOS_COVERS_OBJ) $(SETTINGS_OBJ) $(SAVESTATES_OBJ) $(POSTFX_OBJ) $(FRAME_INTERP_OBJ) $(POSTFX_PARAMS_OBJ) $(POSTFX_EMBEDDED_OBJ) $(CORE) $(LIBS) -o $@
 
 $(TARGET).velf: $(TARGET).elf
 	vita-elf-create $< $@
@@ -114,4 +124,4 @@ clean:
 	$(MAKE) -f Makefile.libretro $(CORE_ARGS) clean || true
 	rm -rf $(BUILD_DIR) $(TARGET).elf $(TARGET).velf $(TARGET).vpk eboot.bin param.sfo
 
--include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(FIOS_COVERS_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(FRAME_INTERP_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)
+-include $(STANDALONE_OBJ:.o=.d) $(LIVEAREA_LAUNCH_OBJ:.o=.d) $(ROM_SELECTOR_OBJ:.o=.d) $(PBP_READER_OBJ:.o=.d) $(PBP_DECODER_OBJS:.o=.d) $(FIOS_COVERS_OBJ:.o=.d) $(SETTINGS_OBJ:.o=.d) $(SAVESTATES_OBJ:.o=.d) $(POSTFX_OBJ:.o=.d) $(FRAME_INTERP_OBJ:.o=.d) $(POSTFX_PARAMS_OBJ:.o=.d)

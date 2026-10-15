@@ -32,6 +32,8 @@
 #include "rom_paths.h"
 #include "settings.h"
 #include "savestates.h"
+#include "pbp_metadata.h"
+#include "pbp_reader.h"
 
 #define ROMS_DIR PCSX_AWO_ROMS_DIR
 #define COVERS_DIR PCSX_AWO_COVERS_DIR
@@ -59,9 +61,17 @@ struct RomEntry {
     std::string disc_serial;
     std::vector<std::string> disc_members;
     uint64_t game_hash;
+    unsigned pbp_disc_count;
+    bool encrypted_pbp;
 
-    RomEntry() : game_hash(0) {}
+    RomEntry() : game_hash(0), pbp_disc_count(0), encrypted_pbp(false) {}
 };
+
+static unsigned rom_disc_count(const RomEntry &rom)
+{
+    return rom.pbp_disc_count > 1 ? rom.pbp_disc_count :
+        (unsigned)rom.disc_members.size();
+}
 
 struct CoverEntry {
     std::string title;
@@ -847,6 +857,18 @@ static std::string region_tag(const std::string &title)
     return std::string();
 }
 
+static std::string region_from_serial(const std::string &serial)
+{
+    if (serial.compare(0, 4, "SCUS") == 0 || serial.compare(0, 4, "SLUS") == 0)
+        return "(USA)";
+    if (serial.compare(0, 4, "SCES") == 0 || serial.compare(0, 4, "SLES") == 0)
+        return "(Europe)";
+    if (serial.compare(0, 4, "SCPS") == 0 || serial.compare(0, 4, "SLPS") == 0 ||
+        serial.compare(0, 4, "SLPM") == 0)
+        return "(Japan)";
+    return std::string();
+}
+
 static std::string strip_track_suffix(const std::string &title)
 {
     const std::string lower = lower_ascii(title);
@@ -1352,9 +1374,14 @@ static std::string resolve_rom_cover(RomEntry &rom, const std::vector<CoverEntry
 {
     std::string serial;
     std::string volume;
-    const uint64_t metadata_hash = disc_title_hash(rom, &serial, &volume);
-    rom.game_hash = metadata_hash;
-    rom.disc_serial = serial;
+    const uint64_t metadata_hash = ends_with_ci(rom.name, ".pbp") ?
+        rom.game_hash : disc_title_hash(rom, &serial, &volume);
+    if (!ends_with_ci(rom.name, ".pbp")) {
+        rom.game_hash = metadata_hash;
+        rom.disc_serial = serial;
+    } else {
+        serial = rom.disc_serial;
+    }
     const std::string metadata_cover = resolve_cover_hash(metadata_hash, rom.title, covers);
     if (!metadata_cover.empty()) {
         sceClibPrintf("[ROMSEL] cover metadata: %s serial=%s volume=%s -> %s\n",
@@ -1384,6 +1411,20 @@ static void scan_rom_dir(const char *root, std::vector<RomEntry> &roms)
             rom.path = vita_rom_paths::join(root, name);
             rom.name = name;
             rom.title = strip_extension(name);
+            if (ends_with_ci(name, ".pbp")) {
+                vita_pbp::Info pbp;
+                if (vita_pbp::read_info(rom.path.c_str(), pbp)) {
+                    if (!pbp.title.empty())
+                        rom.title = pbp.title;
+                    if (!pbp.disc_id.empty()) {
+                        rom.disc_serial = normalize_psx_serial(
+                            (const unsigned char *)pbp.disc_id.data(), pbp.disc_id.size());
+                        rom.game_hash = title_hash_from_serial(rom.disc_serial);
+                    }
+                    rom.encrypted_pbp = pbp.encrypted;
+                    rom.pbp_disc_count = VitaPbp_ProbeDiscCount(rom.path.c_str());
+                }
+            }
             roms.push_back(rom);
         }
         memset(&ent, 0, sizeof(ent));
@@ -2102,7 +2143,7 @@ static void draw_footer_hints(ImDrawList *draw, float y,
 
 static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
                              bool pause_main = false, bool multi_disc = false,
-                             bool game_available = true)
+                             bool game_available = true, bool encrypted_pbp = false)
 {
     draw->AddRectFilled(ImVec2(0, 496), ImVec2(MENU_W, MENU_H),
         IM_COL32(9, 12, 26, 195));
@@ -2117,8 +2158,10 @@ static void draw_menu_footer(ImDrawList *draw, bool selector, bool marked,
             hints[count++] = { PAD_HINT_DPAD_HORIZONTAL, "Games" };
             if (multi_disc)
                 hints[count++] = { PAD_HINT_DPAD_VERTICAL, "Discs" };
-            hints[count++] = { PAD_HINT_SQUARE, "Mark" };
-            hints[count++] = { PAD_HINT_TRIANGLE, marked ? "Create set" : "Group" };
+            if (!encrypted_pbp)
+                hints[count++] = { PAD_HINT_SQUARE, "Mark" };
+            if (!encrypted_pbp || marked)
+                hints[count++] = { PAD_HINT_TRIANGLE, marked ? "Create set" : "Group" };
             hints[count++] = { PAD_HINT_START, "Options" };
             hints[count++] = { PAD_HINT_RIGHT_STICK, "Rotate" };
         }
@@ -2676,15 +2719,18 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         draw->AddLine(ImVec2(px + 16, 157), ImVec2(px + pw - 16, 157),
             IM_COL32(102, 116, 162, 65), 1.0f);
 
-        const bool playlist = ends_with_ci(rom.name, ".m3u");
-        if (playlist) {
+        const bool pbp_disc_set = rom.pbp_disc_count > 1;
+        const bool disc_set = pbp_disc_set || ends_with_ci(rom.name, ".m3u");
+        if (disc_set) {
             const std::vector<std::string> &discs = rom.disc_members;
+            const unsigned disc_count = rom_disc_count(rom);
             char subtitle[64];
-            snprintf(subtitle, sizeof(subtitle), "DISC SET  /  %u DISCS", (unsigned)discs.size());
+            snprintf(subtitle, sizeof(subtitle), "%s  /  %u DISCS",
+                pbp_disc_set ? "PBP DISC SET" : "DISC SET", disc_count);
             draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
                 IM_COL32(250, 191, 69, 255), subtitle);
-            const float row_height = discs.size() > 5 ? 30.0f : 47.0f;
-            for (size_t i = 0; i < discs.size(); ++i) {
+            const float row_height = disc_count > 5 ? 30.0f : 47.0f;
+            for (unsigned i = 0; i < disc_count; ++i) {
                 const float y = 200.0f + (float)i * row_height;
                 if (y + row_height >= py + ph - 15.0f)
                     break;
@@ -2707,7 +2753,7 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
                         IM_COL32(255, 214, 124, 255), "BOOT");
                 }
                 if (row_height > 40.0f) {
-                    const std::string &path = discs[i];
+                    const std::string &path = pbp_disc_set ? rom.name : discs[i];
                     const size_t slash = path.find_last_of("/\\");
                     const std::string filename = path.substr(slash == std::string::npos ? 0 : slash + 1);
                     draw->PushClipRect(ImVec2(px + 22, y + 22),
@@ -2721,10 +2767,12 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         } else {
             draw->AddText(small, small->FontSize, ImVec2(px + 16, 172),
                 IM_COL32(250, 191, 69, 255), "GAME DETAILS");
-            const std::string region = region_tag(rom.title);
+            const std::string region = !region_tag(rom.title).empty() ?
+                region_tag(rom.title) : region_from_serial(rom.disc_serial);
             const std::string disc_id = rom.disc_serial.empty() ? "Not detected" : rom.disc_serial;
             const size_t extension = rom.name.find_last_of('.');
-            const std::string format = extension == std::string::npos ? "Unknown" : rom.name.substr(extension + 1);
+            const std::string format = rom.encrypted_pbp ? "PBP (Encrypted)" :
+                (extension == std::string::npos ? "Unknown" : rom.name.substr(extension + 1));
             const char *renderer = VitaSettings_GetOption("vita_renderer");
             const char *backend = renderer && strcmp(renderer, "neon") == 0 ?
                 "ReARMed NEON" : "High Octane";
@@ -2761,7 +2809,8 @@ static void draw_text_overlay(const std::vector<RomEntry> &roms, int selected,
         draw->PopClipRect();
     }
     draw_menu_footer(draw, true, !marked.empty(), false,
-        !roms.empty() && roms[selected].disc_members.size() > 1, !roms.empty());
+        !roms.empty() && rom_disc_count(roms[selected]) > 1, !roms.empty(),
+        !roms.empty() && roms[selected].encrypted_pbp);
     ImGui::End();
     ImGui::PopStyleVar();
 }
@@ -3493,7 +3542,7 @@ static void selector_task(void *arg)
                 repeat_time = 0.0f;
             }
 
-            const unsigned disc_count = (unsigned)roms[selected].disc_members.size();
+            const unsigned disc_count = rom_disc_count(roms[selected]);
             if (disc_count > 1) {
                 if (pressed & SCE_CTRL_UP)
                     selected_discs[selected] =
@@ -3523,8 +3572,9 @@ static void selector_task(void *arg)
                     continue;
                 }
                 const unsigned disc = selected_discs[selected];
-                const std::string image_path = disc < rom.disc_members.size() ?
-                    rom.disc_members[disc] : std::string();
+                const std::string image_path = rom.pbp_disc_count > 1 ?
+                    rom.path : (disc < rom.disc_members.size() ?
+                    rom.disc_members[disc] : std::string());
                 if (disc > 0 && (image_path.empty() ||
                     image_path.size() >= sizeof(task->boot_disc->path))) {
                     feedback = "Selected disc path is invalid or too long.";
@@ -3538,7 +3588,8 @@ static void selector_task(void *arg)
                 task->result = 1;
                 launch_pending = true;
             }
-            if (!launch_pending && (pressed & SCE_CTRL_SQUARE)) {
+            if (!launch_pending && (pressed & SCE_CTRL_SQUARE) &&
+                !roms[selected].encrypted_pbp) {
                 std::vector<int>::iterator it = std::find(marked.begin(), marked.end(), selected);
                 if (it != marked.end()) {
                     marked.erase(it);

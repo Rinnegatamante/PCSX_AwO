@@ -1029,9 +1029,12 @@ int main(int argc, char **argv)
         memset(&game, 0, sizeof(game));
         game.path = game_path;
         if (!retro_load_game(&game)) {
-            sceClibPrintf("PCSX AwO: retro_load_game failed\n");
-            exit_code = 3;
-            break;
+            sceClibPrintf("PCSX AwO: retro_load_game failed; returning to ROM selector\n");
+            retro_unload_game();
+            VitaSettings_EndGame();
+            game_path[0] = '\0';
+            memset(&boot_disc, 0, sizeof(boot_disc));
+            continue;
         }
         if (boot_disc.index > 0 &&
             (!g_disk_control.get_image_index ||

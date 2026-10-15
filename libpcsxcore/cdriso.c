@@ -24,6 +24,10 @@
 #include "cdriso.h"
 #include "ppf.h"
 
+#ifdef VITA
+#include "pbp_reader.h"
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include "zlib_wrapper.h"
@@ -95,6 +99,23 @@ static struct {
 
 static int (*cdimg_read_func)(FILE *f, unsigned int base, void *dest, int sector);
 static int (*cdimg_read_sub_func)(FILE *f, int sector, void *dest);
+
+#ifdef VITA
+static int cdread_vita_pbp(FILE *f, unsigned int base, void *dest, int sector)
+{
+	(void)f;
+	if (base)
+		sector += base / CD_FRAMESIZE_RAW;
+	if (sector < 0)
+		return -1;
+	return VitaPbp_ReadSector((unsigned)sector, dest);
+}
+
+static void *ISOgetBuffer_vita_pbp(void)
+{
+	return VitaPbp_GetBuffer();
+}
+#endif
 
 static void DecodeRawSubData(unsigned char *subbuffer);
 
@@ -800,6 +821,10 @@ static int handlepbp(const char *isofile) {
 			SysPrintf("failed to read offsettab\n");
 			goto fail_io;
 		}
+		if (memcmp(offsettab, "\0PGD", 4) == 0) {
+			SysPrintf("encrypted PBP requires a PGD-capable CD reader\n");
+			goto done;
+		}
 
 		for (i = 0; i < sizeof(offsettab) / sizeof(offsettab[0]); i++) {
 			if (offsettab[i] == 0)
@@ -1440,12 +1465,18 @@ static void PrintTracks(void) {
 int ISOopen(const char *fname)
 {
 	boolean isMode1ISO = FALSE;
+	const char *extension = strrchr(fname, '.');
+	const int is_pbp = extension && strcasecmp(extension, ".pbp") == 0;
 	char alt_bin_filename[MAXPATHLEN];
 	const char *bin_filename;
 	char image_str[1024];
 	off_t size_main;
 
-	if (cdHandle || chd_img) {
+	if (cdHandle || chd_img
+#ifdef VITA
+		|| VitaPbp_IsOpen()
+#endif
+		) {
 		return 0; // it's already open
 	}
 
@@ -1471,6 +1502,38 @@ int ISOopen(const char *fname)
 	cdimg_read_func = cdread_normal;
 	cdimg_read_sub_func = NULL;
 
+#ifdef VITA
+	if (is_pbp) {
+		const int pbp_result = VitaPbp_Open(fname, cdrIsoMultidiskSelect);
+		if (pbp_result > 0) {
+			cdrIsoMultidiskCount = VitaPbp_DiscCount();
+			if (cdrIsoMultidiskSelect >= cdrIsoMultidiskCount)
+				cdrIsoMultidiskSelect = 0;
+			fclose(cdHandle);
+			cdHandle = NULL;
+			numtracks = 1;
+			memset(ti, 0, sizeof(ti));
+			ti[1].type = CDRT_DATA;
+			ti[1].start = 2 * 75;
+			ti[1].length = VitaPbp_SectorCount();
+			cdimg_read_func = cdread_vita_pbp;
+			ISOgetBuffer = ISOgetBuffer_vita_pbp;
+			SysPrintf("Loaded encrypted PBP: %s, disc %u/%u, %u sectors.\n",
+				fname, cdrIsoMultidiskSelect + 1, cdrIsoMultidiskCount,
+				VitaPbp_SectorCount());
+			PrintTracks();
+			if (opensbifile(fname) == 0)
+				SysPrintf("Loaded PBP SBI corrections.\n");
+			return 0;
+		}
+		if (pbp_result < 0) {
+			SysPrintf("Could not decrypt encrypted PBP: %s\n", fname);
+			ISOclose();
+			return -1;
+		}
+	}
+#endif
+
 	if (parsetoc(fname) == 0) {
 		strcat(image_str, "[+toc]");
 	}
@@ -1487,6 +1550,11 @@ int ISOopen(const char *fname)
 		strcat(image_str, "[+pbp]");
 		ISOgetBuffer = ISOgetBuffer_compr;
 		cdimg_read_func = cdread_compressed;
+	}
+	else if (is_pbp) {
+		SysPrintf("unsupported or invalid PBP image: %s\n", fname);
+		ISOclose();
+		return -1;
 	}
 	else if (handlecbin(fname) == 0) {
 		strcat(image_str, "[+cbin]");
@@ -1576,6 +1644,10 @@ int ISOopen(const char *fname)
 int ISOclose(void)
 {
 	int i;
+
+#ifdef VITA
+	VitaPbp_Close();
+#endif
 
 	if (cdHandle != NULL) {
 		fclose(cdHandle);
@@ -1695,7 +1767,11 @@ int ISOreadTrack(const unsigned char *time, void *buf)
 	int sector = msf2sec(time);
 	long ret;
 
-	if (!cdHandle && !chd_img)
+	if (!cdHandle && !chd_img
+#ifdef VITA
+		&& !VitaPbp_IsOpen()
+#endif
+		)
 		return -1;
 
 	if (sector >= ti[1].start + ti[1].length &&
@@ -1749,7 +1825,11 @@ int ISOgetStatus(struct CdrStat *stat)
 	
 	// BIOS - boot ID (CD type)
 	stat->Type = ti[1].type;
-	stat->nodisk = cdHandle == NULL;
+	stat->nodisk = cdHandle == NULL
+#ifdef VITA
+		&& !VitaPbp_IsOpen()
+#endif
+		;
 	stat->mode1 = cdimg_read_func == cdread_2048;
 	
 	return 0;
@@ -1797,7 +1877,11 @@ int ISOreadCDDA(const unsigned char *time, void *buffer)
 			}
 		}
 	}
-	if (!handle && !chd_img)
+	if (!handle && !chd_img
+#ifdef VITA
+		&& !VitaPbp_IsOpen()
+#endif
+		)
 		goto clear_return;
 
 	ret = cdimg_read_func(handle, ti[track].start_offset,
