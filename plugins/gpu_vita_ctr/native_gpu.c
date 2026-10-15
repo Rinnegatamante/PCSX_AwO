@@ -212,15 +212,17 @@ int NativeGpu_SetMultisampleSamples(int samples)
 {
 	if (s_gpuBackendEnabled || s_gpuBackendThread >= 0)
 		return 0;
-	if (samples != 2 && samples != 4)
+	if (samples != 1 && samples != 2 && samples != 4)
 		return 0;
-	s_gpuBackendMsaaMode = samples == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_4X;
+	s_gpuBackendMsaaMode = samples == 1 ? SCE_GXM_MULTISAMPLE_NONE :
+	                      samples == 2 ? SCE_GXM_MULTISAMPLE_2X : SCE_GXM_MULTISAMPLE_4X;
 	return 1;
 }
 
 int NativeGpu_GetMultisampleSamples(void)
 {
-	return s_gpuBackendMsaaMode == SCE_GXM_MULTISAMPLE_2X ? 2 : 4;
+	return s_gpuBackendMsaaMode == SCE_GXM_MULTISAMPLE_NONE ? 1 :
+	       s_gpuBackendMsaaMode == SCE_GXM_MULTISAMPLE_2X ? 2 : 4;
 }
 
 internal void NativeGpu_BindFrontendPacket(void)

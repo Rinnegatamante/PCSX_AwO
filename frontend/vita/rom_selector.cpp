@@ -1311,17 +1311,26 @@ static uint64_t disc_title_hash(const RomEntry &rom, std::string *serial_out,
     return serial.empty() ? 0 : title_hash_from_serial(serial);
 }
 
-extern "C" int VitaRomSelector_IsEhrgeiz(const char *game_path)
+/*
+ Hacks list:
+ - Gran Turismo 2 - No MSAA since it causes spurious lines in 2D menus
+ - Ehrgeiz - MSAA 2x since MSAA 4x causes random gpu lockups (HW bug?)
+*/
+extern "C" int VitaRomSelector_GetMsaaSamples(const char *game_path)
 {
     if (!game_path || !game_path[0])
-        return 0;
+        return 4;
     RomEntry rom;
     rom.path = game_path;
     std::string serial;
-    disc_title_hash(rom, &serial, NULL);
-    return serial == "SLUS00809" || serial == "SLES02111" ||
-           serial == "SLPS01750" || serial == "SLPS02770" ||
-           serial == "SLPS91448" || serial == "SCPS45364";
+    const uint64_t title_hash = disc_title_hash(rom, &serial, NULL);
+    if (title_hash == 0xEC4A6A5AB141212AULL)
+        return 1;
+    if (serial == "SLUS00809" || serial == "SLES02111" ||
+        serial == "SLPS01750" || serial == "SLPS02770" ||
+        serial == "SLPS91448" || serial == "SCPS45364")
+        return 2;
+    return 4;
 }
 
 static std::string resolve_rom_cover(RomEntry &rom, const std::vector<CoverEntry> &covers)

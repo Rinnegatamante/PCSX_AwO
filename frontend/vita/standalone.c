@@ -106,7 +106,7 @@ static int load_msaa_relaunch(char *game_path, size_t size, VitaBootDisc *boot_d
     if (remove(MSAA_RELAUNCH_PATH) != 0)
         return 0;
     if (read_size != sizeof(state) || state.magic != MSAA_RELAUNCH_MAGIC ||
-        (state.samples != 2 && state.samples != 4) ||
+        (state.samples != 1 && state.samples != 2 && state.samples != 4) ||
         state.disc_index >= VITA_MAX_DISCS ||
         !memchr(state.game_path, '\0', sizeof(state.game_path)) ||
         !memchr(state.disc_path, '\0', sizeof(state.disc_path)) ||
@@ -970,9 +970,8 @@ int main(int argc, char **argv)
     }
     if (game_path[0]) {
         const char *disc_path = boot_disc.path[0] ? boot_disc.path : game_path;
-        // HACK: Ehrgeiz triggers a GPU fragment lockup with MSAA 4x; use 2x instead.
         const int samples = relaunch_samples ? relaunch_samples :
-            (VitaRomSelector_IsEhrgeiz(disc_path) ? 2 : 4);
+            VitaRomSelector_GetMsaaSamples(disc_path);
         if (!NativeGpu_SetMultisampleSamples(samples))
             sceClibPrintf("PCSX AwO: cannot set initial MSAA %dx\n", samples);
         else
@@ -990,19 +989,20 @@ int main(int argc, char **argv)
         }
 
         const char *msaa_disc_path = boot_disc.path[0] ? boot_disc.path : game_path;
-        const int required_samples = VitaRomSelector_IsEhrgeiz(msaa_disc_path) ? 2 : 4;
+        const int required_samples = VitaRomSelector_GetMsaaSamples(msaa_disc_path);
         if (required_samples != NativeGpu_GetMultisampleSamples()) {
             sceClibPrintf("PCSX AwO: switching MSAA from %dx to %dx for %s\n",
                 NativeGpu_GetMultisampleSamples(), required_samples, game_path);
             const int error = relaunch_with_msaa(game_path, &boot_disc, required_samples);
             sceClibPrintf("PCSX AwO: MSAA relaunch failed: 0x%08x\n", (unsigned)error);
-            if (required_samples == 2) {
+            if (required_samples != 4) {
                 VitaSettings_EndGame();
                 game_path[0] = '\0';
                 memset(&boot_disc, 0, sizeof(boot_disc));
                 continue;
             }
-            sceClibPrintf("PCSX AwO: using MSAA 2x for this game after relaunch failure\n");
+            sceClibPrintf("PCSX AwO: using MSAA %dx for this game after relaunch failure\n",
+                NativeGpu_GetMultisampleSamples());
         }
 
         const char *initial_path = boot_disc.path[0] ? boot_disc.path : game_path;
