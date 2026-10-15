@@ -185,7 +185,8 @@ static const OptionChoice k_renderer_choices[] = {
 };
 static const OptionChoice k_controller_choices[] = {
     { "dualshock", "DualShock (Auto)" },
-    { "digital", "Digital" }
+    { "digital", "Digital" },
+    { "simulated_analog", "Simulated Analog" }
 };
 static const OptionChoice k_memcard_choices[] = {
     { "game", "Per Game" },
@@ -241,10 +242,10 @@ static const SelectorOption k_selector_options[] = {
     { "VIDEO", "Screen Borders", "Borderless removes vertical blanking outside the game's active display range. Auto and Game preserve the console timing canvas when a title intentionally uses it.", "pcsx_rearmed_screen_centering", k_centering_choices, 3, false },
     { "VIDEO", "Fractional Frame Rate", "Uses the console's fractional video timing when appropriate, such as 59.94 Hz instead of exactly 60 Hz.", "pcsx_rearmed_fractional_framerate", k_fractional_choices, 3, false },
     { "VIDEO", "Framebuffer Readout", "Changes when the displayed framebuffer is read. Early/Late can fix games with unusual framebuffer timing.", "pcsx_rearmed_alt_flip", k_flip_choices, 3, false },
-    { "INPUT", "Player 1 Controller", "DualShock starts in digital mode and automatically enables analog when the game initializes it. On PS Vita, upper rear touchpad maps to L2 and R2.", "vita_controller_type", k_controller_choices, 2, false },
-    { "INPUT", "Player 2 Controller", "PS TV wireless controller 2. Select Digital for games incompatible with DualShock.", "vita_controller_p2", k_controller_choices, 2, false },
-    { "INPUT", "Player 3 Controller", "PS TV wireless controller 3. Requires a compatible Multitap game.", "vita_controller_p3", k_controller_choices, 2, false },
-    { "INPUT", "Player 4 Controller", "PS TV wireless controller 4. Requires a compatible Multitap game.", "vita_controller_p4", k_controller_choices, 2, false },
+    { "INPUT", "Player 1 Controller", "DualShock: automatic analog. Simulated Analog: left stick as D-pad.", "vita_controller_type", k_controller_choices, 3, false },
+    { "INPUT", "Player 2 Controller", "PS TV wireless controller 2. Simulated Analog maps the left stick to a standard digital D-pad.", "vita_controller_p2", k_controller_choices, 3, false },
+    { "INPUT", "Player 3 Controller", "PS TV wireless controller 3. Requires a compatible Multitap game. Simulated Analog maps the left stick to D-pad.", "vita_controller_p3", k_controller_choices, 3, false },
+    { "INPUT", "Player 4 Controller", "PS TV wireless controller 4. Requires a compatible Multitap game. Simulated Analog maps the left stick to D-pad.", "vita_controller_p4", k_controller_choices, 3, false },
     { "INPUT", "Multitap", "PS TV: Off uses ports 1 and 2 normally. Port 1 puts players 1-4 on the first Multitap; Port 2 puts player 1 on port 1 and players 2-4 on the second. Both splits players 1-2 and 3-4 between the two Multitaps. Requires game support.", "pcsx_rearmed_multitap", k_multitap_choices, 4, false },
     { "INPUT", "Swap Cross / Circle", "Exchange Cross (X) and Circle (O) in PS1 games. Emulator menu controls are unchanged. Takes effect immediately.", "vita_swap_cross_circle", k_toggle_choices, 2, false },
     { "AUDIO", "Reverb", "Enables PlayStation SPU reverb effects.", "pcsx_rearmed_spu_reverb", k_toggle_choices, 2, false },

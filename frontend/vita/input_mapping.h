@@ -15,6 +15,35 @@ enum {
     VITA_MULTITAP_BOTH
 };
 
+enum {
+    VITA_SIM_DPAD_UP = 1u << 0,
+    VITA_SIM_DPAD_DOWN = 1u << 1,
+    VITA_SIM_DPAD_LEFT = 1u << 2,
+    VITA_SIM_DPAD_RIGHT = 1u << 3
+};
+
+static inline unsigned vita_simulated_dpad(uint8_t lx, uint8_t ly, unsigned previous)
+{
+    // Separate press and release thresholds keep the virtual D-pad stable near the deadzone.
+    const int press = 48;
+    const int release = 32;
+    const int x = (int)lx - 128;
+    const int y = (int)ly - 128;
+    unsigned result = 0;
+
+    if (x <= -((previous & VITA_SIM_DPAD_LEFT) ? release : press))
+        result |= VITA_SIM_DPAD_LEFT;
+    else if (x >= ((previous & VITA_SIM_DPAD_RIGHT) ? release : press))
+        result |= VITA_SIM_DPAD_RIGHT;
+
+    if (y <= -((previous & VITA_SIM_DPAD_UP) ? release : press))
+        result |= VITA_SIM_DPAD_UP;
+    else if (y >= ((previous & VITA_SIM_DPAD_DOWN) ? release : press))
+        result |= VITA_SIM_DPAD_DOWN;
+
+    return result;
+}
+
 static inline int vita_psx_port_for_player(unsigned player, unsigned multitap)
 {
     if (player >= 4 || (multitap == VITA_MULTITAP_OFF && player >= 2))

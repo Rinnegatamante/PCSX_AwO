@@ -64,6 +64,8 @@ static uint32_t g_rgb565_lut[65536];
 static bool g_rgb565_lut_ready;
 
 static SceCtrlData g_pads[4];
+static bool g_simulated_analog[4];
+static unsigned g_simulated_dpad[4];
 static SceTouchPanelInfo g_rear_panel;
 static unsigned g_rear_buttons;
 static bool g_rear_touch_enabled;
@@ -590,7 +592,11 @@ static void input_configure_psx_controllers(bool force)
         unsigned device = RETRO_DEVICE_NONE;
         if (player >= 0 && (g_connected_players & (1u << player))) {
             const char *setting = VitaSettings_GetOption(keys[player]);
-            device = setting && strcmp(setting, "digital") == 0 ?
+            const bool simulated = setting && strcmp(setting, "simulated_analog") == 0;
+            if (g_simulated_analog[player] != simulated)
+                g_simulated_dpad[player] = 0;
+            g_simulated_analog[player] = simulated;
+            device = setting && (strcmp(setting, "digital") == 0 || simulated) ?
                 RETRO_DEVICE_JOYPAD : RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1);
         }
         if (force || g_psx_controller_device[port] != (int)device) {
@@ -607,6 +613,13 @@ static void input_poll_cb(void)
     input_sample_controllers();
     if (previous_connected != g_connected_players)
         input_configure_psx_controllers(false);
+    for (unsigned i = 0; i < 4; ++i) {
+        if (g_simulated_analog[i] && (g_connected_players & (1u << i)))
+            g_simulated_dpad[i] = vita_simulated_dpad(
+                g_pads[i].lx, g_pads[i].ly, g_simulated_dpad[i]);
+        else
+            g_simulated_dpad[i] = 0;
+    }
     input_poll_rear_touch();
 
     const bool combo_down = (g_pads[0].buttons & pause_mask) == pause_mask;
@@ -663,10 +676,18 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
         return !!((pad->buttons & SCE_CTRL_R2) || (player == 0 && (g_rear_buttons & VITA_REAR_R2)));
     case RETRO_DEVICE_ID_JOYPAD_L3:     button = SCE_CTRL_L3; break;
     case RETRO_DEVICE_ID_JOYPAD_R3:     button = SCE_CTRL_R3; break;
-    case RETRO_DEVICE_ID_JOYPAD_UP:     button = SCE_CTRL_UP; break;
-    case RETRO_DEVICE_ID_JOYPAD_DOWN:   button = SCE_CTRL_DOWN; break;
-    case RETRO_DEVICE_ID_JOYPAD_LEFT:   button = SCE_CTRL_LEFT; break;
-    case RETRO_DEVICE_ID_JOYPAD_RIGHT:  button = SCE_CTRL_RIGHT; break;
+    case RETRO_DEVICE_ID_JOYPAD_UP:
+        return (pad->buttons & (SCE_CTRL_UP | SCE_CTRL_DOWN)) ?
+            !!(pad->buttons & SCE_CTRL_UP) : !!(g_simulated_dpad[player] & VITA_SIM_DPAD_UP);
+    case RETRO_DEVICE_ID_JOYPAD_DOWN:
+        return (pad->buttons & (SCE_CTRL_UP | SCE_CTRL_DOWN)) ?
+            !!(pad->buttons & SCE_CTRL_DOWN) : !!(g_simulated_dpad[player] & VITA_SIM_DPAD_DOWN);
+    case RETRO_DEVICE_ID_JOYPAD_LEFT:
+        return (pad->buttons & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) ?
+            !!(pad->buttons & SCE_CTRL_LEFT) : !!(g_simulated_dpad[player] & VITA_SIM_DPAD_LEFT);
+    case RETRO_DEVICE_ID_JOYPAD_RIGHT:
+        return (pad->buttons & (SCE_CTRL_LEFT | SCE_CTRL_RIGHT)) ?
+            !!(pad->buttons & SCE_CTRL_RIGHT) : !!(g_simulated_dpad[player] & VITA_SIM_DPAD_RIGHT);
     case RETRO_DEVICE_ID_JOYPAD_START:  button = SCE_CTRL_START; break;
     case RETRO_DEVICE_ID_JOYPAD_SELECT: button = SCE_CTRL_SELECT; break;
     default: return 0;
