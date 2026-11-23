@@ -11,12 +11,6 @@ permissions:
 jobs:
   build-vita:
     runs-on: ubuntu-24.04
-    container:
-      image: vitasdk/vitasdk:2026.08
-    defaults:
-      run:
-        shell: bash
-        working-directory: pcsx-rearmed
     steps:
       - name: Check out PCSX AwO
         uses: actions/checkout@v5
@@ -41,26 +35,21 @@ jobs:
           path: vitaGL-pcsx-rearmed
           persist-credentials: false
 
-      - name: Install VitaSDK dependencies
+      - name: Check out SDL3 with vitaGL backend
+        uses: actions/checkout@v5
+        with:
+          repository: Fancy2209/SDL
+          ref: 4d21caad991a60ae61daf64334cc45063bd23b0c
+          path: sdl3-vitagl
+          persist-credentials: false
+
+      - name: Build and test inside VitaSDK
         run: |
-          vdpm install sdl3 imgui vitaShaRK SceShaccCgExt libmathneon libpng libjpeg-turbo taihen kubridge curl openssl zlib
-          if ! command -v python >/dev/null; then
-            ln -s "$(command -v python3)" /usr/local/bin/python
-          fi
-
-      - name: Verify precompiled Vita shaders
-        run: python3 tools/verify_vita_postfx_cache.py
-
-      - name: Build Vita VPK
-        run: make -f Makefile.vita -j2 USE_PRECOMPILED_POSTFX=1
-
-      - name: Verify Vita build
-        run: |
-          python3 tests/vita_livearea_assets_test.py
-          python3 tests/vita_postfx_assets_test.py
-          python3 tests/vita_postfx_crt_mask_test.py
-          python3 tests/vita_postfx_daltonic_test.py
-          python3 tests/vita_gpu_visible_subviewport_test.py
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace/pcsx-rearmed \
+            gnuton/vitasdk-docker:20250520 \
+            bash tools/ci/build-vita.sh
 
       - name: Upload Vita VPK
         uses: actions/upload-artifact@v4
@@ -68,5 +57,6 @@ jobs:
           name: pcsx-awo-vita
           path: |
             pcsx-rearmed/pcsx-awo.vpk
+            pcsx-rearmed/eboot.bin
           if-no-files-found: error
           retention-days: 14
