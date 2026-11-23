@@ -1,0 +1,72 @@
+name: CI (PS Vita)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-vita:
+    runs-on: ubuntu-24.04
+    container:
+      image: vitasdk/vitasdk:2026.08
+    defaults:
+      run:
+        shell: bash
+        working-directory: pcsx-rearmed
+    steps:
+      - name: Check out PCSX AwO
+        uses: actions/checkout@v5
+        with:
+          path: pcsx-rearmed
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Check out High Octane renderer headers
+        uses: actions/checkout@v5
+        with:
+          repository: Rinnegatamante/Crash-Team-Racing-High-Octane
+          ref: b561a98345442e8416e0479dcd9d12b7239cd0d1
+          path: ctr-native
+          persist-credentials: false
+
+      - name: Check out vitaGL
+        uses: actions/checkout@v5
+        with:
+          repository: Rinnegatamante/vitaGL
+          ref: 36f512ea80a9cdf9c01875ec163313bda7cd26b6
+          path: vitaGL-pcsx-rearmed
+          persist-credentials: false
+
+      - name: Install VitaSDK dependencies
+        run: |
+          vdpm install sdl3 imgui vitaShaRK SceShaccCgExt libmathneon libpng libjpeg-turbo taihen kubridge curl openssl zlib
+          if ! command -v python >/dev/null; then
+            ln -s "$(command -v python3)" /usr/local/bin/python
+          fi
+
+      - name: Verify precompiled Vita shaders
+        run: python3 tools/verify_vita_postfx_cache.py
+
+      - name: Build Vita VPK
+        run: make -f Makefile.vita -j2 USE_PRECOMPILED_POSTFX=1
+
+      - name: Verify Vita build
+        run: |
+          python3 tests/vita_livearea_assets_test.py
+          python3 tests/vita_postfx_assets_test.py
+          python3 tests/vita_postfx_crt_mask_test.py
+          python3 tests/vita_postfx_daltonic_test.py
+          python3 tests/vita_gpu_visible_subviewport_test.py
+
+      - name: Upload Vita VPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pcsx-awo-vita
+          path: |
+            pcsx-rearmed/pcsx-awo.vpk
+          if-no-files-found: error
+          retention-days: 14
