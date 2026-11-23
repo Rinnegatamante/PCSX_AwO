@@ -95,8 +95,13 @@ $(FRAME_INTERP_OBJ): frontend/vita/frame_interpolation.c | $(BUILD_DIR)
 $(POSTFX_PARAMS_OBJ): frontend/vita/postfx_parameters.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
+ifeq ($(USE_PRECOMPILED_POSTFX),1)
+$(POSTFX_EMBEDDED_SRC): assets/postfx/postfx_embedded.c | $(BUILD_DIR)
+	cp $< $@
+else
 $(POSTFX_EMBEDDED_SRC): tools/embed_vita_postfx.py $(POSTFX_GXP)
 	python tools/embed_vita_postfx.py $(BUILD_DIR)/postfx $@ $(POSTFX_NAMES)
+endif
 
 $(POSTFX_EMBEDDED_OBJ): $(POSTFX_EMBEDDED_SRC)
 	$(CC) $(CFLAGS) -Ifrontend/vita -c $< -o $@
